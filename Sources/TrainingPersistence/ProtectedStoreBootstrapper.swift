@@ -24,7 +24,16 @@ public struct ProtectedStoreBootstrapper: Sendable {
   }
 
   public func open(in root: URL) throws -> TrainingStores {
-    let locations = StoreLocations(root: root)
+    #if targetEnvironment(simulator)
+      // The simulator does not provide the device's protected application-support
+      // filesystem semantics. Keep the same schema and transaction behavior in its
+      // writable cache container so UI journeys can exercise the real repository.
+      let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appending(path: "TrainingCompass", directoryHint: .isDirectory)
+      let locations = StoreLocations(root: simulatorRoot)
+    #else
+      let locations = StoreLocations(root: root)
+    #endif
     try prepareDirectory(locations.authoritativeDirectory, excludedFromBackup: false)
     try prepareDirectory(locations.reconstructibleDirectory, excludedFromBackup: true)
 

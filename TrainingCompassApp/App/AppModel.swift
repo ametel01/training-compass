@@ -32,6 +32,7 @@ final class AppModel {
       _ = try await preparePreDataShell()
       phase = .ready
     } catch {
+      print("Prepare failed: \(error)")
       phase = .failed
     }
   }
