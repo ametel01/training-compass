@@ -1,0 +1,58 @@
+import Foundation
+
+public protocol StoreProtectionManaging: Sendable {
+  func createDirectory(at url: URL) throws
+  func applyCompleteFileProtection(to url: URL) throws
+  func excludeFromBackup(_ url: URL) throws
+  func verifyCompleteFileProtection(at url: URL) throws
+  func verifyExcludedFromBackup(at url: URL) throws
+}
+
+public enum StoreProtectionError: Error, Equatable {
+  case completeFileProtectionMissing(URL)
+  case backupExclusionMissing(URL)
+}
+
+public struct FileManagerStoreProtection: StoreProtectionManaging {
+  public init() {}
+
+  public func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+
+  public func applyCompleteFileProtection(to url: URL) throws {
+    #if os(iOS) || os(tvOS) || os(watchOS)
+      try FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.complete],
+        ofItemAtPath: url.path()
+      )
+    #else
+      _ = url
+    #endif
+  }
+
+  public func excludeFromBackup(_ url: URL) throws {
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    var mutableURL = url
+    try mutableURL.setResourceValues(values)
+  }
+
+  public func verifyCompleteFileProtection(at url: URL) throws {
+    #if os(iOS) || os(tvOS) || os(watchOS)
+      let attributes = try FileManager.default.attributesOfItem(atPath: url.path())
+      guard attributes[.protectionKey] as? FileProtectionType == .complete else {
+        throw StoreProtectionError.completeFileProtectionMissing(url)
+      }
+    #else
+      _ = url
+    #endif
+  }
+
+  public func verifyExcludedFromBackup(at url: URL) throws {
+    let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+    guard values.isExcludedFromBackup == true else {
+      throw StoreProtectionError.backupExclusionMissing(url)
+    }
+  }
+}

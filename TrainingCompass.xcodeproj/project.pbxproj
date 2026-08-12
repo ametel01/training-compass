@@ -1,0 +1,257 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* TrainingCompassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000001 /* TrainingCompassApp.swift */; };
+		A00000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000002 /* AppModel.swift */; };
+		A00000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000003 /* RootView.swift */; };
+		A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* PrivacyInfo.xcprivacy */; };
+		A00000000000000000000005 /* TrainingCompassUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* TrainingCompassUITests.swift */; };
+		A00000000000000000000006 /* TrainingApplication in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000002 /* TrainingApplication */; };
+		A00000000000000000000007 /* TrainingPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000003 /* TrainingPersistence */; };
+		A00000000000000000000008 /* HealthKitAdapter in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000004 /* HealthKitAdapter */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T00000000000000000000001;
+			remoteInfo = TrainingCompass;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		F00000000000000000000001 /* TrainingCompassApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingCompassApp.swift; sourceTree = "<group>"; };
+		F00000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		F00000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F00000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F00000000000000000000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		F00000000000000000000006 /* TrainingCompassUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingCompassUITests.swift; sourceTree = "<group>"; };
+		F00000000000000000000007 /* TrainingCompass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrainingCompass.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000008 /* TrainingCompassUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrainingCompassUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B00000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000006 /* TrainingApplication in Frameworks */,
+				A00000000000000000000007 /* TrainingPersistence in Frameworks */,
+				A00000000000000000000008 /* HealthKitAdapter in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				G00000000000000000000002 /* TrainingCompassApp */,
+				G00000000000000000000006 /* TrainingCompassUITests */,
+				G00000000000000000000007 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G00000000000000000000002 /* TrainingCompassApp */ = {
+			isa = PBXGroup;
+			children = (
+				G00000000000000000000003 /* App */,
+				G00000000000000000000004 /* UI */,
+				G00000000000000000000005 /* Resources */,
+			);
+			path = TrainingCompassApp;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000003 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000001 /* TrainingCompassApp.swift */,
+				F00000000000000000000002 /* AppModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000004 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000003 /* RootView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000005 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000004 /* Info.plist */,
+				F00000000000000000000005 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000006 /* TrainingCompassUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000006 /* TrainingCompassUITests.swift */,
+			);
+			path = TrainingCompassUITests;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000007 /* TrainingCompass.app */,
+				F00000000000000000000008 /* TrainingCompassUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T00000000000000000000001 /* TrainingCompass */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C00000000000000000000002 /* Build configuration list for PBXNativeTarget "TrainingCompass" */;
+			buildPhases = (
+				B00000000000000000000003 /* Sources */,
+				B00000000000000000000001 /* Frameworks */,
+				B00000000000000000000004 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = TrainingCompass;
+			packageProductDependencies = (
+				S00000000000000000000002 /* TrainingApplication */,
+				S00000000000000000000003 /* TrainingPersistence */,
+				S00000000000000000000004 /* HealthKitAdapter */,
+			);
+			productName = TrainingCompass;
+			productReference = F00000000000000000000007 /* TrainingCompass.app */;
+			productType = "com.apple.product-type.application";
+		};
+		T00000000000000000000002 /* TrainingCompassUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C00000000000000000000003 /* Build configuration list for PBXNativeTarget "TrainingCompassUITests" */;
+			buildPhases = (
+				B00000000000000000000005 /* Sources */,
+				B00000000000000000000002 /* Frameworks */,
+				B00000000000000000000006 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (
+				D00000000000000000000002 /* PBXTargetDependency */,
+			);
+			name = TrainingCompassUITests;
+			productName = TrainingCompassUITests;
+			productReference = F00000000000000000000008 /* TrainingCompassUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					T00000000000000000000001 = { CreatedOnToolsVersion = 26.0; };
+					T00000000000000000000002 = { CreatedOnToolsVersion = 26.0; TestTargetID = T00000000000000000000001; };
+				};
+			};
+			buildConfigurationList = C00000000000000000000001 /* Build configuration list for PBXProject "TrainingCompass" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = G00000000000000000000001;
+			packageReferences = (S00000000000000000000001 /* XCLocalSwiftPackageReference "." */);
+			productRefGroup = G00000000000000000000007 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T00000000000000000000001 /* TrainingCompass */,
+				T00000000000000000000002 /* TrainingCompassUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B00000000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B00000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000001 /* TrainingCompassApp.swift in Sources */,
+				A00000000000000000000002 /* AppModel.swift in Sources */,
+				A00000000000000000000003 /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000005 /* TrainingCompassUITests.swift in Sources */);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000002 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = T00000000000000000000001 /* TrainingCompass */; targetProxy = D00000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C00000000000000000000011 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Debug; };
+		C00000000000000000000012 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 6.0; VALIDATE_PRODUCT = YES; }; name = Release; };
+		C00000000000000000000021 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		C00000000000000000000022 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		C00000000000000000000031 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; TEST_TARGET_NAME = TrainingCompass; }; name = Debug; };
+		C00000000000000000000032 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; TEST_TARGET_NAME = TrainingCompass; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C00000000000000000000001 /* Build configuration list for PBXProject "TrainingCompass" */ = {isa = XCConfigurationList; buildConfigurations = (C00000000000000000000011 /* Debug */, C00000000000000000000012 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		C00000000000000000000002 /* Build configuration list for PBXNativeTarget "TrainingCompass" */ = {isa = XCConfigurationList; buildConfigurations = (C00000000000000000000021 /* Debug */, C00000000000000000000022 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		C00000000000000000000003 /* Build configuration list for PBXNativeTarget "TrainingCompassUITests" */ = {isa = XCConfigurationList; buildConfigurations = (C00000000000000000000031 /* Debug */, C00000000000000000000032 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		S00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {isa = XCLocalSwiftPackageReference; relativePath = "."; };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		S00000000000000000000002 /* TrainingApplication */ = {isa = XCSwiftPackageProductDependency; package = S00000000000000000000001 /* XCLocalSwiftPackageReference "." */; productName = TrainingApplication; };
+		S00000000000000000000003 /* TrainingPersistence */ = {isa = XCSwiftPackageProductDependency; package = S00000000000000000000001 /* XCLocalSwiftPackageReference "." */; productName = TrainingPersistence; };
+		S00000000000000000000004 /* HealthKitAdapter */ = {isa = XCSwiftPackageProductDependency; package = S00000000000000000000001 /* XCLocalSwiftPackageReference "." */; productName = HealthKitAdapter; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = P00000000000000000000001 /* Project object */;
+}

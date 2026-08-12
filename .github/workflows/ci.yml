@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate-zero:
+    name: Gate 0 verification
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate toolchain
+        run: make bootstrap
+
+      - name: Run change-level gates
+        env:
+          CI_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+          CI_BEFORE_SHA: ${{ github.event.before }}
+        run: make verify
+
+      - name: Verify migrations
+        run: make verify-migrations
+
+      - name: Run launch journey
+        run: make test-ui
+
+      - name: Build evidence index
+        env:
+          MIGRATION_RESULT: pass
+          PRIVACY_RESULT: pass
+          UI_RESULT: pass
+          VERIFY_RESULT: pass
+        run: make evidence
+
+      - name: Upload evidence index
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-zero-evidence
+          path: evidence/gate-zero-environment.json
+          if-no-files-found: error
