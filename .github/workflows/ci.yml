@@ -48,7 +48,7 @@ jobs:
         run: make evidence
 
       - name: Upload evidence index
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gate-zero-evidence
           path: evidence/gate-zero-environment.json
