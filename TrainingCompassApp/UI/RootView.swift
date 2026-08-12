@@ -111,7 +111,9 @@ private struct UnavailableDestinationView: View {
 private struct TMsView: View {
   let model: AppModel
 
-  @State private var rows: [LiftConfigurationListItem] = []
+  @State private var rows: [LiftConfigurationListItem] = LiftCatalog.progressionIdentities.map {
+    LiftConfigurationListItem(identity: $0, configuration: nil)
+  }
   @State private var draft: TMDraft?
   @State private var pendingPreview: LiftConfigurationChangePreview?
   @State private var showingConfirmation = false
