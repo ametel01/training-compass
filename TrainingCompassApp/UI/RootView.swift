@@ -121,47 +121,47 @@ private struct TMsView: View {
 
   var body: some View {
     List {
-          Section {
-            Text(
-              "Kilograms are the only equipment unit. Training Maxes are calculation references; Set Results may be entered at any positive load."
-            )
-            .font(.footnote)
+      Section {
+        Text(
+          "Kilograms are the only equipment unit. Training Maxes are calculation references; Set Results may be entered at any positive load."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+
+      Section("Progression Lifts") {
+        ForEach(rows.filter { $0.identity.progressionLift != nil }) { item in
+          TMRow(item: item) {
+            draft = TMDraft(item: item)
+          }
+        }
+      }
+
+      Section("Other Lifts") {
+        let customRows = rows.filter { $0.identity.progressionLift == nil }
+        if customRows.isEmpty {
+          Text("No variants or custom lifts yet.")
             .foregroundStyle(.secondary)
-          }
-
-          Section("Progression Lifts") {
-            ForEach(rows.filter { $0.identity.progressionLift != nil }) { item in
-              TMRow(item: item) {
-                draft = TMDraft(item: item)
-              }
+        } else {
+          ForEach(customRows) { item in
+            TMRow(item: item) {
+              draft = TMDraft(item: item)
             }
           }
-
-          Section("Other Lifts") {
-            let customRows = rows.filter { $0.identity.progressionLift == nil }
-            if customRows.isEmpty {
-              Text("No variants or custom lifts yet.")
-                .foregroundStyle(.secondary)
-            } else {
-              ForEach(customRows) { item in
-                TMRow(item: item) {
-                  draft = TMDraft(item: item)
-                }
-              }
-            }
-            Button {
-              draft = TMDraft.newCustom()
-            } label: {
-              Label("Add custom lift", systemImage: "plus")
-            }
-            .accessibilityIdentifier("tm.add-custom")
-            Button {
-              draft = TMDraft.newVariant()
-            } label: {
-              Label("Add variant", systemImage: "plus")
-            }
-            .accessibilityIdentifier("tm.add-variant")
-          }
+        }
+        Button {
+          draft = TMDraft.newCustom()
+        } label: {
+          Label("Add custom lift", systemImage: "plus")
+        }
+        .accessibilityIdentifier("tm.add-custom")
+        Button {
+          draft = TMDraft.newVariant()
+        } label: {
+          Label("Add variant", systemImage: "plus")
+        }
+        .accessibilityIdentifier("tm.add-variant")
+      }
     }
     .refreshable { await reload() }
     .navigationTitle("TMs")
