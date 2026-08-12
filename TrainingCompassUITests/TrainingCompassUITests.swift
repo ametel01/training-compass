@@ -10,6 +10,7 @@ final class TrainingCompassUITests: XCTestCase {
     app.launch()
 
     XCTAssertTrue(app.staticTexts["PRE-DATA BUILD"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["Protected local shell ready"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.tabBars.buttons["Today"].exists)
     XCTAssertTrue(app.tabBars.buttons["Cycle"].exists)
     XCTAssertTrue(app.tabBars.buttons["Progress"].exists)
