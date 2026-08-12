@@ -120,18 +120,7 @@ private struct TMsView: View {
   @State private var errorMessage: String?
 
   var body: some View {
-    Group {
-      switch model.phase {
-      case .preparing:
-        ProgressView("Preparing protected local stores")
-      case .failed:
-        ContentUnavailableView(
-          "TMs unavailable",
-          systemImage: "exclamationmark.shield",
-          description: Text("Protected local stores could not be prepared.")
-        )
-      case .ready:
-        List {
+    List {
           Section {
             Text(
               "Kilograms are the only equipment unit. Training Maxes are calculation references; Set Results may be entered at any positive load."
@@ -173,17 +162,11 @@ private struct TMsView: View {
             }
             .accessibilityIdentifier("tm.add-variant")
           }
-        }
-        .refreshable { await reload() }
-      }
     }
+    .refreshable { await reload() }
     .navigationTitle("TMs")
     .accessibilityIdentifier("tms.destination")
-    .task(id: model.phase) {
-      if model.phase == .ready {
-        await reload()
-      }
-    }
+    .task { await reload() }
     .sheet(item: $draft) { draft in
       LiftEditor(draft: draft) { reviewedDraft in
         self.draft = nil
