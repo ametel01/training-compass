@@ -1,6 +1,6 @@
 # Developer documentation
 
-Training Compass is currently at Gate 0. It creates a launchable, protected pre-data shell and the verification contract for later milestones.
+Training Compass contains the protected Gate 0 shell plus the first Local Training Core slice from issue #2: the TMs destination can configure kilogram Training Maxes and per-lift Loading Increments with confirmed, audited persistence. Today, Cycle, and Progress remain unfinished destinations.
 
 ## How-to guides
 

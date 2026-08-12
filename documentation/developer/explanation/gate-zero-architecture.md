@@ -2,7 +2,7 @@
 
 Gate 0 makes later work replaceable and testable without pretending unfinished product behavior exists.
 
-The iOS target is a thin composition and presentation layer. It creates one `ApplicationDependencies` value containing injectable clock, calendar, timezone, UUID, filesystem, repository, HealthKit, and logging interfaces. Its only use case prepares protected stores and records a fixed privacy-safe event. Health authorization remains composed but untouched.
+The iOS target is a thin composition and presentation layer. It creates one `ApplicationDependencies` value containing injectable clock, calendar, timezone, UUID, filesystem, repository, HealthKit, and logging interfaces. Store preparation and lift-configuration use cases share those seams; Health authorization remains composed but untouched.
 
 The local Swift package points inward:
 
@@ -18,6 +18,6 @@ TrainingPersistence  HealthKitAdapter
 
 `TrainingDomain` and `TrainingInsights` import no Apple persistence or presentation frameworks. `TrainingApplication` owns the seams. `TrainingPersistence` contains GRDB, while `HealthKitAdapter` contains HealthKit. An automated parser checks both source imports and the Swift package graph.
 
-Persistence uses independent directories and GRDB migration sequences for `authoritative.sqlite` and `reconstructible.sqlite`. Both are prepared with complete file protection. Only reconstructible data is marked and verified as excluded from backup. Their v1 schemas contain no owner records and enforce `owner_data_accepted = false`.
+Persistence uses independent directories and GRDB migration sequences for `authoritative.sqlite` and `reconstructible.sqlite`. Both are prepared with complete file protection. Only reconstructible data is marked and verified as excluded from backup. The authoritative v2 schema stores lift configuration and its append-only audit ledger; the reconstructible store remains a v1 Gate 0 marker.
 
-The SwiftUI shell exposes the stable information architecture while unavailable destinations contain no action controls. When the scene leaves the active state, a full-screen privacy shield replaces the underlying privacy-sensitive tab content before the system captures an app-switcher snapshot.
+The SwiftUI shell exposes the stable information architecture. TMs provides the confirmed lift editor; unfinished destinations contain no action controls. When the scene leaves the active state, a full-screen privacy shield replaces the underlying privacy-sensitive tab content before the system captures an app-switcher snapshot.

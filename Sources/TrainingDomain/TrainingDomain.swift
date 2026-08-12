@@ -67,6 +67,7 @@ public enum WeightValidationError: Error, Codable, Equatable, Sendable {
   case mustBeFinite(WeightReference)
   case invalidPercentage
   case invalidLiftName
+  case invalidRepetitions
 }
 
 public struct TrainingMax: Codable, Equatable, Sendable {
@@ -120,6 +121,23 @@ public enum SetResultWeightAlignment: Equatable, Sendable {
   case notAligned
 }
 
+public struct SetResult: Codable, Equatable, Sendable {
+  public let weight: SetResultWeight
+  public let repetitions: Int
+
+  public init(weight: SetResultWeight, repetitions: Int) throws {
+    guard repetitions >= 0 else {
+      throw WeightValidationError.invalidRepetitions
+    }
+    self.weight = weight
+    self.repetitions = repetitions
+  }
+
+  public func alignment(to increment: LoadingIncrement) -> SetResultWeightAlignment {
+    weight.alignment(to: increment)
+  }
+}
+
 public struct SetResultWeight: Codable, Equatable, Sendable {
   public let kg: Double
 
@@ -149,7 +167,9 @@ public struct SetResultWeight: Codable, Equatable, Sendable {
 public struct LoadableWeight: Codable, Equatable, Sendable {
   public let kg: Double
 
-  public init(kg: Double) {
+  public init(kg: Double) throws {
+    guard kg.isFinite else { throw WeightValidationError.mustBeFinite(.setResult) }
+    guard kg > 0 else { throw WeightValidationError.mustBePositive(.setResult) }
     self.kg = kg
   }
 }
@@ -190,14 +210,14 @@ public struct LiftConfiguration: Codable, Equatable, Sendable, Identifiable {
   }
 
   public func prescribedWeight(forPercentage percentage: Double) throws -> LoadableWeight {
-    guard percentage.isFinite, percentage > 0 else {
+    guard percentage.isFinite, percentage > 0, percentage <= 1 else {
       throw WeightValidationError.invalidPercentage
     }
     let exact = trainingMax.kg * percentage / loadingIncrement.kg
     let lower = exact.rounded(.down)
     let fraction = exact - lower
     let roundedUnits = fraction > 0.5 + 0.000000001 ? lower + 1 : lower
-    return LoadableWeight(kg: roundedUnits * loadingIncrement.kg)
+    return try LoadableWeight(kg: roundedUnits * loadingIncrement.kg)
   }
 
   public var snapshot: LiftConfigurationSnapshot {
@@ -225,7 +245,7 @@ public struct LiftConfigurationSnapshot: Codable, Equatable, Sendable {
   }
 
   public var isValid: Bool {
-    !identity.displayName.isEmpty
+    identity.displayName.contains(where: { !$0.isWhitespace })
       && trainingMaxKg.isFinite && trainingMaxKg > 0
       && loadingIncrementKg.isFinite && loadingIncrementKg > 0
   }

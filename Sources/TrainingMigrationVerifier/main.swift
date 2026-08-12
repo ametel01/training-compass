@@ -42,6 +42,20 @@ guard reconstructibleMarker == 0 else {
   throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible")
 }
 
+let authoritativeLiftTables = try stores.authoritative.read { db in
+  Set(
+    try String.fetchAll(
+      db,
+      sql: """
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name IN ('lifts', 'lift_configuration_audit')
+        """
+    ))
+}
+guard authoritativeLiftTables == ["lifts", "lift_configuration_audit"] else {
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v2")
+}
+
 let authoritativeRowCount = try reopenedStores.authoritative.read { db in
   try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM gate_zero_metadata")
 }
@@ -52,7 +66,8 @@ guard authoritativeRowCount == 1, reconstructibleRowCount == 1 else {
   throw MigrationVerificationError.gateZeroMarkerMissing(store: "idempotent retry")
 }
 
-print("Authoritative and reconstructible v1 migration interruption, retry, and idempotence passed.")
+print(
+  "Authoritative v2 and reconstructible v1 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

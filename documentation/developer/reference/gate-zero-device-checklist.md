@@ -1,11 +1,11 @@
 # Gate 0 Acceptance Device checklist
 
-Use a paired, recently unlocked iPhone running stable iOS 26. Do not enter owner training data and do not grant Health access.
+Use a paired, recently unlocked iPhone running stable iOS 26. Do not enter owner training data or grant Health access; configuring Training Maxes is the only supported owner-data action in this build.
 
 1. Set `TRAINING_COMPASS_DEVELOPMENT_TEAM` to the Personal Team identifier in the attended shell or Xcode session.
 2. Build and install the Release configuration without erasing the prior app container.
 3. Launch Training Compass and confirm the PRE-DATA BUILD warning appears.
-4. Confirm Today, Cycle, Progress, and TMs are reachable and every unfinished destination is unavailable.
+4. Confirm Today, Cycle, Progress, and TMs are reachable; Cycle and Progress are unavailable while TMs can review and confirm a lift configuration.
 5. Confirm the app never presents a Health authorization sheet or data-entry control.
 6. Background the app and open the app switcher; confirm only the Training Compass privacy shield is visible.
 7. Inspect the app container and confirm the authoritative and reconstructible directories use complete file protection.
@@ -13,4 +13,4 @@ Use a paired, recently unlocked iPhone running stable iOS 26. Do not enter owner
 9. Relaunch while offline and confirm the shell still reaches its protected-ready state.
 10. Record pass or fail with device model and iOS version only. Do not record paths, UUIDs, dates, measurements, routes, or free text copied from the device.
 
-A passing checklist proves Gate 0 launch and storage behavior only. It does not approve the build for owner data.
+A passing checklist proves Gate 0 launch, storage behavior, and the confirmed TMs configuration slice. It does not approve the unfinished training workflows or Health integration for owner data.

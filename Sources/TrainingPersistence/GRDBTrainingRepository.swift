@@ -33,6 +33,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
 
   public func saveLiftConfiguration(
     _ configuration: LiftConfiguration,
+    expectedBefore: LiftConfigurationSnapshot?,
     auditID: String,
     occurredAt: Int64,
     action: LiftConfigurationAuditAction
@@ -50,8 +51,23 @@ public actor GRDBTrainingRepository: TrainingRepository {
         arguments: [id]
       )
       let before = try beforeRow.map(Self.snapshot(from:))
+      guard before == expectedBefore else {
+        throw LiftConfigurationRepositoryError.staleConfiguration
+      }
       let identity = Self.identityParts(configuration.identity)
       let timestamp = occurredAt
+      let duplicate =
+        try Int.fetchOne(
+          db,
+          sql: """
+            SELECT COUNT(*) FROM lifts
+            WHERE identity_kind = ? AND identity_value = ? AND id <> ?
+            """,
+          arguments: [identity.kind, identity.value, id]
+        ) ?? 0
+      guard duplicate == 0 else {
+        throw LiftConfigurationRepositoryError.duplicateIdentity
+      }
       try db.execute(
         sql: """
           INSERT INTO lifts
@@ -177,18 +193,35 @@ public actor GRDBTrainingRepository: TrainingRepository {
   }
 
   private static func auditEntry(from row: Row) throws -> LiftConfigurationAuditEntry {
+    let beforeIdentityKind: String? = row["before_identity_kind"]
+    let beforeIdentityValue: String? = row["before_identity_value"]
+    let beforeTrainingMax: Double? = row["before_training_max_kg"]
+    let beforeLoadingIncrement: Double? = row["before_loading_increment_kg"]
+    let beforeValues = [
+      beforeIdentityKind != nil,
+      beforeIdentityValue != nil,
+      beforeTrainingMax != nil,
+      beforeLoadingIncrement != nil,
+    ]
+    guard beforeValues.allSatisfy({ $0 }) || beforeValues.allSatisfy({ !$0 }) else {
+      throw PersistenceError.invalidAuditBefore
+    }
     let before: LiftConfigurationSnapshot?
-    if row["before_identity_kind"] as String? == nil {
+    if beforeValues.allSatisfy({ !$0 }) {
       before = nil
-    } else {
+    } else if let beforeIdentityKind, let beforeIdentityValue, let beforeTrainingMax,
+      let beforeLoadingIncrement
+    {
       before = LiftConfigurationSnapshot(
         identity: try identity(
-          kind: row["before_identity_kind"],
-          value: row["before_identity_value"]
+          kind: beforeIdentityKind,
+          value: beforeIdentityValue
         ),
-        trainingMaxKg: row["before_training_max_kg"],
-        loadingIncrementKg: row["before_loading_increment_kg"]
+        trainingMaxKg: beforeTrainingMax,
+        loadingIncrementKg: beforeLoadingIncrement
       )
+    } else {
+      throw PersistenceError.invalidAuditBefore
     }
     guard let action = LiftConfigurationAuditAction(rawValue: row["action"]) else {
       throw PersistenceError.invalidAuditAction
@@ -214,6 +247,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
 public enum PersistenceError: Error, Equatable, Sendable {
   case invalidIdentity
   case invalidAuditAction
+  case invalidAuditBefore
   case storesUnavailable
 }
 

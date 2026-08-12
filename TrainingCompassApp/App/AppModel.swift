@@ -16,9 +16,14 @@ final class AppModel {
 
   private(set) var phase: Phase = .preparing
   private let preparePreDataShell: PreparePreDataShell
+  let liftConfigurationBoundary: LiftConfigurationBoundary
 
-  init(preparePreDataShell: PreparePreDataShell) {
+  init(
+    preparePreDataShell: PreparePreDataShell,
+    liftConfigurationBoundary: LiftConfigurationBoundary
+  ) {
     self.preparePreDataShell = preparePreDataShell
+    self.liftConfigurationBoundary = liftConfigurationBoundary
   }
 
   func prepare() async {
@@ -50,7 +55,14 @@ final class AppModel {
       healthKit: PreDataHealthKitAdapter(),
       logger: UnifiedPrivacyLogger()
     )
-    return AppModel(preparePreDataShell: PreparePreDataShell(dependencies: dependencies))
+    return AppModel(
+      preparePreDataShell: PreparePreDataShell(dependencies: dependencies),
+      liftConfigurationBoundary: LiftConfigurationBoundary(
+        repository: repository,
+        clock: dependencies.clock,
+        uuidGenerator: dependencies.uuidGenerator
+      )
+    )
   }
 }
 

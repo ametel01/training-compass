@@ -59,4 +59,28 @@ final class LiftConfigurationTests: XCTestCase {
     let alignment = try SetResultWeight(kg: 51.25).alignment(to: LoadingIncrement(kg: 2.5))
     XCTAssertEqual(alignment, .notAligned)
   }
+
+  func testSetResultValidatesRepetitionsWhileKeepingWeightAlignmentNonBlocking() throws {
+    let result = try SetResult(
+      weight: SetResultWeight(kg: 51.25),
+      repetitions: 0
+    )
+    XCTAssertEqual(result.repetitions, 0)
+    XCTAssertEqual(
+      result.alignment(to: try LoadingIncrement(kg: 2.5)),
+      .notAligned
+    )
+    XCTAssertThrowsError(
+      try SetResult(weight: SetResultWeight(kg: 50), repetitions: -1)
+    )
+  }
+
+  func testPrescriptionPercentagesRejectValuesAboveOneHundredPercent() throws {
+    let squat = try LiftConfiguration(
+      id: "lift-squat",
+      identity: .progression(.squat),
+      trainingMax: TrainingMax(kg: 100)
+    )
+    XCTAssertThrowsError(try squat.prescribedWeight(forPercentage: 1.01))
+  }
 }

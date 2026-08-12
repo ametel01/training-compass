@@ -27,9 +27,15 @@ final class LiftConfigurationRepositoryTests: XCTestCase {
 
     let repository = GRDBTrainingRepository(root: root)
     let created = try await repository.saveLiftConfiguration(
-      first, auditID: auditID, occurredAt: firstDate, action: .created)
+      first,
+      expectedBefore: nil,
+      auditID: auditID,
+      occurredAt: firstDate,
+      action: .created
+    )
     _ = try await repository.saveLiftConfiguration(
       second,
+      expectedBefore: first.snapshot,
       auditID: "audit-2",
       occurredAt: secondDate,
       action: .corrected
@@ -66,11 +72,21 @@ final class LiftConfigurationRepositoryTests: XCTestCase {
     )
     let repository = GRDBTrainingRepository(root: root)
     _ = try await repository.saveLiftConfiguration(
-      initial, auditID: auditID, occurredAt: 1, action: .created)
+      initial,
+      expectedBefore: nil,
+      auditID: auditID,
+      occurredAt: 1,
+      action: .created
+    )
 
     do {
       _ = try await repository.saveLiftConfiguration(
-        replacement, auditID: auditID, occurredAt: 2, action: .edited)
+        replacement,
+        expectedBefore: initial.snapshot,
+        auditID: auditID,
+        occurredAt: 2,
+        action: .edited
+      )
       XCTFail("Expected duplicate audit identity to fail")
     } catch {}
 

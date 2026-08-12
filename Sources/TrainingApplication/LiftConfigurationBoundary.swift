@@ -35,10 +35,27 @@ public struct LiftConfigurationListItem: Equatable, Sendable, Identifiable {
   }
 }
 
+public struct LiftConfigurationChangePreview: Equatable, Sendable {
+  public let before: LiftConfigurationSnapshot?
+  public let after: LiftConfiguration
+  public let action: LiftConfigurationAuditAction
+
+  public init(
+    before: LiftConfigurationSnapshot?,
+    after: LiftConfiguration,
+    action: LiftConfigurationAuditAction
+  ) {
+    self.before = before
+    self.after = after
+    self.action = action
+  }
+}
+
 public protocol LiftConfigurationRepository: Sendable {
   func loadLiftConfigurations() async throws -> [LiftConfiguration]
   func saveLiftConfiguration(
     _ configuration: LiftConfiguration,
+    expectedBefore: LiftConfigurationSnapshot?,
     auditID: String,
     occurredAt: Int64,
     action: LiftConfigurationAuditAction
@@ -48,6 +65,9 @@ public protocol LiftConfigurationRepository: Sendable {
 
 public enum LiftConfigurationRepositoryError: Error, Equatable, Sendable {
   case unavailable
+  case staleConfiguration
+  case duplicateIdentity
+  case unknownConfiguration
 }
 
 extension LiftConfigurationRepository {
@@ -57,6 +77,7 @@ extension LiftConfigurationRepository {
 
   public func saveLiftConfiguration(
     _ configuration: LiftConfiguration,
+    expectedBefore: LiftConfigurationSnapshot?,
     auditID: String,
     occurredAt: Int64,
     action: LiftConfigurationAuditAction
@@ -94,8 +115,13 @@ public struct LiftConfigurationBoundary: Sendable {
       configured.map { ($0.identity, $0) }, uniquingKeysWith: { _, last in last })
     let configuredNonProgression = configured.filter { $0.identity.progressionLift == nil }
       .sorted {
-        $0.identity.displayName.localizedCaseInsensitiveCompare($1.identity.displayName)
-          == .orderedAscending
+        let nameOrder = $0.identity.displayName.localizedCaseInsensitiveCompare(
+          $1.identity.displayName
+        )
+        if nameOrder != .orderedSame {
+          return nameOrder == .orderedAscending
+        }
+        return $0.id < $1.id
       }
     let standard = LiftCatalog.progressionIdentities.map { identity in
       LiftConfigurationListItem(identity: identity, configuration: byIdentity[identity])
@@ -106,13 +132,20 @@ public struct LiftConfigurationBoundary: Sendable {
       }
   }
 
-  @discardableResult
-  public func save(_ request: LiftConfigurationRequest) async throws -> LiftConfigurationAuditEntry
+  public func preview(_ request: LiftConfigurationRequest) async throws
+    -> LiftConfigurationChangePreview
   {
-    let existing = try await repository.loadLiftConfigurations().first { configuration in
-      configuration.id == request.id
+    let configured = try await repository.loadLiftConfigurations()
+    let existing = configured.first { configuration in configuration.id == request.id }
+    if request.id != nil, existing == nil {
+      throw LiftConfigurationRepositoryError.unknownConfiguration
     }
-    let configuration = try LiftConfiguration(
+    if configured.contains(where: {
+      $0.identity == request.identity && $0.id != request.id
+    }) {
+      throw LiftConfigurationRepositoryError.duplicateIdentity
+    }
+    let after = try LiftConfiguration(
       id: request.id ?? uuidGenerator.makeUUID().uuidString,
       identity: request.identity,
       trainingMax: try TrainingMax(kg: request.trainingMaxKg),
@@ -126,12 +159,30 @@ public struct LiftConfigurationBoundary: Sendable {
     } else {
       action = .edited
     }
-    return try await repository.saveLiftConfiguration(
-      configuration,
-      auditID: uuidGenerator.makeUUID().uuidString,
-      occurredAt: Int64(clock.now().timeIntervalSince1970),
+    return LiftConfigurationChangePreview(
+      before: existing?.snapshot,
+      after: after,
       action: action
     )
+  }
+
+  @discardableResult
+  public func confirm(_ preview: LiftConfigurationChangePreview) async throws
+    -> LiftConfigurationAuditEntry
+  {
+    try await repository.saveLiftConfiguration(
+      preview.after,
+      expectedBefore: preview.before,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: Int64(clock.now().timeIntervalSince1970),
+      action: preview.action
+    )
+  }
+
+  @discardableResult
+  public func save(_ request: LiftConfigurationRequest) async throws -> LiftConfigurationAuditEntry
+  {
+    try await confirm(try await preview(request))
   }
 
   public func auditHistory(for liftID: String) async throws -> [LiftConfigurationAuditEntry] {

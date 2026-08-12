@@ -53,6 +53,31 @@ final class LiftConfigurationBoundaryTests: XCTestCase {
     XCTAssertEqual(saved, 0)
   }
 
+  func testUnknownEditIDIsRejectedBeforeRepositoryMutation() async throws {
+    let repository = InMemoryLiftConfigurationRepository()
+    let boundary = LiftConfigurationBoundary(
+      repository: repository,
+      clock: FixedClock(date: Date()),
+      uuidGenerator: SequenceUUIDGenerator(values: [uuid(17)])
+    )
+
+    do {
+      _ = try await boundary.preview(
+        LiftConfigurationRequest(
+          id: "missing",
+          identity: .custom(name: "Home Lift"),
+          trainingMaxKg: 100
+        )
+      )
+      XCTFail("Expected unknown edit ID")
+    } catch let error as LiftConfigurationRepositoryError {
+      XCTAssertEqual(error, .unknownConfiguration)
+    }
+
+    let saved = await repository.savedCount
+    XCTAssertEqual(saved, 0)
+  }
+
   func testCorrectiveEditIsDistinguishedAndPreservesTheBeforeValue() async throws {
     let repository = InMemoryLiftConfigurationRepository()
     let boundary = LiftConfigurationBoundary(
@@ -77,9 +102,99 @@ final class LiftConfigurationBoundaryTests: XCTestCase {
     XCTAssertEqual(corrected.after.trainingMaxKg, 137.5)
   }
 
+  func testPreviewDoesNotMutateUntilConfirmation() async throws {
+    let repository = InMemoryLiftConfigurationRepository()
+    let boundary = LiftConfigurationBoundary(
+      repository: repository,
+      clock: FixedClock(date: Date(timeIntervalSince1970: 700)),
+      uuidGenerator: SequenceUUIDGenerator(values: [uuid(8), uuid(9)])
+    )
+
+    let preview = try await boundary.preview(
+      LiftConfigurationRequest(identity: .progression(.squat), trainingMaxKg: 101)
+    )
+    let beforeConfirmation = try await boundary.list()
+    XCTAssertEqual(beforeConfirmation.count, 0)
+
+    let audit = try await boundary.confirm(preview)
+    XCTAssertEqual(audit.action, .created)
+    let afterConfirmation = try await boundary.list()
+    XCTAssertEqual(afterConfirmation.count, 1)
+  }
+
+  func testStaleConfirmationCannotOverwriteAConcurrentEdit() async throws {
+    let repository = InMemoryLiftConfigurationRepository()
+    let boundary = LiftConfigurationBoundary(
+      repository: repository,
+      clock: FixedClock(date: Date(timeIntervalSince1970: 800)),
+      uuidGenerator: SequenceUUIDGenerator(values: [uuid(10), uuid(11), uuid(12), uuid(13)])
+    )
+    let created = try await boundary.save(
+      LiftConfigurationRequest(identity: .progression(.benchPress), trainingMaxKg: 72.5)
+    )
+    let preview = try await boundary.preview(
+      LiftConfigurationRequest(
+        id: created.liftID,
+        identity: .progression(.benchPress),
+        trainingMaxKg: 75
+      )
+    )
+    _ = try await boundary.save(
+      LiftConfigurationRequest(
+        id: created.liftID,
+        identity: .progression(.benchPress),
+        trainingMaxKg: 77.5
+      )
+    )
+
+    do {
+      _ = try await boundary.confirm(preview)
+      XCTFail("Expected stale preview to be rejected")
+    } catch let error as LiftConfigurationRepositoryError {
+      XCTAssertEqual(error, .staleConfiguration)
+    }
+
+    let current = try await boundary.list()
+    XCTAssertEqual(current.first?.trainingMaxKg, 77.5)
+  }
+
+  func testInterruptedConfirmationLeavesConfigurationAndAuditUnchangedAndCanRetry() async throws {
+    let repository = InMemoryLiftConfigurationRepository()
+    let boundary = LiftConfigurationBoundary(
+      repository: repository,
+      clock: FixedClock(date: Date(timeIntervalSince1970: 900)),
+      uuidGenerator: SequenceUUIDGenerator(values: [uuid(14), uuid(15), uuid(16)])
+    )
+    let preview = try await boundary.preview(
+      LiftConfigurationRequest(identity: .progression(.squat), trainingMaxKg: 100)
+    )
+    await repository.failNextSave()
+
+    do {
+      _ = try await boundary.confirm(preview)
+      XCTFail("Expected interrupted save")
+    } catch is InjectedSaveError {
+      // The repository failed before its atomic mutation boundary.
+    }
+
+    let interruptedConfigurations = try await boundary.list()
+    let interruptedAudits = try await boundary.auditHistory(for: preview.after.id)
+    XCTAssertTrue(interruptedConfigurations.isEmpty)
+    XCTAssertTrue(interruptedAudits.isEmpty)
+
+    let audit = try await boundary.confirm(preview)
+    XCTAssertEqual(audit.action, .created)
+    let retriedConfigurations = try await boundary.list()
+    XCTAssertEqual(retriedConfigurations.first?.trainingMaxKg, 100)
+  }
+
   private func uuid(_ value: UInt8) -> UUID {
     UUID(uuidString: String(format: "%02X000000-0000-0000-0000-000000000000", value))!
   }
+}
+
+private enum InjectedSaveError: Error {
+  case interrupted
 }
 
 private struct FixedClock: Clock {
@@ -103,8 +218,13 @@ private final class SequenceUUIDGenerator: UUIDGenerator, @unchecked Sendable {
 private actor InMemoryLiftConfigurationRepository: LiftConfigurationRepository {
   private(set) var configurations: [String: LiftConfiguration] = [:]
   private(set) var audits: [LiftConfigurationAuditEntry] = []
+  private var shouldFailNextSave = false
 
   var savedCount: Int { audits.count }
+
+  func failNextSave() {
+    shouldFailNextSave = true
+  }
 
   func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     configurations.values.sorted { $0.id < $1.id }
@@ -112,11 +232,19 @@ private actor InMemoryLiftConfigurationRepository: LiftConfigurationRepository {
 
   func saveLiftConfiguration(
     _ configuration: LiftConfiguration,
+    expectedBefore: LiftConfigurationSnapshot?,
     auditID: String,
     occurredAt: Int64,
     action: LiftConfigurationAuditAction
   ) async throws -> LiftConfigurationAuditEntry {
+    if shouldFailNextSave {
+      shouldFailNextSave = false
+      throw InjectedSaveError.interrupted
+    }
     let before = configurations[configuration.id]?.snapshot
+    guard before == expectedBefore else {
+      throw LiftConfigurationRepositoryError.staleConfiguration
+    }
     let audit = LiftConfigurationAuditEntry(
       id: auditID,
       liftID: configuration.id,
