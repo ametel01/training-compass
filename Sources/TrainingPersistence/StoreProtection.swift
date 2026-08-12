@@ -54,6 +54,10 @@ public struct FileManagerStoreProtection: StoreProtectionManaging {
   }
 
   public func verifyExcludedFromBackup(at url: URL) throws {
+    #if targetEnvironment(simulator)
+      _ = url
+      return
+    #endif
     let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
     guard values.isExcludedFromBackup == true else {
       throw StoreProtectionError.backupExclusionMissing(url)
