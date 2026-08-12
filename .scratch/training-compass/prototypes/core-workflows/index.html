@@ -1,0 +1,280 @@
+<!doctype html>
+<!-- PROTOTYPE — functional wireframe, not production design or code. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training Compass — Functional workflow prototype</title>
+  <style>
+    :root { --ink:#172033; --muted:#657087; --line:#d7dce5; --paper:#f4f6f9; --blue:#2457d6; --blue-soft:#e8efff; --green:#157347; --green-soft:#e6f4ed; --orange:#a94820; --orange-soft:#fff0e8; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#dfe3ea; color:var(--ink); font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid #f0a43c; outline-offset:2px; }
+    .app { width:min(100%,460px); min-height:100vh; margin:0 auto; background:var(--paper); box-shadow:0 12px 45px #1f293733; padding-bottom:95px; }
+    header { padding:24px 20px 15px; background:white; border-bottom:1px solid var(--line); }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { margin-bottom:5px; font-size:27px; letter-spacing:-.03em; }
+    h2 { margin-bottom:7px; font-size:22px; letter-spacing:-.02em; }
+    h3 { margin-bottom:5px; font-size:16px; }
+    .muted { color:var(--muted); }
+    .small { font-size:12px; }
+    .eyebrow { margin:0 0 5px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+    .intro { margin:0; font-size:13px; color:var(--muted); }
+    .walkthroughs { display:flex; gap:7px; padding:12px 14px; overflow:auto; background:#fff; border-bottom:1px solid var(--line); }
+    .walkthroughs button { white-space:nowrap; border:1px solid var(--line); border-radius:999px; padding:7px 10px; background:#fff; color:var(--blue); font-weight:700; font-size:12px; }
+    .statebar { margin:12px 14px 0; padding:10px 12px; border:1px dashed #aab3c2; background:#fff; font-size:12px; color:var(--muted); }
+    .statebar b { color:var(--ink); }
+    main { padding:16px 14px; }
+    .stack { display:grid; gap:12px; }
+    .card { padding:15px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .card.blue { background:var(--blue-soft); border-color:#c9d7ff; }
+    .card.green { background:var(--green-soft); border-color:#c0e2d0; }
+    .card.orange { background:var(--orange-soft); border-color:#f1cdbd; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .button { min-height:43px; border:0; border-radius:8px; padding:10px 14px; background:var(--blue); color:#fff; font-weight:750; }
+    .button.secondary { background:#e7eaf0; color:var(--ink); }
+    .button.small-button { min-height:34px; padding:6px 9px; font-size:12px; }
+    .button.full { width:100%; }
+    .badge { display:inline-block; border-radius:999px; padding:5px 8px; background:#edf0f4; color:#49556a; font-size:11px; font-weight:750; }
+    .badge.green { background:var(--green-soft); color:var(--green); }
+    .rule { height:1px; margin:13px 0; background:var(--line); }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:9px 5px; text-align:left; border-bottom:1px solid var(--line); font-size:13px; }
+    th { color:var(--muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; }
+    tr:last-child td { border-bottom:0; }
+    td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .check { width:30px; height:30px; border:1px solid #aeb6c3; border-radius:50%; background:#fff; }
+    .check.done { border-color:var(--green); background:var(--green); color:#fff; }
+    .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+    .metric { min-width:0; padding-right:6px; border-right:1px solid var(--line); }
+    .metric:last-child { border:0; }
+    .metric strong { display:block; font-size:19px; line-height:1.15; }
+    .metric span { color:var(--muted); font-size:10px; }
+    .week-tabs,.segment,.lift-tabs { display:flex; gap:7px; overflow:auto; }
+    .week-tabs button,.segment button,.lift-tabs button { min-height:36px; white-space:nowrap; border:1px solid var(--line); border-radius:7px; padding:7px 10px; background:#fff; color:var(--muted); font-size:12px; font-weight:750; }
+    .week-tabs button.active,.segment button.active,.lift-tabs button.active { border-color:var(--blue); background:var(--blue-soft); color:var(--blue); }
+    .session { display:grid; grid-template-columns:63px 1fr auto; gap:10px; align-items:start; padding:12px 0; border-bottom:1px solid var(--line); }
+    .session:last-child { border:0; }
+    .session time { font-size:12px; font-weight:800; }
+    .session p { margin:2px 0 0; font-size:12px; color:var(--muted); }
+    .cycle-grid { display:grid; gap:10px; }
+    .cycle-week { border-left:4px solid #aeb7c8; padding:3px 0 3px 11px; }
+    .cycle-week.current { border-color:var(--blue); }
+    .cycle-week h3 { margin:0 0 5px; }
+    .cycle-week ul { margin:0; padding-left:18px; font-size:12px; color:var(--muted); }
+    .chart { width:100%; height:auto; border:1px solid var(--line); background:#fff; }
+    .chart text { font:10px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:var(--muted); }
+    .chart .grid { stroke:#dfe3e9; stroke-width:1; }
+    .chart .line { fill:none; stroke:var(--blue); stroke-width:3; }
+    .chart .tm-line { stroke:var(--orange); stroke-width:2; stroke-dasharray:5 5; }
+    .chart .point { fill:#fff; stroke:var(--blue); stroke-width:2; }
+    .tm-row { display:grid; grid-template-columns:1fr 92px auto; gap:8px; align-items:center; padding:11px 0; border-bottom:1px solid var(--line); }
+    .tm-row:last-child { border:0; }
+    .tm-row input { width:100%; border:1px solid #aeb6c3; border-radius:7px; padding:9px; text-align:right; }
+    .tabs { position:fixed; bottom:0; left:50%; transform:translateX(-50%); z-index:10; width:min(100%,460px); display:grid; grid-template-columns:repeat(4,1fr); padding:7px 5px 20px; border-top:1px solid var(--line); background:#ffffffee; backdrop-filter:blur(12px); }
+    .tabs button { border:0; background:transparent; padding:7px 2px; color:var(--muted); font-size:11px; font-weight:700; }
+    .tabs button b { display:block; margin-bottom:2px; font-size:17px; }
+    .tabs button.active { color:var(--blue); }
+    details { font-size:12px; color:var(--muted); }
+    details pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+    @media (min-width:700px) { body { padding:24px 0; } .app { min-height:calc(100vh - 48px); border-radius:20px; overflow:hidden; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <p class="eyebrow">Throwaway functional prototype</p>
+      <h1>Training Compass</h1>
+      <p class="intro">Question: does one clear place for Today, the Cycle ahead, Progress, and Training Maxes expose the information you need—including running performance?</p>
+    </header>
+
+    <nav class="walkthroughs" aria-label="Guided walkthroughs">
+      <button data-scenario="today">Read today's workout</button>
+      <button data-scenario="tms">Set my TMs</button>
+      <button data-scenario="strength">See lift progress</button>
+      <button data-scenario="running">See running performance</button>
+      <button data-scenario="cycle">See cycle ahead</button>
+    </nav>
+
+    <div id="statebar" class="statebar"></div>
+    <main id="content"></main>
+
+    <nav class="tabs" aria-label="Main navigation">
+      <button data-nav="today"><b>☀</b>Today</button>
+      <button data-nav="cycle"><b>▦</b>Cycle</button>
+      <button data-nav="progress"><b>↗</b>Progress</button>
+      <button data-nav="tms"><b>⚙</b>TMs</button>
+    </nav>
+  </div>
+
+  <script>
+    // Portable prototype logic: all state changes run through this pure reducer.
+    const initialState = {
+      page: "today",
+      selectedWeek: 1,
+      progressMode: "strength",
+      selectedLift: "deadlift",
+      setResults: [true, true, false, false, false, false, false, false],
+      trainingMaxes: { squat: 110, bench: 75, deadlift: 155, press: 50 },
+      draftTrainingMaxes: { squat: 110, bench: 75, deadlift: 155, press: 50 },
+      lastChange: "Opened today's plan"
+    };
+
+    function reducer(state, action) {
+      if (action.type === "NAVIGATE") return { ...state, page: action.page, lastChange: `Opened ${action.page}` };
+      if (action.type === "SELECT_WEEK") return { ...state, selectedWeek: action.week, lastChange: `Showing Week ${action.week}` };
+      if (action.type === "SELECT_PROGRESS_MODE") return { ...state, progressMode: action.mode, lastChange: `Showing ${action.mode} progress` };
+      if (action.type === "SELECT_LIFT") return { ...state, selectedLift: action.lift, lastChange: `Showing ${liftData[action.lift].name} e1RM` };
+      if (action.type === "TOGGLE_SET") return { ...state, setResults: state.setResults.map((done, i) => i === action.index ? !done : done), lastChange: `${state.setResults[action.index] ? "Reopened" : "Recorded"} set ${action.index + 1}` };
+      if (action.type === "EDIT_TM") return { ...state, draftTrainingMaxes: { ...state.draftTrainingMaxes, [action.lift]: action.value }, lastChange: `Drafted ${liftData[action.lift].name} TM at ${action.value} kg` };
+      if (action.type === "SAVE_TMS") return { ...state, trainingMaxes: { ...state.draftTrainingMaxes }, lastChange: "Saved Training Maxes for the Draft and future cycles" };
+      if (action.type === "SCENARIO") {
+        const presets = {
+          today: { page:"today", lastChange:"Walkthrough: read today's strength session and imported run" },
+          tms: { page:"tms", lastChange:"Walkthrough: set all Training Maxes in one place" },
+          strength: { page:"progress", progressMode:"strength", selectedLift:"deadlift", lastChange:"Walkthrough: inspect Deadlift e1RM progression" },
+          running: { page:"progress", progressMode:"running", lastChange:"Walkthrough: inspect running volume, pace, and sessions" },
+          cycle: { page:"cycle", selectedWeek:1, lastChange:"Walkthrough: scan the complete cycle ahead" }
+        };
+        return { ...state, ...presets[action.name] };
+      }
+      return state;
+    }
+
+    const liftData = {
+      squat: { name:"Squat", values:[118,121,124,127,130], tm:110 },
+      bench: { name:"Bench press", values:[82,84,86,87,89], tm:75 },
+      deadlift: { name:"Deadlift", values:[150,154,158,163,166], tm:155 },
+      press: { name:"Overhead press", values:[52,53,55,56,58], tm:50 }
+    };
+    const cycleWeeks = [
+      { label:"Week 1 · 5s", dates:"17–23 Aug", sessions:["Mon · Squat / Bench", "Tue · Press / RDL", "Thu · Bench / Squat", "Fri · Deadlift / Press"] },
+      { label:"Week 2 · 3s", dates:"24–30 Aug", sessions:["Mon · Squat / Bench", "Tue · Press / RDL", "Thu · Bench / Squat", "Fri · Deadlift / Press"] },
+      { label:"Week 3 · 5/3/1", dates:"31 Aug–6 Sep", sessions:["Mon · Squat / Bench", "Tue · Press / RDL", "Thu · Bench / Squat", "Fri · Deadlift / Press"] },
+      { label:"Deload · due", dates:"7–13 Sep", sessions:["Mon · Squat / Bench", "Tue · Press / RDL", "Thu · Bench / Squat", "Fri · Deadlift / Press"] }
+    ];
+    let state = structuredClone(initialState);
+
+    const todayPage = () => `
+      <div class="stack">
+        <section class="card blue">
+          <div class="row"><div><p class="eyebrow">Friday 21 August · Week 1</p><h2>Deadlift + overhead press</h2></div><span class="badge">Scheduled</span></div>
+          <p class="muted">Primary work is shown first. Planned weight and reps stay beside what you record.</p>
+        </section>
+        <section class="card">
+          <div class="row"><div><p class="eyebrow">Primary · Deadlift</p><h3>TM snapshot: ${state.trainingMaxes.deadlift} kg</h3></div><span class="badge">Week 1 · 5s</span></div>
+          <table><thead><tr><th>Set</th><th class="num">Planned</th><th class="num">Actual</th><th></th></tr></thead><tbody>
+            ${[["65% × 5","100 kg × 5"],["75% × 5","117.5 kg × 5"],["85% × 5+","132.5 kg × 7"]].map((set,i)=>`<tr><td>${set[0]}</td><td class="num">${set[1].split(" × ")[0]}</td><td class="num">${set[1]}</td><td><button class="check ${state.setResults[i]?"done":""}" data-set="${i}" aria-label="Toggle primary set ${i+1}">${state.setResults[i]?"✓":""}</button></td></tr>`).join("")}
+          </tbody></table>
+        </section>
+        <section class="card">
+          <div class="row"><div><p class="eyebrow">Assistance · Overhead press</p><h3>5 × 10 at 32.5 kg</h3></div><span class="badge">TM 50 kg</span></div>
+          <table><thead><tr><th>Set</th><th class="num">Planned</th><th class="num">Actual</th><th></th></tr></thead><tbody>
+            ${[3,4,5,6,7].map((i,n)=>`<tr><td>${n+1}</td><td class="num">32.5 kg × 10</td><td class="num">32.5 kg × 10</td><td><button class="check ${state.setResults[i]?"done":""}" data-set="${i}" aria-label="Toggle assistance set ${n+1}">${state.setResults[i]?"✓":""}</button></td></tr>`).join("")}
+          </tbody></table>
+        </section>
+        <section class="card green">
+          <div class="row"><div><p class="eyebrow">Imported Health workout · today</p><h2>Outdoor run</h2></div><span class="badge green">Apple Watch</span></div>
+          <div class="metrics"><div class="metric"><strong>5.8 km</strong><span>distance</span></div><div class="metric"><strong>34:42</strong><span>duration</span></div><div class="metric"><strong>5:59/km</strong><span>average pace</span></div></div>
+          <div class="rule"></div><p class="small muted">Average HR 146 bpm · 96% heart-rate coverage · 38 m elevation gain</p>
+          <button class="button secondary full" data-scenario="running">Open running performance</button>
+        </section>
+        <section class="card">
+          <p class="eyebrow">Recovery evidence · secondary context</p><h3>Mixed against your recent range</h3>
+          <p class="small muted">Primary Sleep 6h 42m · resting HR 58 bpm · HRV SDNN 49 ms</p>
+          <details><summary>Why “mixed”?</summary><p>Sleep was below your recent middle half, resting heart rate was above it, and HRV remained within it. These measurements do not vote, produce a score, or change today's session.</p></details>
+        </section>
+      </div>`;
+
+    const cyclePage = () => `
+      <div class="stack">
+        <section class="card blue"><p class="eyebrow">Active Training Cycle · anchored Monday 17 Aug</p><h2>The complete cycle ahead</h2><p class="muted">Three normal weeks plus the Deload Week due this cycle. Dates never move automatically.</p></section>
+        <div class="week-tabs">${cycleWeeks.map((week,i)=>`<button data-week="${i+1}" class="${state.selectedWeek===i+1?"active":""}">W${i+1}</button>`).join("")}</div>
+        <section class="card">
+          <div class="cycle-grid">${cycleWeeks.map((week,i)=>`<article class="cycle-week ${state.selectedWeek===i+1?"current":""}"><div class="row"><h3>${week.label}</h3><span class="small muted">${week.dates}</span></div><ul>${week.sessions.map(session=>`<li>${session}</li>`).join("")}</ul></article>`).join("")}</div>
+        </section>
+        <section class="card"><p class="eyebrow">Selected week</p><h2>${cycleWeeks[state.selectedWeek-1].label}</h2><p class="muted">${cycleWeeks[state.selectedWeek-1].dates} · ${cycleWeeks[state.selectedWeek-1].sessions.length} sessions</p><button class="button secondary full">Edit this week’s dates or lifts</button></section>
+      </div>`;
+
+    function strengthChart(lift) {
+      const values = liftData[lift].values;
+      const min = Math.min(...values, state.trainingMaxes[lift]) - 5;
+      const max = Math.max(...values) + 5;
+      const x = i => 32 + i * 69;
+      const y = value => 150 - ((value-min)/(max-min))*115;
+      const points = values.map((value,i)=>`${x(i)},${y(value)}`).join(" ");
+      return `<svg class="chart" viewBox="0 0 340 185" role="img" aria-label="${liftData[lift].name} estimated one-rep max progression">
+        <line class="grid" x1="32" y1="35" x2="320" y2="35"/><line class="grid" x1="32" y1="92" x2="320" y2="92"/><line class="grid" x1="32" y1="150" x2="320" y2="150"/>
+        <line class="tm-line" x1="32" y1="${y(state.trainingMaxes[lift])}" x2="320" y2="${y(state.trainingMaxes[lift])}"/><text x="236" y="${y(state.trainingMaxes[lift])-6}">TM ${state.trainingMaxes[lift]} kg</text>
+        <polyline class="line" points="${points}"/>${values.map((value,i)=>`<circle class="point" cx="${x(i)}" cy="${y(value)}" r="4"/><text x="${x(i)-9}" y="${y(value)-9}">${value}</text>`).join("")}
+        ${["Apr","May","Jun","Jul","Aug"].map((label,i)=>`<text x="${x(i)-9}" y="172">${label}</text>`).join("")}
+      </svg>`;
+    }
+
+    const strengthProgress = () => {
+      const lift = liftData[state.selectedLift];
+      return `<div class="stack"><div class="lift-tabs">${Object.entries(liftData).map(([key,value])=>`<button data-lift="${key}" class="${state.selectedLift===key?"active":""}">${value.name}</button>`).join("")}</div>
+        <section class="card"><div class="row"><div><p class="eyebrow">Estimated 1RM · normal-week Plus Sets</p><h2>${lift.name}: ${lift.values.at(-1)} kg</h2></div><span class="badge green">+${(lift.values.at(-1)-lift.values[0]).toFixed(0)} kg</span></div>${strengthChart(state.selectedLift)}<p class="small muted">Each point comes from a completed Primary Lift Plus Set. Tap another lift above to compare its own history. The orange dashed line is the current TM, not an e1RM target.</p></section>
+        <section class="card"><p class="eyebrow">Recent eligible sets</p><table><thead><tr><th>Date</th><th>Weight × reps</th><th class="num">e1RM</th></tr></thead><tbody>${lift.values.slice(-3).map((value,i)=>`<tr><td>${["18 Jun","16 Jul","20 Aug"][i]}</td><td>${Math.round(value*.84/2.5)*2.5} kg × ${[6,7,7][i]}</td><td class="num"><b>${value} kg</b></td></tr>`).join("")}</tbody></table></section></div>`;
+    };
+
+    const runningProgress = () => `
+      <div class="stack">
+        <section class="card green"><p class="eyebrow">Running · trailing 7 days</p><div class="metrics"><div class="metric"><strong>22.1 km</strong><span>distance</span></div><div class="metric"><strong>2h 15m</strong><span>duration</span></div><div class="metric"><strong>6:07/km</strong><span>average pace</span></div></div><div class="rule"></div><p class="small muted">3 runs · distance is 2.7 km above the median of the previous four 7-day periods.</p></section>
+        <section class="card"><p class="eyebrow">Recent outdoor runs</p><table><thead><tr><th>Date</th><th class="num">Distance</th><th class="num">Pace</th><th class="num">Avg HR</th></tr></thead><tbody><tr><td>Today</td><td class="num">5.8 km</td><td class="num"><b>5:59</b></td><td class="num">146</td></tr><tr><td>19 Aug</td><td class="num">7.2 km</td><td class="num"><b>6:00</b></td><td class="num">149</td></tr><tr><td>16 Aug</td><td class="num">9.1 km</td><td class="num"><b>6:14</b></td><td class="num">143</td></tr><tr><td>11 Aug</td><td class="num">5.0 km</td><td class="num"><b>6:09</b></td><td class="num">147</td></tr></tbody></table><p class="small muted">Open a run for splits, elevation, heart-rate zones, route availability, source, and coverage. Pace is shown with distance and heart rate so unlike runs are not silently treated as equivalent.</p></section>
+        <section class="card"><p class="eyebrow">5 km efforts · recent 90 days</p><h2>31:40 → 29:52</h2><svg class="chart" viewBox="0 0 340 150" role="img" aria-label="Five kilometre duration progression"><line class="grid" x1="32" y1="25" x2="320" y2="25"/><line class="grid" x1="32" y1="75" x2="320" y2="75"/><line class="grid" x1="32" y1="125" x2="320" y2="125"/><polyline class="line" points="35,35 105,51 175,68 245,82 315,112"/>${[[35,35],[105,51],[175,68],[245,82],[315,112]].map(point=>`<circle class="point" cx="${point[0]}" cy="${point[1]}" r="4"/>`).join("")}<text x="28" y="143">May</text><text x="298" y="143">Aug</text></svg><p class="small muted">Only workouts between 4.8 and 5.2 km are included. This is recorded performance history, not a training prescription.</p></section>
+      </div>`;
+
+    const workoutHistory = () => `
+      <div class="stack">
+        <section class="card"><p class="eyebrow">Unified workout history</p><h2>Training Events</h2><p class="muted">Linked local Sessions and Health Workouts appear once while preserving both sources.</p>
+          <table><thead><tr><th>Date</th><th>Training Event</th><th>Source</th></tr></thead><tbody><tr><td>Today</td><td><b>Deadlift + press</b><br><span class="small muted">5/3/1 · 8 sets</span></td><td>Compass + Health</td></tr><tr><td>Today</td><td><b>Outdoor run</b><br><span class="small muted">5.8 km · 34:42</span></td><td>Apple Watch</td></tr><tr><td>19 Aug</td><td><b>Outdoor run</b><br><span class="small muted">7.2 km · 43:12</span></td><td>Apple Watch</td></tr></tbody></table>
+        </section>
+      </div>`;
+
+    const progressPage = () => `<div class="stack"><div class="segment"><button data-mode="strength" class="${state.progressMode==="strength"?"active":""}">Strength / e1RM</button><button data-mode="running" class="${state.progressMode==="running"?"active":""}">Running / cardio</button><button data-mode="history" class="${state.progressMode==="history"?"active":""}">All workouts</button></div>${state.progressMode==="strength"?strengthProgress():state.progressMode==="running"?runningProgress():workoutHistory()}</div>`;
+
+    const tmsPage = () => `
+      <div class="stack">
+        <section class="card blue"><p class="eyebrow">Training Maxes</p><h2>Set every lift in one place</h2><p class="muted">Values are in kilograms. Saving affects the Draft and future cycles; the Active Training Cycle keeps its current TM snapshots.</p></section>
+        <section class="card">${Object.entries(liftData).map(([key,lift])=>`<label class="tm-row"><span><b>${lift.name}</b><br><span class="small muted">Current ${state.trainingMaxes[key]} kg</span></span><input data-tm="${key}" type="number" min="0" step="2.5" value="${state.draftTrainingMaxes[key]}" aria-label="${lift.name} Training Max"><span>kg</span></label>`).join("")}<button class="button full" data-save-tms>Save Training Maxes</button></section>
+        <section class="card orange"><div class="row"><div><p class="eyebrow">Pending proposal</p><h3>Deadlift +5 kg</h3></div><span class="badge">Optional</span></div><p class="small muted">The last completed cycle proposed 160 kg. Review the supporting sets and e1RM history, then type the value above if you want it. Nothing changes automatically.</p><button class="button secondary full" data-scenario="strength">Review Deadlift progression</button></section>
+      </div>`;
+
+    function renderStatebar() {
+      document.querySelector("#statebar").innerHTML = `<b>Current state:</b> ${state.page}${state.page==="cycle"?` · Week ${state.selectedWeek}`:""}${state.page==="progress"?` · ${state.progressMode}${state.progressMode==="strength"?` · ${liftData[state.selectedLift].name}`:""}`:""}<br><span>${state.lastChange}</span>`;
+    }
+    function render() {
+      renderStatebar();
+      document.querySelector("#content").innerHTML = state.page==="today"?todayPage():state.page==="cycle"?cyclePage():state.page==="progress"?progressPage():tmsPage();
+      document.querySelectorAll("[data-nav]").forEach(button=>button.classList.toggle("active",button.dataset.nav===state.page));
+    }
+    function dispatch(action) { state = reducer(state,action); render(); }
+
+    document.body.addEventListener("click", event => {
+      const nav = event.target.closest("[data-nav]");
+      const scenario = event.target.closest("[data-scenario]");
+      const week = event.target.closest("[data-week]");
+      const mode = event.target.closest("[data-mode]");
+      const lift = event.target.closest("[data-lift]");
+      const set = event.target.closest("[data-set]");
+      if (nav) dispatch({type:"NAVIGATE",page:nav.dataset.nav});
+      else if (scenario) dispatch({type:"SCENARIO",name:scenario.dataset.scenario});
+      else if (week) dispatch({type:"SELECT_WEEK",week:Number(week.dataset.week)});
+      else if (mode) dispatch({type:"SELECT_PROGRESS_MODE",mode:mode.dataset.mode});
+      else if (lift) dispatch({type:"SELECT_LIFT",lift:lift.dataset.lift});
+      else if (set) dispatch({type:"TOGGLE_SET",index:Number(set.dataset.set)});
+      else if (event.target.closest("[data-save-tms]")) dispatch({type:"SAVE_TMS"});
+    });
+    document.body.addEventListener("input", event => {
+      if (event.target.matches("[data-tm]")) {
+        state = reducer(state,{type:"EDIT_TM",lift:event.target.dataset.tm,value:Number(event.target.value)});
+        renderStatebar();
+      }
+    });
+    render();
+  </script>
+</body>
+</html>
