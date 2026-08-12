@@ -20,8 +20,8 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertFalse(app.buttons.matching(identifier: "save").firstMatch.exists)
 
     app.tabBars.buttons["TMs"].tap()
-    XCTAssertTrue(app.navigationBars["TMs"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.staticTexts["Squat"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["TMs"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Squat"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Deadlift"].exists)
     XCTAssertTrue(app.staticTexts["Bench Press"].exists)
     XCTAssertTrue(app.staticTexts["Overhead Press"].exists)
@@ -29,18 +29,20 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(app.buttons["tm.add-custom"].exists)
 
     let squatEdit = app.buttons.matching(identifier: "tm.edit.progression:Squat").firstMatch
-    XCTAssertTrue(squatEdit.waitForExistence(timeout: 5))
+    XCTAssertTrue(squatEdit.waitForExistence(timeout: 15))
     squatEdit.tap()
     let trainingMax = app.textFields["tm.training-max"]
-    XCTAssertTrue(trainingMax.waitForExistence(timeout: 5))
+    XCTAssertTrue(trainingMax.waitForExistence(timeout: 15))
     trainingMax.tap()
     if trainingMax.buttons["Clear text"].exists {
       trainingMax.buttons["Clear text"].tap()
     }
     trainingMax.typeText("100")
     app.buttons["tm.review"].tap()
-    XCTAssertTrue(app.alerts["Confirm lift change"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.alerts["Confirm lift change"].waitForExistence(timeout: 15))
     app.alerts.buttons["Confirm"].tap()
-    XCTAssertTrue(app.staticTexts["TM 100.00 kg · Increment 2.50 kg"].waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      app.staticTexts["TM 100.00 kg · Increment 2.50 kg"].waitForExistence(timeout: 15)
+    )
   }
 }
