@@ -1,5 +1,5 @@
 import Foundation
-import TrainingDomain
+@_exported import TrainingDomain
 import TrainingInsights
 
 public protocol Clock: Sendable {
@@ -22,7 +22,7 @@ public protocol ApplicationFileSystem: Sendable {
   func applicationSupportDirectory() throws -> URL
 }
 
-public protocol TrainingRepository: Sendable {
+public protocol TrainingRepository: Sendable, LiftConfigurationRepository {
   func prepareStores() async throws
 }
 
