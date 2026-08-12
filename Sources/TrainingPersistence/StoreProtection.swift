@@ -21,7 +21,7 @@ public struct FileManagerStoreProtection: StoreProtectionManaging {
   }
 
   public func applyCompleteFileProtection(to url: URL) throws {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if (os(iOS) || os(tvOS) || os(watchOS)) && !targetEnvironment(simulator)
       try FileManager.default.setAttributes(
         [.protectionKey: FileProtectionType.complete],
         ofItemAtPath: url.path()
@@ -39,7 +39,7 @@ public struct FileManagerStoreProtection: StoreProtectionManaging {
   }
 
   public func verifyCompleteFileProtection(at url: URL) throws {
-    #if os(iOS) || os(tvOS) || os(watchOS)
+    #if (os(iOS) || os(tvOS) || os(watchOS)) && !targetEnvironment(simulator)
       let attributes = try FileManager.default.attributesOfItem(atPath: url.path())
       guard attributes[.protectionKey] as? FileProtectionType == .complete else {
         throw StoreProtectionError.completeFileProtectionMissing(url)
