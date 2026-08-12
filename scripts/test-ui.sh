@@ -19,6 +19,8 @@ xcodebuild \
   -project TrainingCompass.xcodeproj \
   -scheme TrainingCompass \
   -configuration Debug \
-  -destination "platform=iOS Simulator,id=${device_id}" \
+  -destination "platform=iOS Simulator,id=${device_id},arch=arm64" \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO \
   test
