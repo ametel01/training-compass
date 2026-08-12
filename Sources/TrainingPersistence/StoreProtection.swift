@@ -32,6 +32,10 @@ public struct FileManagerStoreProtection: StoreProtectionManaging {
   }
 
   public func excludeFromBackup(_ url: URL) throws {
+    #if targetEnvironment(simulator)
+      _ = url
+      return
+    #endif
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
     var mutableURL = url
