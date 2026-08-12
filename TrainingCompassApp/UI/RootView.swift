@@ -166,7 +166,11 @@ private struct TMsView: View {
     .refreshable { await reload() }
     .navigationTitle("TMs")
     .accessibilityIdentifier("tms.destination")
-    .task { await reload() }
+    .task(id: model.phase) {
+      if model.phase == .ready {
+        await reload()
+      }
+    }
     .sheet(item: $draft) { draft in
       LiftEditor(draft: draft) { reviewedDraft in
         self.draft = nil
