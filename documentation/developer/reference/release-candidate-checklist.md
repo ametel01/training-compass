@@ -1,0 +1,80 @@
+# Local Training Core release-candidate checklist
+
+Issue #16 is the approval gate for the first owner-data milestone. The
+Acceptance Device is the owner's iPhone running the supported iOS release;
+Simulator numbers are regression signals only. A candidate is eligible only
+when the automated change, migration, UI, privacy, and acceptance-matrix gates
+pass and the attended device record is passing.
+
+## Critical journeys
+
+Run the optimized Release build through these journeys without clearing the
+application container between steps:
+
+1. First launch and resume: launch offline, confirm protected stores are ready,
+   background and resume, and confirm the privacy shield hides sensitive views.
+2. Training setup: configure all Progression Lifts and Loading Increments, edit
+   and explicitly save the Schedule Template, prepare and edit a Draft Training
+   Cycle, and activate it with the immutable prescription preview.
+3. Today logging: record performed, failed, omitted, and Additional Sets, close
+   and relaunch, then complete a Session and inspect planned-versus-actual work.
+4. Cycle lifecycle: skip a Session, finish a Training Week, complete and abandon
+   separate cycles, and inspect the lifecycle and change history.
+5. Progression: inspect e1RM evidence and independently accept, reject, and
+   manually replace Training Max Proposals without changing Active snapshots.
+6. Recovery: create and inspect a Training Compass Export, cancel and share it,
+   validate a replacement import, reject a corrupt archive, and verify temporary
+   files are removed.
+7. Erasure: open Full App Erasure, verify its local scope and external-copy
+   warning, confirm it, relaunch, and verify the first-launch state.
+
+The critical XCUITest suite covers the stable launch, navigation, recovery, and
+erasure accessibility contracts. The application and persistence suites cover
+the lifecycle permutations and injected failure points that are intentionally
+not repeated through UI automation. See the acceptance matrix for the exact
+evidence pointer for every rule and state transition.
+
+## Numeric release envelope
+
+Measure ten runs after one conditioning run and gate on the 95th percentile.
+HealthKit wait time is reported separately from app-controlled work.
+
+| Area | Budget |
+| --- | --- |
+| Cold launch to usable local interface | 1.5 seconds |
+| Foreground resume | 500 milliseconds |
+| Local mutation reflected on screen | 150 milliseconds |
+| Ordinary local query | 300 milliseconds |
+| Complex insight calculation | 750 milliseconds |
+| Foreground peak memory | 250 MiB |
+| Background peak memory | 100 MiB |
+| Combined persistent stores | 2 GiB |
+| Authoritative store | 250 MiB |
+| Simplified route geometry | 100 MiB |
+| Authoritative migration | 15 seconds |
+| Reconstructible migration | 60 seconds |
+| Export or replacement-import staging | 30 seconds |
+| Opportunistic background slice | 20 seconds |
+| Storage pause threshold | 500 MiB available |
+
+The verification envelope is 15 years, 25,000 Health Workouts, 10,000,000
+workout heart-rate samples, 250,000 sleep intervals, 50,000 resting-heart-rate
+samples, 100,000 HRV samples, 500 Training Cycles, 10,000 Sessions, 250,000
+sets, and 2,000 routes capped at 2,000 retained points each. It is a test
+envelope, never a retention limit.
+
+## Recovery and interruption evidence
+
+Terminate and retry every migration, export, import, and store-swap phase. The
+result must be either the original authoritative data or the fully validated
+replacement; a partial mixture is a failure. Duration overruns remain correct
+and produce a privacy-safe diagnostic. Insufficient space must refuse before
+mutation with a 20% safety margin. Storage pressure, Low Power Mode, battery
+below 20%, and serious thermal pressure pause discretionary rebuild work while
+leaving local training available.
+
+Record only device model, iOS version, battery health, available storage,
+thermal state, operation name, duration, coarse record/byte counts, and a
+pass/fail verdict. The validated measurement JSON contains only the named
+coarse budget values and `interruptionRecovery`; never record owner
+measurements, dates, identifiers, routes, or free-text notes.

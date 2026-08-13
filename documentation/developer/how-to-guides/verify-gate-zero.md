@@ -16,6 +16,7 @@ Personal Team signing is attended and is required only for the Acceptance Device
 ```sh
 make bootstrap
 make verify
+make acceptance
 make test-ui
 make verify-migrations
 ```

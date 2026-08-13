@@ -1,12 +1,13 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify test-ui fixtures verify-migrations device-smoke verify-release evidence
+.PHONY: help bootstrap verify test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance
 
 help:
 	@echo "Training Compass Gate 0 commands"
 	@echo "  make bootstrap"
 	@echo "  make verify"
+	@echo "  make acceptance"
 	@echo "  make test-ui"
 	@echo "  make fixtures"
 	@echo "  make verify-migrations"
@@ -19,6 +20,9 @@ bootstrap:
 
 verify:
 	@./scripts/verify.sh
+
+acceptance:
+	@python3 ./scripts/check-acceptance.py
 
 test-ui:
 	@./scripts/test-ui.sh

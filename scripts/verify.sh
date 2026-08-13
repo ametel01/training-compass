@@ -3,6 +3,7 @@ set -euo pipefail
 
 swift format lint --recursive --parallel --strict Sources Tests TrainingCompassApp TrainingCompassUITests
 ./scripts/check-boundaries.py
+python3 ./scripts/check-acceptance.py
 ./scripts/check-privacy.sh
 ./scripts/generate-fixtures.sh
 swift build

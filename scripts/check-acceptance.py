@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Validate the Local Training Core acceptance and release contracts.
+
+This is deliberately a small, dependency-free check.  The matrix is the
+traceability gate: a feature is not considered delivered merely because a
+screen or a unit test exists; each critical scenario needs an evidence
+pointer and an explicit device decision.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
+BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
+
+REQUIRED_SOURCES = range(1, 16)
+REQUIRED_BUDGETS = (
+    "1.5 seconds",
+    "500 milliseconds",
+    "150 milliseconds",
+    "300 milliseconds",
+    "750 milliseconds",
+    "250 MiB",
+    "100 MiB",
+    "2 GiB",
+    "15 seconds",
+    "60 seconds",
+    "30 seconds",
+    "20 seconds",
+    "500 MiB",
+)
+
+
+def table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def matrix_rows(text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    in_table = False
+    for line in text.splitlines():
+        if line.startswith("| Source | Scenario variant |"):
+            in_table = True
+            continue
+        if in_table and line.startswith("| ---"):
+            continue
+        if in_table and line.startswith("|"):
+            cells = table_cells(line)
+            if len(cells) >= 8:
+                rows.append(cells)
+            continue
+        if in_table and line.strip() and not line.startswith("|"):
+            break
+    return rows
+
+
+def coverage_rows(text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    marker = "| Source | Normal success | Domain boundary | Missing or partial data |"
+    in_table = False
+    for line in text.splitlines():
+        if line.startswith(marker):
+            in_table = True
+            continue
+        if in_table and line.startswith("| ---"):
+            continue
+        if in_table and line.startswith("|"):
+            cells = table_cells(line)
+            if len(cells) >= 6:
+                rows.append(cells)
+            continue
+        if in_table and line.strip() and not line.startswith("|"):
+            break
+    return rows
+
+
+def main() -> int:
+    errors: list[str] = []
+    matrix = MATRIX.read_text()
+    budgets = BUDGETS.read_text()
+
+    rows = matrix_rows(matrix)
+    sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
+    missing_sources = [number for number in REQUIRED_SOURCES if number not in sources]
+    if missing_sources:
+        errors.append(f"acceptance matrix is missing issue sources: {missing_sources}")
+
+    for source in REQUIRED_SOURCES:
+        source_rows = [row for row in rows if row[0].startswith(f"Issue #{source}:")]
+        if not source_rows:
+            errors.append(f"Issue #{source} has no scenario rows")
+        for row in source_rows:
+            if not row[5] or row[5].lower() in {"tbd", "todo"}:
+                errors.append(f"Issue #{source} has no evidence layer: {row[1]}")
+            if not row[7] or row[7].lower() in {"tbd", "todo"}:
+                errors.append(f"Issue #{source} has no latest evidence pointer: {row[1]}")
+
+    coverage = coverage_rows(matrix)
+    coverage_sources = {int(match.group(1)) for row in coverage if (match := re.match(r"Issue #(\d+)", row[0]))}
+    missing_coverage = [number for number in REQUIRED_SOURCES if number not in coverage_sources]
+    if missing_coverage:
+        errors.append(f"core coverage table is missing issue sources: {missing_coverage}")
+    for row in coverage:
+        if any(not cell or cell.lower() in {"tbd", "todo"} for cell in row[1:6]):
+            errors.append(f"core coverage row has an unclassified scenario: {row[0]}")
+
+    for budget in REQUIRED_BUDGETS:
+        if budget not in budgets:
+            errors.append(f"release-candidate checklist omits resolved budget {budget}")
+
+    if "Health authorization remains outside these slices." not in matrix:
+        errors.append("acceptance matrix must state that unfinished Health capabilities remain outside the Local Training Core")
+
+    if errors:
+        print("Acceptance contract check failed:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+
+    print("Acceptance matrix and release-candidate budget contract are complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

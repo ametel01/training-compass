@@ -1,6 +1,9 @@
 # Gate 0 acceptance matrix
 
-This matrix covers the Gate 0 shell and the implemented local training slices from GitHub issues #2 through #8.
+This matrix covers the Gate 0 shell and the implemented Local Training Core
+slices from GitHub issues #1 through #15. A row is evidence-backed only when
+its latest evidence pointer is current; a `Yes` device check means the
+Acceptance Device checklist must be completed for that scenario.
 
 | Source | Scenario variant | Preconditions | Seed | Expected external result | Evidence layer | Device check | Latest evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -22,9 +25,42 @@ This matrix covers the Gate 0 shell and the implemented local training slices fr
 | Issue #7: Complete Sessions with every set disposition | Performed, failed, omitted, additional, and completed logging | An Active Training Cycle has a Session intended for today | 21571 | Zero repetitions remain a failed Set Result; Omitted Sets replace any current result; ordered Additional Sets can be added, edited, reordered, and removed without changing prescriptions; completion is blocked until every prescription is resolved and explicitly confirmed; restart preserves dispositions and completion, and Today displays planned-versus-actual work | Domain, application, persistence, UI | No | `SessionLoggingBoundaryTests`; `SetResultRepositoryTests`; Today UI controls |
 | Issue #8: Correct and reopen Session work with audit history | Reopen, correct, rollback, and restart | An Active Training Cycle contains a Completed or Skipped Session | 21571 | Explicit confirmation reopens the Session and its finished week; an atomic correction replaces eligible mutable facts, records mandatory before/after values, timestamps, and an optional note, leaves superseded facts in audit history, and refuses terminal cycles | Domain, application, persistence | No | `SessionCorrectionRepositoryTests`; correction boundary |
 | Issue #9: Apply Calendar Changes and Program Edits | Calendar-only and cycle-only edits | An Active or Draft Training Cycle contains Scheduled Sessions | 21571 | Calendar Changes move only Scheduled Session dates with an outside-week warning; Program Edits add, remove, or change Scheduled Sessions inside the fixed week sequence; terminal and performed work remain unchanged; normal weeks can be separately confirmed as Schedule Template sources; history labels Calendar Changes and Program Edits | Domain, application, persistence, UI | No | `TrainingScheduleChangeBoundaryTests`; `TrainingScheduleChangeRepositoryTests`; Cycle history |
+| Issue #10: Finish, skip, complete, and abandon cycle work | Explicit lifecycle transitions and history | An Active Training Cycle contains Scheduled Sessions across ordered Training Weeks | 21571 | Passing dates do not auto-close work; Sessions and Weeks finish explicitly, bulk week skip audits each Session, completion advances cadence, abandonment preserves Unperformed Sessions, and history remains inspectable | Domain, application, persistence, UI | No | `TrainingCycleLifecycleTests`; cycle lifecycle UI |
 | Issue #11: Inspect per-lift e1RM progress | Eligible Plus Set history and transparent exclusions | At least one cycle contains recorded Set Results | 21571 | Progress calculates full-precision Epley e1RM only from normal-week Primary Plus Set Results with positive repetitions; shows latest, previous, cycle best, neutral trailing-90-day direction, Training Max context, source links, correction state, gaps, and an inspectable explanation of included and excluded records | Domain, insights, application, UI | No | `TrainingInsightsModuleTests`; Progress boundary; Progress destination |
 | Issue #12: Decide Training Max Proposals | Completed-cycle progression review | A Completed Training Cycle has been finished, including any due Deload Week | 21571 | One fixed per-lift proposal is created for each Progression Lift used as Primary; evidence, skipped/omitted work, independent decisions, future-cycle TM previews, immutable Active snapshots, and timestamped before/after Training Max History are retained | Domain, insights, application, persistence, UI | No | `TrainingMaxProposalRepositoryTests`; TMs proposal section |
 | Issue #13: Export Locally Authoritative Data | Preview, confirm, inspect, and share recovery artifact | Authoritative stores are ready; owner opens Export from TMs | 21571 | Every authoritative table and audit row is captured in a deterministic UTF-8 version-1 JSON archive with stable identifiers, readable summary, manifest, creation context, and SHA-256 integrity digest; optional HealthKit material is separately labelled, sensitive confirmation precedes creation, insufficient space refuses safely, and temporary files are removed after success, cancellation, or recoverable failure | Application, persistence, UI | Yes | `TrainingExportBoundaryTests`; `TrainingExportRepositoryTests`; Export UI |
 | Issue #14: Restore through validated replacement import | Inspect, validate, stage, and replace local recovery artifact | Owner selects a supported Training Compass Export | 21571 | Manifest, digest, schema, relationships, table shape, and domain invariants are checked before mutation; non-empty stores require export-first replacement confirmation; migration and projection regeneration happen in isolated same-volume staging; only a fully validated replacement is swapped in; failure restores the original; HealthKit reference material is never installed | Application, persistence, UI | Yes | `TrainingImportRepositoryTests`; Import UI |
 
-Health authorization remains outside these slices. Issues #13 and #14 now cover the owner-data recovery loop: deterministic export, integrity verification, validated staging migration, recoverable replacement, explicit export-first confirmation, optional HealthKit reference material, space refusal, privacy-safe failure handling, and temporary-file cleanup.
+| Issue #15: Full App Erasure | Confirmed local erasure and clean restart | The installation contains authoritative data, reconstructible data, and temporary export artifacts | 21571 | Explicit confirmation names every local copy and external copies; connections close, both protected stores and temporary artifacts are removed, interruption is safely retried, and first launch returns without deleting external HealthKit or backup copies | Application, persistence, UI, privacy | Yes | `TrainingErasureBoundaryTests`; `TrainingErasureRepositoryTests`; `TrainingCompassUITests` |
+
+## Required scenario-variant coverage
+
+Every delivered local-training source has an explicit entry for the five
+scenario classes from the implementation-gates decision. A `N/A` cell is an
+intentional boundary (for example, HealthKit is not shipped in Gate 0) and
+must name the automated evidence that proves the boundary.
+
+| Source | Normal success | Domain boundary | Missing or partial data | Interruption and retry | Privacy or recovery |
+| --- | --- | --- | --- | --- | --- |
+| Issue #1 | `TrainingCompassUITests.testLaunchShowsPreDataFourDestinationShell` | Unconfigured Cycle/Progress have no mutation path | `PreparePreDataShellTests` | `ProtectedStoreBootstrapTests` | Privacy shield and protected-store assertions |
+| Issue #2 | `LiftConfigurationBoundaryTests` valid edit | Invalid and non-positive references | Unconfigured lift rejection | Interrupted/stale confirmation tests | Corrective audit test |
+| Issue #3 | `ScheduleTemplateBoundaryTests` default and save | Empty or unconfigured template rejection | Missing lift configuration | Stale replacement test | Reset replacement audit |
+| Issue #4 | `TrainingCycleBoundaryTests` draft creation | One-draft and fixed-week constraints | Active-cycle and cadence variants | Draft repository restart test | Discard confirmation audit |
+| Issue #5 | Activation and immutable prescriptions | Past-anchor and rounding boundaries | Missing Training Max blocks activation | Activation replacement preview | Snapshot persistence test |
+| Issue #6 | `SessionLoggingBoundaryTests` result recording | Zero/non-loadable result validation | Unrecorded scheduled work | Busy reconciliation responsiveness test | Result restart persistence |
+| Issue #7 | Completion with every disposition | Omitted/failed/additional distinctions | Incomplete set blocks completion | Ordered additional-set restart test | Planned-versus-actual completion view |
+| Issue #8 | Reopen and correct current work | Terminal cycle cannot be rewritten | Skipped-session reopening | Atomic rollback and repeated correction | Before/after audit history |
+| Issue #9 | Calendar Change and Program Edit | Performed/terminal work is immutable | Scheduled-only edit boundary | Repository restart projection | Separate audited change kinds |
+| Issue #10 | Finish, complete, and abandon lifecycle | Sequential week and no bulk-cycle skip | Unperformed Sessions after abandonment | Lifecycle migration/restart tests | History and cadence preservation |
+| Issue #11 | Eligible Plus Set e1RM history | One-rep and zero-rep boundaries | Excluded assistance, deload, omitted work | Correction projection restart | Inspectable source explanation |
+| Issue #12 | Independent proposal decisions | Fixed per-lift increments | Abandoned/deload-incomplete cycle | Decision persistence restart | Immutable active snapshots and history |
+| Issue #13 | Deterministic full-fidelity export | Sensitive confirmation and space refusal | Optional HealthKit reference material | Cancellation/interruption cleanup | Inspectable archive and redacted diagnostics |
+| Issue #14 | Validated replacement import | Corrupt/unsupported/invariant-breaking archive | Non-empty export-first confirmation | Swap interruption and rollback | Stable identities and no HealthKit install |
+| Issue #15 | Confirmed Full App Erasure | Cancelled confirmation leaves data | Missing temporary artifacts are safe | Interrupted erasure completes before reopen | External copies remain explicitly out of scope |
+
+Health authorization remains outside these slices. Issues #13 through #15 now
+cover the owner-data recovery loop: deterministic export, integrity
+verification, validated staging migration, recoverable replacement, explicit
+export-first confirmation, optional HealthKit reference material, privacy-safe
+failure handling, temporary-file cleanup, and Full App Erasure. No Health
+capability is presented as complete by this matrix.

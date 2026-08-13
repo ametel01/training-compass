@@ -1,0 +1,18 @@
+{
+  "authoritativeMigrationP95S": 1,
+  "authoritativeStoreMiB": 1,
+  "backgroundPeakMiB": 1,
+  "backgroundSliceS": 1,
+  "coldLaunchP95Ms": 1,
+  "combinedStoresGiB": 1,
+  "exportImportStagingP95S": 1,
+  "foregroundPeakMiB": 1,
+  "foregroundResumeP95Ms": 1,
+  "insightP95Ms": 1,
+  "interruptionRecovery": true,
+  "localMutationP95Ms": 1,
+  "ordinaryQueryP95Ms": 1,
+  "reconstructibleMigrationP95S": 1,
+  "routeGeometryMiB": 1,
+  "storageAvailableMiB": 500
+}

@@ -15,5 +15,9 @@ from pathlib import Path
 record = json.loads(Path("evidence/device/gate-0.json").read_text())
 if record.get("result") != "pass":
     raise SystemExit("Release verification refused: device evidence is not passing.")
+if record.get("ownerDataAccepted") is not True:
+    raise SystemExit("Release verification refused: owner-data approval is missing.")
+if "measurements" not in record:
+    raise SystemExit("Release verification refused: release measurements are missing.")
 PY
-echo "Gate 0 release protocol passed. This still does not approve owner data."
+echo "Local Training Core release protocol passed; this build is approved for owner data."
