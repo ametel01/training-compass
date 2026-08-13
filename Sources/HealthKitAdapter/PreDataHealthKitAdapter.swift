@@ -64,10 +64,13 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
         return .init(workouts: [], reconciliationContext: "health-unavailable")
       }
       let page = try await fetchWorkouts(after: pageToken)
+      let hasContinuation = page.workouts.count >= 100
       return .init(
         workouts: page.workouts,
-        nextPageToken: page.nextPageToken,
-        reconciliationContext: "foreground-initial")
+        nextPageToken: hasContinuation ? page.nextPageToken : nil,
+        anchor: page.nextPageToken,
+        reconciliationContext: "foreground-initial",
+        deletedHealthKitUUIDs: page.deletedHealthKitUUIDs)
     #else
       return .init(workouts: [], reconciliationContext: "health-unavailable")
     #endif
@@ -75,7 +78,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
 
   #if canImport(HealthKit)
     private func fetchWorkouts(after pageToken: String?) async throws -> (
-      workouts: [HealthWorkout], nextPageToken: String?
+      workouts: [HealthWorkout], deletedHealthKitUUIDs: [String], nextPageToken: String?
     ) {
       let sampleType = HKObjectType.workoutType()
       return try await withCheckedThrowingContinuation { continuation in
@@ -84,7 +87,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
           predicate: nil,
           anchor: Self.anchor(from: pageToken),
           limit: 100
-        ) { _, samples, _, anchor, error in
+        ) { _, samples, deletedObjects, anchor, error in
           if let error {
             continuation.resume(throwing: error)
             return
@@ -92,8 +95,9 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
           let values = (samples as? [HKWorkout] ?? []).map { workout in
             Self.map(workout)
           }
+          let deleted = (deletedObjects ?? []).map(\.uuid.uuidString)
           continuation.resume(
-            returning: (values, Self.token(for: anchor)))
+            returning: (values, deleted, Self.token(for: anchor)))
         }
         store.execute(query)
       }

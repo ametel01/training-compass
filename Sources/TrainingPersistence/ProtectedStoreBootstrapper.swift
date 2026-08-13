@@ -444,6 +444,32 @@ public struct ProtectedStoreBootstrapper: Sendable {
       try db.create(
         index: "health_workouts_local_date", on: "health_workouts", columns: ["local_date"])
     }
+    migrator.registerMigration("reconstructible_v3_health_sync_ledger") { db in
+      try db.create(table: "health_sync_streams") { table in
+        table.column("stream", .text).primaryKey()
+        table.column("anchor", .text)
+        table.column("has_limited_history", .boolean).notNull().defaults(to: false)
+        table.column("reconciliation_context", .text).notNull()
+        table.column("committed_at", .double).notNull()
+      }
+      try db.create(table: "health_sync_facts") { table in
+        table.column("id", .text).primaryKey()
+        table.column("stream", .text).notNull()
+        table.column("kind", .text).notNull()
+        table.column("healthkit_uuid", .text).notNull()
+        table.column("observed_at", .double).notNull()
+      }
+      try db.create(
+        index: "health_sync_facts_stream_time",
+        on: "health_sync_facts",
+        columns: ["stream", "observed_at"]
+      )
+      try db.create(table: "health_workout_deletions") { table in
+        table.column("healthkit_uuid", .text).primaryKey()
+        table.column("deleted_at", .double).notNull()
+        table.column("reconciliation_context", .text).notNull()
+      }
+    }
     return migrator
   }
 

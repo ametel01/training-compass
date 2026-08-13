@@ -76,6 +76,28 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertTrue(authorization.hasLimitedHistory)
   }
 
+  func testCoordinatorResumesFromCommittedAnchorAndCoalescesTriggers() async throws {
+    let client = SequencedHealthClient(pages: [
+      HealthWorkoutPage(workouts: [fixture("one")], nextPageToken: "anchor-1"),
+      HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: ["one"]),
+    ])
+    let repository = SyncRepository()
+    let coordinator = HealthSyncCoordinator(client: client, repository: repository)
+
+    async let first = coordinator.foreground()
+    async let second = coordinator.observerInvalidated()
+    let firstResult = try await first
+    let secondResult = try await second
+    XCTAssertEqual(firstResult.pagesCommitted, 2)
+    XCTAssertEqual(secondResult.pagesCommitted, 2)
+    let anchors = await client.requestedAnchors
+    let checkpoint = await repository.checkpoint
+    let loaded = try await repository.loadHealthWorkouts()
+    XCTAssertEqual(anchors, [nil, "anchor-1"])
+    XCTAssertEqual(checkpoint?.anchor, nil)
+    XCTAssertTrue(loaded.isEmpty)
+  }
+
   private func fixture(_ id: String) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: id,
@@ -129,4 +151,61 @@ private actor FakeHealthRepository: HealthWorkoutRepository {
 private actor ProgressCollector {
   private(set) var values: [HealthWorkoutImportProgress] = []
   func append(_ value: HealthWorkoutImportProgress) { values.append(value) }
+}
+
+private actor SequencedHealthClient: HealthWorkoutClient {
+  let pages: [HealthWorkoutPage]
+  private(set) var requestedAnchors: [String?] = []
+  private var index = 0
+
+  init(pages: [HealthWorkoutPage]) { self.pages = pages }
+
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot {
+    .init(state: .authorized, requested: request)
+  }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    requestedAnchors.append(pageToken)
+    let page = pages[min(index, pages.count - 1)]
+    index += 1
+    return page
+  }
+}
+
+private actor SyncRepository: HealthWorkoutRepository {
+  private var values: [HealthWorkout] = []
+  private(set) var checkpoint: HealthSyncCheckpoint?
+
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
+  {
+    values = workouts
+  }
+
+  func loadHealthWorkouts() async throws -> [HealthWorkout] { values }
+
+  func commitHealthWorkoutPage(
+    _ page: HealthWorkoutPage,
+    stream: HealthSyncStream,
+    limits: HealthSyncBatchLimits
+  ) async throws {
+    for uuid in page.deletedHealthKitUUIDs { values.removeAll { $0.healthKitUUID == uuid } }
+    for workout in page.workouts {
+      values.removeAll { $0.healthKitUUID == workout.healthKitUUID }
+      values.append(workout)
+    }
+    checkpoint = HealthSyncCheckpoint(
+      stream: stream,
+      anchor: page.nextAnchor,
+      reconciliationContext: page.reconciliationContext
+    )
+  }
+
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
+  {
+    checkpoint
+  }
 }

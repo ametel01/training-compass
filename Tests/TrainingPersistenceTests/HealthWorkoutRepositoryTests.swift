@@ -40,6 +40,35 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertEqual(afterRestart, loaded)
   }
 
+  func testAnchoredPageCommitDeletesAndCheckpointsAtomically() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-health-sync-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let first = workout(activity: "running", source: "Watch")
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [first], nextPageToken: "anchor-1"),
+      stream: .workouts,
+      limits: .default
+    )
+    let firstCheckpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
+    XCTAssertEqual(firstCheckpoint?.anchor, "anchor-1")
+
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(
+        workouts: [],
+        reconciliationContext: "observer",
+        deletedHealthKitUUIDs: [first.healthKitUUID]
+      ),
+      stream: .workouts,
+      limits: .default
+    )
+    let loaded = try await repository.loadHealthWorkouts()
+    let finalCheckpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
+    XCTAssertTrue(loaded.isEmpty)
+    XCTAssertNil(finalCheckpoint?.anchor)
+  }
+
   private func workout(activity: String, source: String) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: "health-uuid",

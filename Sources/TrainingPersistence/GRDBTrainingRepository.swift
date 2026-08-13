@@ -225,6 +225,183 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  /// Commits one anchored Health page as a single reconstructible transaction.
+  /// The workout rows, deletion ledger, fact ledger, and stream checkpoint are
+  /// all updated together; a failed statement therefore leaves the previous
+  /// anchor and cached view untouched.
+  public func commitHealthWorkoutPage(
+    _ page: HealthWorkoutPage,
+    stream: HealthSyncStream,
+    limits: HealthSyncBatchLimits
+  ) async throws {
+    try limits.validate(page: page)
+    let stores = try await readyStores()
+    let committedAt = Date()
+    try await stores.reconstructible.write { db in
+      let existingUUIDs = Set(
+        try String.fetchAll(
+          db,
+          sql: "SELECT healthkit_uuid FROM health_workouts"
+        ))
+      for workout in page.workouts {
+        try db.execute(
+          sql: """
+            INSERT INTO health_workouts
+              (healthkit_uuid, activity_type, start_date, end_date, duration,
+               source_name, source_bundle_identifier, source_product_type, source_os_version,
+               device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+               first_imported_at, reconciliation_context, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(healthkit_uuid) DO UPDATE SET
+              activity_type = excluded.activity_type,
+              start_date = excluded.start_date,
+              end_date = excluded.end_date,
+              duration = excluded.duration,
+              source_name = excluded.source_name,
+              source_bundle_identifier = excluded.source_bundle_identifier,
+              source_product_type = excluded.source_product_type,
+              source_os_version = excluded.source_os_version,
+              device_name = excluded.device_name,
+              device_model = excluded.device_model,
+              source_timezone_identifier = excluded.source_timezone_identifier,
+              local_date = excluded.local_date,
+              timezone_source = excluded.timezone_source,
+              reconciliation_context = excluded.reconciliation_context,
+              updated_at = excluded.updated_at
+            """,
+          arguments: [
+            workout.healthKitUUID,
+            workout.activityType,
+            workout.startDate.timeIntervalSince1970,
+            workout.endDate.timeIntervalSince1970,
+            workout.duration,
+            workout.sourceName,
+            workout.sourceBundleIdentifier,
+            workout.sourceProductType,
+            workout.sourceOSVersion,
+            workout.deviceName,
+            workout.deviceModel,
+            workout.sourceTimeZoneIdentifier,
+            workout.localDate,
+            workout.timeZoneSource.rawValue,
+            workout.firstImportedAt.timeIntervalSince1970,
+            workout.reconciliationContext ?? page.reconciliationContext,
+            committedAt.timeIntervalSince1970,
+          ]
+        )
+      }
+
+      for uuid in Set(page.deletedHealthKitUUIDs) where !uuid.isEmpty {
+        try db.execute(
+          sql: "DELETE FROM health_workouts WHERE healthkit_uuid = ?",
+          arguments: [uuid]
+        )
+        try db.execute(
+          sql: """
+            INSERT INTO health_workout_deletions
+              (healthkit_uuid, deleted_at, reconciliation_context)
+            VALUES (?, ?, ?)
+            ON CONFLICT(healthkit_uuid) DO UPDATE SET
+              deleted_at = excluded.deleted_at,
+              reconciliation_context = excluded.reconciliation_context
+            """,
+          arguments: [uuid, committedAt.timeIntervalSince1970, page.reconciliationContext]
+        )
+      }
+
+      for workout in page.workouts {
+        let kind: HealthSyncFact.Kind =
+          existingUUIDs.contains(workout.healthKitUUID)
+          ? .replaced
+          : .added
+        let id =
+          "\(stream.rawValue):\(kind.rawValue):\(workout.healthKitUUID):\(page.nextAnchor ?? "final")"
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO health_sync_facts
+              (id, stream, kind, healthkit_uuid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            id, stream.rawValue, kind.rawValue, workout.healthKitUUID,
+            committedAt.timeIntervalSince1970,
+          ]
+        )
+      }
+      for fact in page.streamFacts {
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO health_sync_facts
+              (id, stream, kind, healthkit_uuid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            fact.id, stream.rawValue, fact.kind.rawValue, fact.healthKitUUID,
+            fact.observedAt.timeIntervalSince1970,
+          ]
+        )
+      }
+      for uuid in Set(page.deletedHealthKitUUIDs) where !uuid.isEmpty {
+        let id = "\(stream.rawValue):deleted:\(uuid):\(page.nextAnchor ?? "final")"
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO health_sync_facts
+              (id, stream, kind, healthkit_uuid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            id, stream.rawValue, HealthSyncFact.Kind.deleted.rawValue, uuid,
+            committedAt.timeIntervalSince1970,
+          ]
+        )
+      }
+
+      try db.execute(
+        sql: """
+          INSERT INTO health_sync_streams
+            (stream, anchor, has_limited_history, reconciliation_context, committed_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(stream) DO UPDATE SET
+            anchor = excluded.anchor,
+            has_limited_history = excluded.has_limited_history,
+            reconciliation_context = excluded.reconciliation_context,
+            committed_at = excluded.committed_at
+          """,
+        arguments: [
+          stream.rawValue,
+          page.nextAnchor,
+          page.hasLimitedHistory,
+          page.reconciliationContext,
+          committedAt.timeIntervalSince1970,
+        ]
+      )
+    }
+  }
+
+  public func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
+    -> HealthSyncCheckpoint?
+  {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      try Row.fetchOne(
+        db,
+        sql: """
+          SELECT anchor, has_limited_history, reconciliation_context, committed_at
+          FROM health_sync_streams WHERE stream = ?
+          """,
+        arguments: [stream.rawValue]
+      ).map { row in
+        HealthSyncCheckpoint(
+          stream: stream,
+          anchor: row["anchor"] as String?,
+          hasLimitedHistory: row["has_limited_history"],
+          reconciliationContext: row["reconciliation_context"],
+          committedAt: Date(timeIntervalSince1970: row["committed_at"])
+        )
+      }
+    }
+  }
+
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
