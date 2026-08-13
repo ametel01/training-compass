@@ -414,6 +414,20 @@ public struct ProtectedStoreBootstrapper: Sendable {
           """
       )
     }
+    migrator.registerMigration("authoritative_v12_health_workout_link_facts") { db in
+      try db.create(table: "health_workout_link_facts") { table in
+        table.column("id", .text).primaryKey()
+        table.column("healthkit_uuid", .text).notNull()
+        table.column("local_entity_kind", .text).notNull()
+        table.column("local_entity_id", .text).notNull()
+        table.column("linked_at", .double).notNull()
+      }
+      try db.create(
+        index: "health_workout_link_facts_uuid",
+        on: "health_workout_link_facts",
+        columns: ["healthkit_uuid", "linked_at"]
+      )
+    }
     return migrator
   }
 
@@ -468,6 +482,15 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("healthkit_uuid", .text).primaryKey()
         table.column("deleted_at", .double).notNull()
         table.column("reconciliation_context", .text).notNull()
+      }
+    }
+    migrator.registerMigration("reconstructible_v4_health_rebuild_state") { db in
+      try db.create(table: "health_rebuild_state") { table in
+        table.column("id", .integer).primaryKey()
+        table.column("phase", .text).notNull()
+        table.column("completed_streams", .text).notNull()
+        table.column("started_at", .double).notNull()
+        table.column("updated_at", .double).notNull()
       }
     }
     return migrator

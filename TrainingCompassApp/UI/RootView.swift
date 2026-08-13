@@ -100,6 +100,7 @@ private struct HealthView: View {
           Button("Not now") {
             Task { await model.healthWorkoutImportBoundary?.postponeHealth() }
             authorization = .init(state: .postponed)
+            Task { await model.healthDataRebuildBoundary?.setAuthorization(authorization) }
           }
           .disabled(isConnecting)
           .accessibilityIdentifier("health.postpone")
@@ -120,6 +121,15 @@ private struct HealthView: View {
           Text("Health data is unavailable on this device. Local training remains fully available.")
             .foregroundStyle(.secondary)
         }
+      }
+
+      Section("Deep repair") {
+        NavigationLink {
+          HealthDataRebuildView(model: model)
+        } label: {
+          Label("Rebuild Health Data", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .accessibilityIdentifier("health.rebuild")
       }
 
       Section("Health Workouts") {
@@ -167,6 +177,7 @@ private struct HealthView: View {
     .task(id: "\(model.phase)-\(scenePhase)") {
       guard model.phase == .ready, let boundary = model.healthWorkoutImportBoundary else { return }
       authorization = await boundary.authorizationSnapshot()
+      await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
       importedWorkouts = (try? await boundary.cachedWorkouts()) ?? []
       if scenePhase == .active, authorization.state == .authorized {
@@ -192,6 +203,7 @@ private struct HealthView: View {
     defer { isConnecting = false }
     do {
       authorization = try await boundary.connectHealth()
+      await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
       if authorization.state == .authorized { await importWorkouts() }
     } catch {
@@ -217,6 +229,7 @@ private struct HealthView: View {
           }
         }
         authorization = await boundary.authorizationSnapshot()
+        await model.healthDataRebuildBoundary?.setAuthorization(authorization)
         healthStatus = await boundary.healthDataStatus()
         importedWorkouts = try await boundary.cachedWorkouts()
         if result.state == .successfulEmpty { importedWorkouts = [] }
@@ -307,6 +320,109 @@ private struct HealthStatusSection: View {
     if status.isUpdating {
       ProgressView("Reconciliation is active; cached views remain available.")
         .font(.caption)
+    }
+  }
+}
+
+private struct HealthDataRebuildView: View {
+  let model: AppModel
+
+  @State private var state: HealthRebuildState?
+  @State private var progress: HealthRebuildProgress?
+  @State private var isRebuilding = false
+  @State private var showingConfirmation = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    List {
+      Section("Rebuild Health data") {
+        Text(
+          "This is a confirmed deep repair. It discards the HealthKit Mirror, derived projections, stream anchors, and reconstructible checkpoints. Locally Authoritative Data—your training, Sessions, results, and audit history—is preserved."
+        )
+        .font(.subheadline)
+
+        if let progress {
+          VStack(alignment: .leading, spacing: 6) {
+            ProgressView(value: progress.fraction)
+            Text(progress.message).font(.caption)
+            if let stream = progress.stream {
+              Text("Area: \(stream.displayName)").font(.caption2).foregroundStyle(.secondary)
+            }
+          }
+          .accessibilityIdentifier("health.rebuild.progress")
+        } else if let state, state.phase == .paused || state.phase == .failed {
+          Text(
+            state.phase == .paused
+              ? "A previous rebuild paused safely. Continue to resume from its last committed batch."
+              : "The previous rebuild did not complete. Confirm again to retry safely."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+
+        Button(isRebuilding ? "Rebuilding Health data…" : "Rebuild Health data") {
+          showingConfirmation = true
+        }
+        .disabled(isRebuilding || model.healthDataRebuildBoundary == nil)
+        .accessibilityIdentifier("health.rebuild.confirm")
+      }
+    }
+    .navigationTitle("Health Data Rebuild")
+    .confirmationDialog(
+      "Rebuild Health data?",
+      isPresented: $showingConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Rebuild Health data", role: .destructive) {
+        Task { await rebuild() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "The HealthKit Mirror, derived projections, anchors, and reconstructible checkpoints will be discarded and regenerated. Locally Authoritative Data will remain."
+      )
+    }
+    .task {
+      if let healthBoundary = model.healthWorkoutImportBoundary,
+        let rebuildBoundary = model.healthDataRebuildBoundary
+      {
+        let authorization = await healthBoundary.authorizationSnapshot()
+        await rebuildBoundary.setAuthorization(authorization)
+      }
+      state = await model.healthDataRebuildBoundary?.currentState()
+    }
+    .alert(
+      "Health rebuild unavailable",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again later.")
+    }
+  }
+
+  private func rebuild() async {
+    guard let boundary = model.healthDataRebuildBoundary else { return }
+    isRebuilding = true
+    defer { isRebuilding = false }
+    do {
+      let result = try await boundary.rebuild(confirmation: .confirmed) { update in
+        await MainActor.run { progress = update }
+      }
+      state = result.state
+      progress = nil
+    } catch HealthRebuildError.cancelled {
+      state = await boundary.currentState()
+    } catch HealthRebuildError.insufficientStorage(let required, let available) {
+      errorMessage =
+        "Not enough staging space is available (requires \(required) bytes, has \(available) bytes)."
+    } catch {
+      state = await boundary.currentState()
+      errorMessage =
+        "Health data could not be rebuilt. Local training and authoritative history remain available."
     }
   }
 }
@@ -2203,6 +2319,12 @@ private struct SettingsView: View {
           Label("Health Data Status", systemImage: "heart.text.square")
         }
         .accessibilityIdentifier("settings.health-status")
+        NavigationLink {
+          HealthDataRebuildView(model: model)
+        } label: {
+          Label("Rebuild Health Data", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .accessibilityIdentifier("settings.health-rebuild")
       }
     }
     .navigationTitle("Settings")

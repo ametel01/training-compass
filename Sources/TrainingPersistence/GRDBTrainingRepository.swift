@@ -3,7 +3,7 @@ import GRDB
 import TrainingApplication
 
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
-  TrainingErasureRepository, HealthWorkoutRepository
+  TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -182,6 +182,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             Date().timeIntervalSince1970,
           ]
         )
+        try db.execute(
+          sql: "DELETE FROM health_workout_deletions WHERE healthkit_uuid = ?",
+          arguments: [workout.healthKitUUID]
+        )
       }
     }
   }
@@ -238,12 +242,11 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     let stores = try await readyStores()
     let committedAt = Date()
     try await stores.reconstructible.write { db in
-      let existingUUIDs = Set(
-        try String.fetchAll(
-          db,
-          sql: "SELECT healthkit_uuid FROM health_workouts"
-        ))
-      for workout in page.workouts {
+      let existingUUIDs: Set<String> =
+        stream == .workouts
+        ? Set(try String.fetchAll(db, sql: "SELECT healthkit_uuid FROM health_workouts"))
+        : []
+      for workout in page.workouts where stream == .workouts {
         try db.execute(
           sql: """
             INSERT INTO health_workouts
@@ -289,9 +292,13 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             committedAt.timeIntervalSince1970,
           ]
         )
+        try db.execute(
+          sql: "DELETE FROM health_workout_deletions WHERE healthkit_uuid = ?",
+          arguments: [workout.healthKitUUID]
+        )
       }
 
-      for uuid in Set(page.deletedHealthKitUUIDs) where !uuid.isEmpty {
+      for uuid in Set(page.deletedHealthKitUUIDs) where stream == .workouts && !uuid.isEmpty {
         try db.execute(
           sql: "DELETE FROM health_workouts WHERE healthkit_uuid = ?",
           arguments: [uuid]
@@ -309,7 +316,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         )
       }
 
-      for workout in page.workouts {
+      for workout in page.workouts where stream == .workouts {
         let kind: HealthSyncFact.Kind =
           existingUUIDs.contains(workout.healthKitUUID)
           ? .replaced
@@ -418,6 +425,158 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0
     }
     return .init(stream: stream, recordCount: count < 0 ? nil : count)
+  }
+
+  public func estimateHealthRebuildStorage(
+    policy: HealthRebuildStoragePolicy
+  ) async throws -> HealthRebuildStorageEstimate {
+    let stores = try await readyStores()
+    let recordCount = try await stores.reconstructible.read { db -> Int in
+      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_workouts") ?? 0
+    }
+    let stagingBytes = max(
+      policy.estimatedBytesPerRecord, recordCount * policy.estimatedBytesPerRecord)
+    let available =
+      (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage)
+      ?? Int64.max
+    return .init(
+      stagingBytes: stagingBytes,
+      safetyMarginBytes: policy.safetyMarginBytes,
+      availableBytes: Int(min(Int64(Int.max), max(0, available))))
+  }
+
+  public func loadHealthRebuildState() async throws -> HealthRebuildState? {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      try Row.fetchOne(
+        db,
+        sql: """
+          SELECT phase, completed_streams, started_at, updated_at
+          FROM health_rebuild_state WHERE id = 1
+          """
+      ).map { row in
+        let streams =
+          (try? JSONDecoder().decode(
+            [HealthSyncStream].self, from: Data((row["completed_streams"] as String).utf8))) ?? []
+        return HealthRebuildState(
+          phase: HealthRebuildPhase(rawValue: row["phase"] as String) ?? .failed,
+          completedStreams: streams,
+          startedAt: Date(timeIntervalSince1970: row["started_at"]),
+          updatedAt: Date(timeIntervalSince1970: row["updated_at"])
+        )
+      }
+    }
+  }
+
+  public func beginHealthRebuild() async throws {
+    let stores = try await readyStores()
+    let now = Date().timeIntervalSince1970
+    let encoded = String(data: try JSONEncoder().encode([HealthSyncStream]()), encoding: .utf8)!
+    try await stores.reconstructible.write { db in
+      // Only reconstructible Health state is discarded. The authoritative
+      // store (sessions, results, audits, and future link facts) is untouched.
+      try db.execute(sql: "DELETE FROM health_workouts")
+      try db.execute(sql: "DELETE FROM health_workout_deletions")
+      try db.execute(sql: "DELETE FROM health_sync_facts")
+      try db.execute(sql: "DELETE FROM health_sync_streams")
+      try db.execute(
+        sql: """
+          INSERT INTO health_rebuild_state (id, phase, completed_streams, started_at, updated_at)
+          VALUES (1, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            phase = excluded.phase,
+            completed_streams = excluded.completed_streams,
+            started_at = excluded.started_at,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [HealthRebuildPhase.rebuilding.rawValue, encoded, now, now]
+      )
+    }
+  }
+
+  public func updateHealthRebuildState(_ state: HealthRebuildState) async throws {
+    let stores = try await readyStores()
+    let encoded = String(
+      data: try JSONEncoder().encode(state.completedStreams), encoding: .utf8)!
+    try await stores.reconstructible.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO health_rebuild_state (id, phase, completed_streams, started_at, updated_at)
+          VALUES (1, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            phase = excluded.phase,
+            completed_streams = excluded.completed_streams,
+            started_at = excluded.started_at,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [
+          state.phase.rawValue, encoded, state.startedAt.timeIntervalSince1970,
+          state.updatedAt.timeIntervalSince1970,
+        ]
+      )
+    }
+  }
+
+  public func regenerateHealthDerivedProjections() async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write(Self.regenerateProjections)
+  }
+
+  public func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_link_facts
+            (id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            healthkit_uuid = excluded.healthkit_uuid,
+            local_entity_kind = excluded.local_entity_kind,
+            local_entity_id = excluded.local_entity_id,
+            linked_at = excluded.linked_at
+          """,
+        arguments: [
+          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.linkedAt.timeIntervalSince1970,
+        ]
+      )
+    }
+  }
+
+  public func loadHealthWorkoutLinkFacts(for healthKitUUID: String? = nil) async throws
+    -> [HealthWorkoutLinkFact]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      let rows: [Row]
+      if let healthKitUUID {
+        rows = try Row.fetchAll(
+          db,
+          sql: """
+            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at
+            FROM health_workout_link_facts WHERE healthkit_uuid = ? ORDER BY linked_at, id
+            """,
+          arguments: [healthKitUUID]
+        )
+      } else {
+        rows = try Row.fetchAll(
+          db,
+          sql: """
+            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at
+            FROM health_workout_link_facts ORDER BY linked_at, id
+            """
+        )
+      }
+      return rows.map {
+        HealthWorkoutLinkFact(
+          id: $0["id"], healthKitUUID: $0["healthkit_uuid"],
+          localEntityKind: $0["local_entity_kind"], localEntityID: $0["local_entity_id"],
+          linkedAt: Date(timeIntervalSince1970: $0["linked_at"])
+        )
+      }
+    }
   }
 
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
@@ -2116,6 +2275,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "lift_configuration_audit", "schedule_template_audit", "training_cycle_audit",
     "set_result_audit",
     "session_correction_audit", "training_max_proposals", "training_max_history",
+    "health_workout_link_facts",
   ]
 
   public func sessionCorrectionAuditHistory(for sessionID: String) async throws

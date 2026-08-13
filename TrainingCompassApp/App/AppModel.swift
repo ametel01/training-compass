@@ -27,6 +27,7 @@ final class AppModel {
   let trainingImportBoundary: TrainingImportBoundary?
   let trainingErasureBoundary: TrainingErasureBoundary?
   let healthWorkoutImportBoundary: HealthWorkoutImportBoundary?
+  let healthDataRebuildBoundary: HealthDataRebuildBoundary?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -39,7 +40,8 @@ final class AppModel {
     trainingExportBoundary: TrainingExportBoundary,
     trainingImportBoundary: TrainingImportBoundary? = nil,
     trainingErasureBoundary: TrainingErasureBoundary? = nil,
-    healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil
+    healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil,
+    healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -52,6 +54,7 @@ final class AppModel {
     self.trainingImportBoundary = trainingImportBoundary
     self.trainingErasureBoundary = trainingErasureBoundary
     self.healthWorkoutImportBoundary = healthWorkoutImportBoundary
+    self.healthDataRebuildBoundary = healthDataRebuildBoundary
   }
 
   func prepare() async {
@@ -144,6 +147,16 @@ final class AppModel {
           let healthRepository = repository as? any HealthWorkoutRepository
         else { return nil }
         return HealthWorkoutImportBoundary(client: healthClient, repository: healthRepository)
+      }(),
+      healthDataRebuildBoundary: {
+        guard let healthClient = dependencies.healthKit as? any HealthWorkoutClient,
+          let healthRepository = repository as? any HealthWorkoutRepository
+        else { return nil }
+        let storageProvider = repository as? any HealthRebuildStorageProviding
+        return HealthDataRebuildBoundary(
+          client: healthClient,
+          repository: healthRepository,
+          storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider())
       }()
     )
   }

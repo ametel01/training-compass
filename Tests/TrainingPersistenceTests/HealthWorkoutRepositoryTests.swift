@@ -69,6 +69,33 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertNil(finalCheckpoint?.anchor)
   }
 
+  func testDeepRebuildClearsReconstructibleStateButRetainsAuthoritativeHealthLinkFacts()
+    async throws
+  {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-health-rebuild-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let link = HealthWorkoutLinkFact(
+      id: "link-1", healthKitUUID: "returning-uuid", localEntityKind: "session",
+      localEntityID: "session-1", linkedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    try await repository.saveHealthWorkoutLinkFact(link)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(
+        workouts: [workout(activity: "running", source: "Watch")], anchor: "old-anchor"),
+      stream: .workouts,
+      limits: .default
+    )
+
+    try await repository.beginHealthRebuild()
+    let workouts = try await repository.loadHealthWorkouts()
+    let checkpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
+    let links = try await repository.loadHealthWorkoutLinkFacts(for: "returning-uuid")
+    XCTAssertTrue(workouts.isEmpty)
+    XCTAssertNil(checkpoint)
+    XCTAssertEqual(links, [link])
+  }
+
   private func workout(activity: String, source: String) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: "health-uuid",

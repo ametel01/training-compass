@@ -53,7 +53,8 @@ let authoritativeTables = try stores.authoritative.read { db in
           'schedule_template_sessions', 'schedule_template_audit', 'training_cycles',
           'training_cycle_audit', 'set_results', 'set_result_audit', 'omitted_sets',
           'additional_sets', 'session_completions', 'session_projections',
-          'session_correction_audit', 'training_max_proposals', 'training_max_history'
+          'session_correction_audit', 'training_max_proposals', 'training_max_history',
+          'health_workout_link_facts'
         )
         """
     ))
@@ -64,10 +65,10 @@ guard
     "schedule_template_audit", "training_cycles", "training_cycle_audit", "set_results",
     "set_result_audit", "omitted_sets", "additional_sets", "session_completions",
     "session_projections", "session_correction_audit",
-    "training_max_proposals", "training_max_history",
+    "training_max_proposals", "training_max_history", "health_workout_link_facts",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v11")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v12")
 }
 
 let authoritativeRowCount = try reopenedStores.authoritative.read { db in
@@ -86,20 +87,22 @@ let reconstructibleTables = try reopenedStores.reconstructible.read { db in
       db,
       sql: """
         SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
-          ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts')
+          ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts',
+           'health_rebuild_state')
         """
     ))
 }
 guard
   reconstructibleTables == [
     "health_workouts", "health_workout_deletions", "health_sync_streams", "health_sync_facts",
+    "health_rebuild_state",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v3")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v4")
 }
 
 print(
-  "Authoritative v11 and reconstructible v3 migration interruption, retry, and idempotence passed.")
+  "Authoritative v12 and reconstructible v4 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

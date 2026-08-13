@@ -1,5 +1,30 @@
 import Foundation
 
+/// An authoritative association between a local record and a HealthKit
+/// object. It remains outside the rebuildable mirror so a returning Health
+/// object reconnects to the same local fact without recreating history.
+public struct HealthWorkoutLinkFact: Codable, Equatable, Sendable, Identifiable {
+  public let id: String
+  public let healthKitUUID: String
+  public let localEntityKind: String
+  public let localEntityID: String
+  public let linkedAt: Date
+
+  public init(
+    id: String,
+    healthKitUUID: String,
+    localEntityKind: String,
+    localEntityID: String,
+    linkedAt: Date = Date()
+  ) {
+    self.id = id
+    self.healthKitUUID = healthKitUUID
+    self.localEntityKind = localEntityKind
+    self.localEntityID = localEntityID
+    self.linkedAt = linkedAt
+  }
+}
+
 /// The read surface requested by the first Health connection.  These are
 /// application-owned values; HealthKit types never cross this boundary.
 public enum HealthReadType: String, CaseIterable, Codable, Equatable, Sendable {
@@ -520,6 +545,16 @@ public protocol HealthWorkoutRepository: Sendable {
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
     -> HealthMirrorContentSnapshot
+  func loadHealthRebuildState() async throws -> HealthRebuildState?
+  func beginHealthRebuild() async throws
+  func updateHealthRebuildState(_ state: HealthRebuildState) async throws
+  func regenerateHealthDerivedProjections() async throws
+  func estimateHealthRebuildStorage(
+    policy: HealthRebuildStoragePolicy
+  ) async throws -> HealthRebuildStorageEstimate
+  func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws
+  func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
+    -> [HealthWorkoutLinkFact]
 }
 
 extension HealthWorkoutRepository {
@@ -550,6 +585,36 @@ extension HealthWorkoutRepository {
   {
     .init(stream: stream, recordCount: nil)
   }
+
+  public func loadHealthRebuildState() async throws -> HealthRebuildState? {
+    throw HealthSyncError.unavailable
+  }
+
+  public func beginHealthRebuild() async throws {
+    throw HealthSyncError.unavailable
+  }
+
+  public func updateHealthRebuildState(_ state: HealthRebuildState) async throws {
+    throw HealthSyncError.unavailable
+  }
+
+  public func regenerateHealthDerivedProjections() async throws {
+    throw HealthSyncError.unavailable
+  }
+
+  public func estimateHealthRebuildStorage(
+    policy: HealthRebuildStoragePolicy
+  ) async throws -> HealthRebuildStorageEstimate {
+    try await DefaultHealthRebuildStorageProvider().estimateHealthRebuildStorage(policy: policy)
+  }
+
+  public func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws {
+    throw HealthSyncError.unavailable
+  }
+
+  public func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
+    -> [HealthWorkoutLinkFact]
+  { throw HealthSyncError.unavailable }
 
 }
 

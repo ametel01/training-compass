@@ -35,6 +35,7 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #17: Connect Health and import Health Workouts | Opt-in authorization and incremental import | Owner opens Health; local stores are ready | Synthetic HealthKit adapter | Core read types are explained before authorization; postponing leaves local workflows usable and Write-back unrequested; source-aware workouts with stable HealthKit UUIDs, dates, duration, provenance, local date, and reconciliation context are upserted into reconstructible storage in durable pages; successful empty and limited-history results remain distinguishable | Application, persistence, adapter, UI | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; Health destination |
 | Issue #18: Reconcile Health workout additions, replacements, and deletions | Foreground, observer, unlock, retry, and manual invalidation | Local stores are ready; Health access is authorized | Synthetic anchored HealthKit pages | One actor coordinator coalesces overlapping triggers; each bounded page atomically commits upserts, deletions, facts, and its anchor; retries resume from the last committed page; deleted UUIDs leave current Health-derived views | Application, persistence, adapter | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; `make verify-migrations` |
 | Issue #19: Inspect Health Data Status and refresh incrementally | Cached status, partial streams, foreground return, and manual refresh | Local stores are ready; requested Health streams may be independently available | Synthetic anchored HealthKit pages and status fixtures | One inspectable status screen reports requested scope, coverage, mirror availability, reconciliation, last successful check, and current failure per stream; refresh coalesces with foreground work and preserves cached content | Application, persistence, UI | Yes | `HealthWorkoutBoundaryTests`; Health status destination; `make verify` |
+| Issue #20: Rebuild reconstructible Health data safely | Confirmed deep repair, interruption, storage pressure, and exact UUID reconnection | Authorized Health access; local authoritative training history exists | Synthetic paged HealthKit data, cancellation, lock/background expiry, and storage-pressure fixtures | Settings offers a distinct confirmed rebuild that clears only the HealthKit Mirror, anchors, derived projections, and reconstructible checkpoints; bounded batches are durably checkpointed and resumed; authoritative Sessions, audits, and UUID link facts remain usable | Application, persistence, UI | Yes | `HealthDataRebuildBoundaryTests`; `HealthWorkoutRepositoryTests`; Health Data Rebuild destination; `make verify-migrations` |
 
 ## Required scenario-variant coverage
 
@@ -63,6 +64,7 @@ must name the automated evidence that proves the boundary.
 | Issue #17 | Read-only Health connection and first durable workout page | Write-back is never requested; postponing keeps local workflows available | Successful empty and limited-history outcomes do not claim denied access | Import progress can be dismissed while page commits continue | HealthKit UUID, source, and device provenance remain local and reconstructible |
 | Issue #18 | Anchored coordinator commits additions/replacements and deletions | Batch limits and single-writer transaction boundaries | Locked/cancelled/retryable work preserves cached data and anchor | Trigger coalescing and checkpoint resume tests | Deletion ledger and stream facts are reconstructible |
 | Issue #19 | Cached success, successful-empty, limited history, and active refresh rows | First and later failures remain per-stream and privacy-safe | Partial stream failure preserves cached sections and retries from checkpoints | Foreground/manual coalescing and recovery status tests | No HealthKit write-back; status never infers hidden read permission |
+| Issue #20 | Confirmed rebuild regenerates equivalent Health projections | Authoritative migration failures never offer rebuild; confirmation is required | Storage pressure, cancellation, lock, and background expiry pause without losing committed batches | Rebuild resumes from durable per-stream checkpoints and is isolated from local authoritative history | Exact HealthKit UUID links reconnect on return; absent Health objects never erase Sessions or audit history |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -70,8 +72,9 @@ replacement, explicit export-first confirmation, optional HealthKit reference
 material, privacy-safe failure handling, temporary-file cleanup, and Full App
 Erasure. Issue #17 adds the opt-in Health connection foundation; Issue #18 adds
 anchored, deletion-aware reconciliation; Issue #19 adds inspectable per-stream
-status and non-destructive incremental refresh. Health-derived enrichment and
-rebuild remain outside this slice.
+status and non-destructive incremental refresh; Issue #20 adds a separate,
+confirmed deep-repair workflow for reconstructible Health data that never runs
+automatically as part of ordinary status refresh.
 Unfinished Health capabilities remain outside the Local Training Core.
 Health authorization remains outside these slices for the remaining deferred
 follow-on capabilities; Issue #17's opt-in connection foundation is included
