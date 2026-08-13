@@ -1,6 +1,6 @@
 # Developer documentation
 
-Training Compass contains the protected Gate 0 shell plus the first Local Training Core slice from issue #2: the TMs destination can configure kilogram Training Maxes and per-lift Loading Increments with confirmed, audited persistence. Today, Cycle, and Progress remain unfinished destinations.
+Training Compass contains the protected Gate 0 shell plus the first Local Training Core slices from issues #2 and #3: TMs configures kilogram Training Maxes and per-lift Loading Increments, and Cycle maintains the reusable Schedule Template with confirmed, audited persistence. Today and Progress remain unfinished destinations.
 
 ## How-to guides
 

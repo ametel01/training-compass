@@ -142,10 +142,199 @@ public actor GRDBTrainingRepository: TrainingRepository {
     }
   }
 
+  public func loadScheduleTemplate() async throws -> ScheduleTemplate? {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Self.scheduleTemplate(from: db)
+    }
+  }
+
+  public func saveScheduleTemplate(
+    _ template: ScheduleTemplate,
+    expectedBefore: ScheduleTemplateSnapshot?,
+    auditID: String,
+    occurredAt: Int64,
+    action: ScheduleTemplateAuditAction
+  ) async throws -> ScheduleTemplateAuditEntry {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard !template.sessions.isEmpty else {
+        throw ScheduleTemplateValidationError.emptyTemplate
+      }
+      let sessionIDs = template.sessions.map(\.id)
+      guard sessionIDs.allSatisfy({ !$0.isEmpty }), Set(sessionIDs).count == sessionIDs.count else {
+        throw ScheduleTemplateValidationError.duplicateSessionID
+      }
+      let before = try Self.scheduleTemplate(from: db)
+      guard before?.snapshot == expectedBefore else {
+        throw ScheduleTemplateRepositoryError.staleTemplate
+      }
+      guard before?.id == template.id || before == nil else {
+        throw ScheduleTemplateRepositoryError.staleTemplate
+      }
+      for session in template.sessions {
+        for liftID in [session.primaryLiftID, session.assistanceLiftID] {
+          let configured =
+            try Int.fetchOne(
+              db,
+              sql: "SELECT COUNT(*) FROM lifts WHERE id = ?",
+              arguments: [liftID]
+            ) ?? 0
+          guard configured == 1 else {
+            throw ScheduleTemplateValidationError.unconfiguredLift(liftID)
+          }
+        }
+      }
+      let timestamp = occurredAt
+      try db.execute(
+        sql: """
+          INSERT INTO schedule_templates (id, created_at, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at
+          """,
+        arguments: [template.id, timestamp, timestamp]
+      )
+      try db.execute(
+        sql: "DELETE FROM schedule_template_sessions WHERE template_id = ?",
+        arguments: [template.id]
+      )
+      for (position, session) in template.sessions.enumerated() {
+        try db.execute(
+          sql: """
+            INSERT INTO schedule_template_sessions
+              (id, template_id, position, intended_weekday, primary_lift_id, assistance_lift_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            session.id,
+            template.id,
+            position,
+            session.intendedWeekday.rawValue,
+            session.primaryLiftID,
+            session.assistanceLiftID,
+          ]
+        )
+      }
+      let beforeJSON = try before.map { try Self.encodeSnapshot($0.snapshot) }
+      let afterJSON = try Self.encodeSnapshot(template.snapshot)
+      try db.execute(
+        sql: """
+          INSERT INTO schedule_template_audit
+            (id, template_id, action, occurred_at, before_json, after_json)
+          VALUES (?, ?, ?, ?, ?, ?)
+          """,
+        arguments: [
+          auditID,
+          template.id,
+          action.rawValue,
+          timestamp,
+          beforeJSON,
+          afterJSON,
+        ]
+      )
+      return ScheduleTemplateAuditEntry(
+        id: auditID,
+        templateID: template.id,
+        action: action,
+        occurredAt: occurredAt,
+        before: before?.snapshot,
+        after: template.snapshot
+      )
+    }
+  }
+
+  public func scheduleTemplateAuditHistory() async throws -> [ScheduleTemplateAuditEntry] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, template_id, action, occurred_at, before_json, after_json
+          FROM schedule_template_audit
+          ORDER BY occurred_at, rowid
+          """
+      ).map(Self.scheduleTemplateAuditEntry(from:))
+    }
+  }
+
   private func readyStores() async throws -> TrainingStores {
     try await prepareStores()
     guard let stores else { throw PersistenceError.storesUnavailable }
     return stores
+  }
+
+  private static func scheduleTemplate(from db: Database) throws -> ScheduleTemplate? {
+    guard
+      let metadata = try Row.fetchOne(
+        db,
+        sql: "SELECT id FROM schedule_templates ORDER BY rowid LIMIT 1"
+      )
+    else {
+      return nil
+    }
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT id, intended_weekday, primary_lift_id, assistance_lift_id
+        FROM schedule_template_sessions
+        WHERE template_id = ?
+        ORDER BY position, rowid
+        """,
+      arguments: [metadata["id"] as String]
+    )
+    let sessions = try rows.map { row -> ScheduleSession in
+      guard let weekday = ScheduleWeekday(rawValue: row["intended_weekday"]) else {
+        throw PersistenceError.invalidScheduleTemplate
+      }
+      return ScheduleSession(
+        id: row["id"],
+        intendedWeekday: weekday,
+        primaryLiftID: row["primary_lift_id"],
+        assistanceLiftID: row["assistance_lift_id"]
+      )
+    }
+    guard !sessions.isEmpty else {
+      throw PersistenceError.invalidScheduleTemplate
+    }
+    return ScheduleTemplate(id: metadata["id"], sessions: sessions)
+  }
+
+  private static func encodeSnapshot(_ snapshot: ScheduleTemplateSnapshot) throws -> String {
+    let data = try JSONEncoder().encode(snapshot)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidScheduleTemplate
+    }
+    return string
+  }
+
+  private static func scheduleTemplateAuditEntry(from row: Row) throws
+    -> ScheduleTemplateAuditEntry
+  {
+    guard let action = ScheduleTemplateAuditAction(rawValue: row["action"]) else {
+      throw PersistenceError.invalidScheduleAudit
+    }
+    guard let afterData = (row["after_json"] as String).data(using: .utf8) else {
+      throw PersistenceError.invalidScheduleAudit
+    }
+    let after = try JSONDecoder().decode(ScheduleTemplateSnapshot.self, from: afterData)
+    let before: ScheduleTemplateSnapshot?
+    let beforeJSON: String? = row["before_json"]
+    if let beforeJSON {
+      guard let beforeData = beforeJSON.data(using: .utf8) else {
+        throw PersistenceError.invalidScheduleAudit
+      }
+      before = try JSONDecoder().decode(ScheduleTemplateSnapshot.self, from: beforeData)
+    } else {
+      before = nil
+    }
+    return ScheduleTemplateAuditEntry(
+      id: row["id"],
+      templateID: row["template_id"],
+      action: action,
+      occurredAt: row["occurred_at"],
+      before: before,
+      after: after
+    )
   }
 
   private static func identityParts(_ identity: LiftIdentity) -> (kind: String, value: String) {
@@ -248,6 +437,8 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidIdentity
   case invalidAuditAction
   case invalidAuditBefore
+  case invalidScheduleAudit
+  case invalidScheduleTemplate
   case storesUnavailable
 }
 

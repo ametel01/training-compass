@@ -15,11 +15,7 @@ struct RootView: View {
         .accessibilityIdentifier("tab.today")
 
         NavigationStack {
-          UnavailableDestinationView(
-            title: "Cycle",
-            systemImage: "calendar",
-            detail: "Training Cycles become available in Local Training Core."
-          )
+          CycleView(model: model)
         }
         .tabItem { Label("Cycle", systemImage: "calendar") }
         .accessibilityIdentifier("tab.cycle")
@@ -105,6 +101,334 @@ private struct UnavailableDestinationView: View {
     )
     .navigationTitle(title)
     .accessibilityIdentifier("pre-data.\(title.lowercased()).unavailable")
+  }
+}
+
+private struct CycleView: View {
+  let model: AppModel
+
+  @State private var template: ScheduleTemplate?
+  @State private var workingSessions: [ScheduleSession] = []
+  @State private var lifts: [LiftConfiguration] = []
+  @State private var draft: ScheduleSessionDraft?
+  @State private var pendingSave: ScheduleTemplateChangePreview?
+  @State private var pendingReset: ScheduleTemplateChangePreview?
+  @State private var showingSaveConfirmation = false
+  @State private var showingResetConfirmation = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    Group {
+      if template == nil {
+        UnavailableDestinationView(
+          title: "Cycle",
+          systemImage: "calendar",
+          detail:
+            "Configure Squat, Deadlift, Bench Press, Overhead Press, and Romanian Deadlift in TMs to initialize the Schedule Template."
+        )
+      } else {
+        List {
+          Section {
+            Text(
+              "This reusable normal-week layout is copied into future Training Cycles. Changes stay local until you explicitly save them."
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+          }
+
+          Section("Schedule Template") {
+            ForEach(workingSessions) { session in
+              Button {
+                draft = ScheduleSessionDraft(session: session)
+              } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(session.intendedWeekday.displayName)
+                    .font(.headline)
+                  Text(
+                    "Primary: \(liftName(session.primaryLiftID)) · Assistance: \(liftName(session.assistanceLiftID))"
+                  )
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+                }
+              }
+              .accessibilityIdentifier("schedule.edit.\(session.id)")
+              .swipeActions {
+                Button(role: .destructive) {
+                  remove(session)
+                } label: {
+                  Label("Remove", systemImage: "trash")
+                }
+                .accessibilityIdentifier("schedule.remove.\(session.id)")
+              }
+            }
+            .onMove { offsets, destination in
+              workingSessions.move(fromOffsets: offsets, toOffset: destination)
+            }
+
+            Button {
+              draft = ScheduleSessionDraft.new(liftID: lifts[0].id)
+            } label: {
+              Label("Add session", systemImage: "plus")
+            }
+            .accessibilityIdentifier("schedule.add")
+          }
+        }
+        .toolbar {
+          ToolbarItem(placement: .topBarLeading) {
+            EditButton()
+          }
+          ToolbarItemGroup(placement: .topBarTrailing) {
+            Button("Reset") {
+              Task { await reviewReset() }
+            }
+            .accessibilityIdentifier("schedule.reset")
+            Button("Save") {
+              Task { await reviewSave() }
+            }
+            .disabled(workingSessions.isEmpty)
+            .accessibilityIdentifier("schedule.save")
+          }
+        }
+      }
+    }
+    .navigationTitle("Cycle")
+    .accessibilityIdentifier("schedule.destination")
+    .task(id: model.phase) {
+      if model.phase == .ready {
+        await reload()
+      }
+    }
+    .sheet(item: $draft) { draft in
+      ScheduleSessionEditor(draft: draft, lifts: lifts) { reviewedDraft in
+        self.draft = nil
+        apply(reviewedDraft)
+      }
+    }
+    .alert("Confirm schedule save", isPresented: $showingSaveConfirmation) {
+      Button("Cancel", role: .cancel) {
+        pendingSave = nil
+      }
+      Button("Save") {
+        guard let pendingSave else { return }
+        Task { await confirmSave(pendingSave) }
+      }
+    } message: {
+      Text("Save this Schedule Template for future Training Cycles?")
+    }
+    .alert("Reset Schedule Template", isPresented: $showingResetConfirmation) {
+      Button("Cancel", role: .cancel) {
+        pendingReset = nil
+      }
+      Button("Reset", role: .destructive) {
+        guard let pendingReset else { return }
+        Task { await confirmReset(pendingReset) }
+      }
+    } message: {
+      Text(defaultPreviewText)
+    }
+    .alert(
+      "Could not update Schedule Template",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again.")
+    }
+  }
+
+  private var defaultPreviewText: String {
+    guard let pendingReset else { return "" }
+    return pendingReset.after.sessions.map { session in
+      "\(session.intendedWeekday.displayName): \(liftName(session.primaryLiftID)) / \(liftName(session.assistanceLiftID))"
+    }.joined(separator: "\n")
+  }
+
+  private func reload() async {
+    do {
+      let loadedLifts = try await model.scheduleTemplateBoundary.availableLifts()
+      let loadedTemplate = try await model.scheduleTemplateBoundary.list()
+      lifts = loadedLifts
+      template = loadedTemplate
+      workingSessions = loadedTemplate.sessions
+    } catch {
+      template = nil
+      errorMessage = nil
+    }
+  }
+
+  private func liftName(_ id: String) -> String {
+    lifts.first(where: { $0.id == id })?.identity.displayName ?? id
+  }
+
+  private func apply(_ draft: ScheduleSessionDraft) {
+    let session = draft.session
+    if let index = workingSessions.firstIndex(where: { $0.id == session.id }) {
+      workingSessions[index] = session
+    } else {
+      workingSessions.append(session)
+    }
+  }
+
+  private func remove(_ session: ScheduleSession) {
+    guard workingSessions.count > 1 else {
+      errorMessage = "A Schedule Template must retain at least one Session."
+      return
+    }
+    workingSessions.removeAll { $0.id == session.id }
+  }
+
+  private func reviewSave() async {
+    do {
+      pendingSave = try await model.scheduleTemplateBoundary.preview(
+        ScheduleTemplateRequest(
+          sessions: workingSessions.map { session in
+            ScheduleSessionRequest(
+              id: session.id,
+              intendedWeekday: session.intendedWeekday,
+              primaryLiftID: session.primaryLiftID,
+              assistanceLiftID: session.assistanceLiftID
+            )
+          })
+      )
+      showingSaveConfirmation = true
+    } catch {
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func confirmSave(_ preview: ScheduleTemplateChangePreview) async {
+    do {
+      _ = try await model.scheduleTemplateBoundary.confirm(preview)
+      pendingSave = nil
+      await reload()
+    } catch {
+      pendingSave = nil
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func reviewReset() async {
+    do {
+      pendingReset = try await model.scheduleTemplateBoundary.previewReset()
+      showingResetConfirmation = true
+    } catch {
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func confirmReset(_ preview: ScheduleTemplateChangePreview) async {
+    do {
+      _ = try await model.scheduleTemplateBoundary.confirm(preview)
+      pendingReset = nil
+      await reload()
+    } catch {
+      pendingReset = nil
+      errorMessage = String(describing: error)
+    }
+  }
+}
+
+private struct ScheduleSessionDraft: Identifiable, Sendable {
+  let id: String
+  let existingID: String?
+  var intendedWeekday: ScheduleWeekday
+  var primaryLiftID: String
+  var assistanceLiftID: String
+
+  var session: ScheduleSession {
+    ScheduleSession(
+      id: existingID ?? id,
+      intendedWeekday: intendedWeekday,
+      primaryLiftID: primaryLiftID,
+      assistanceLiftID: assistanceLiftID
+    )
+  }
+
+  init(session: ScheduleSession) {
+    id = session.id
+    existingID = session.id
+    intendedWeekday = session.intendedWeekday
+    primaryLiftID = session.primaryLiftID
+    assistanceLiftID = session.assistanceLiftID
+  }
+
+  static func new(liftID: String) -> ScheduleSessionDraft {
+    ScheduleSessionDraft(
+      id: UUID().uuidString,
+      existingID: nil,
+      intendedWeekday: .monday,
+      primaryLiftID: liftID,
+      assistanceLiftID: liftID
+    )
+  }
+
+  private init(
+    id: String,
+    existingID: String?,
+    intendedWeekday: ScheduleWeekday,
+    primaryLiftID: String,
+    assistanceLiftID: String
+  ) {
+    self.id = id
+    self.existingID = existingID
+    self.intendedWeekday = intendedWeekday
+    self.primaryLiftID = primaryLiftID
+    self.assistanceLiftID = assistanceLiftID
+  }
+}
+
+private struct ScheduleSessionEditor: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var draft: ScheduleSessionDraft
+  let lifts: [LiftConfiguration]
+  let onReview: (ScheduleSessionDraft) -> Void
+
+  init(
+    draft: ScheduleSessionDraft,
+    lifts: [LiftConfiguration],
+    onReview: @escaping (ScheduleSessionDraft) -> Void
+  ) {
+    _draft = State(initialValue: draft)
+    self.lifts = lifts
+    self.onReview = onReview
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Picker("Intended weekday", selection: $draft.intendedWeekday) {
+          ForEach(ScheduleWeekday.allCases, id: \.self) { weekday in
+            Text(weekday.displayName).tag(weekday)
+          }
+        }
+        Picker("Primary Lift", selection: $draft.primaryLiftID) {
+          ForEach(lifts) { lift in
+            Text(lift.identity.displayName).tag(lift.id)
+          }
+        }
+        Picker("Assistance Lift", selection: $draft.assistanceLiftID) {
+          ForEach(lifts) { lift in
+            Text(lift.identity.displayName).tag(lift.id)
+          }
+        }
+        Text("Primary and Assistance may use the same configured lift.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+      }
+      .navigationTitle(draft.existingID == nil ? "Add Session" : "Edit Session")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { onReview(draft) }
+            .accessibilityIdentifier("schedule.session.done")
+        }
+      }
+    }
   }
 }
 

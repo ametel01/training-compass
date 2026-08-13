@@ -17,13 +17,16 @@ final class AppModel {
   private(set) var phase: Phase = .preparing
   private let preparePreDataShell: PreparePreDataShell
   let liftConfigurationBoundary: LiftConfigurationBoundary
+  let scheduleTemplateBoundary: ScheduleTemplateBoundary
 
   init(
     preparePreDataShell: PreparePreDataShell,
-    liftConfigurationBoundary: LiftConfigurationBoundary
+    liftConfigurationBoundary: LiftConfigurationBoundary,
+    scheduleTemplateBoundary: ScheduleTemplateBoundary
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
+    self.scheduleTemplateBoundary = scheduleTemplateBoundary
   }
 
   func prepare() async {
@@ -58,6 +61,11 @@ final class AppModel {
     return AppModel(
       preparePreDataShell: PreparePreDataShell(dependencies: dependencies),
       liftConfigurationBoundary: LiftConfigurationBoundary(
+        repository: repository,
+        clock: dependencies.clock,
+        uuidGenerator: dependencies.uuidGenerator
+      ),
+      scheduleTemplateBoundary: ScheduleTemplateBoundary(
         repository: repository,
         clock: dependencies.clock,
         uuidGenerator: dependencies.uuidGenerator

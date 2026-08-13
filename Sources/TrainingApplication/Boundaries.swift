@@ -22,7 +22,9 @@ public protocol ApplicationFileSystem: Sendable {
   func applicationSupportDirectory() throws -> URL
 }
 
-public protocol TrainingRepository: Sendable, LiftConfigurationRepository {
+public protocol TrainingRepository: Sendable, LiftConfigurationRepository,
+  ScheduleTemplateRepository
+{
   func prepareStores() async throws
 }
 

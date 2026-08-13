@@ -120,6 +120,43 @@ public struct ProtectedStoreBootstrapper: Sendable {
           "lift_id", "occurred_at",
         ])
     }
+    migrator.registerMigration("authoritative_v3_schedule_template") { db in
+      try db.create(table: "schedule_templates") { table in
+        table.column("id", .text).primaryKey()
+        table.column("created_at", .integer).notNull()
+        table.column("updated_at", .integer).notNull()
+      }
+      try db.create(table: "schedule_template_sessions") { table in
+        table.column("id", .text).primaryKey()
+        table.column("template_id", .text).notNull()
+          .references("schedule_templates", onDelete: .cascade)
+        table.column("position", .integer).notNull()
+        table.column("intended_weekday", .integer).notNull()
+          .check { $0 >= 1 && $0 <= 7 }
+        table.column("primary_lift_id", .text).notNull()
+          .references("lifts", onDelete: .restrict)
+        table.column("assistance_lift_id", .text).notNull()
+          .references("lifts", onDelete: .restrict)
+      }
+      try db.create(
+        index: "schedule_template_sessions_order",
+        on: "schedule_template_sessions",
+        columns: ["template_id", "position"],
+        unique: true
+      )
+      try db.create(table: "schedule_template_audit") { table in
+        table.column("id", .text).primaryKey()
+        table.column("template_id", .text).notNull()
+        table.column("action", .text).notNull()
+          .check { $0 == "created" || $0 == "edited" || $0 == "reset" }
+        table.column("occurred_at", .integer).notNull()
+        table.column("before_json", .text)
+        table.column("after_json", .text).notNull()
+      }
+      try db.create(
+        index: "schedule_template_audit_time", on: "schedule_template_audit",
+        columns: ["template_id", "occurred_at"])
+    }
     return migrator
   }
 

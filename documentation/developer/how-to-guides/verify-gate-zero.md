@@ -24,7 +24,7 @@ make verify-migrations
 
 ## Verify the result
 
-The commands must exit successfully. The UI test must find the Today, Cycle, Progress, and TMs tabs, identify the Gate 0 shell, prove Cycle and Progress have no data-entry path, and exercise a confirmed TMs configuration edit.
+The commands must exit successfully. The UI test must find the Today, Cycle, Progress, and TMs tabs, identify the Gate 0 shell, prove the unconfigured Cycle and Progress states have no data-entry path, and exercise a confirmed TMs configuration edit.
 
 ## Record physical-device evidence
 
