@@ -1,7 +1,6 @@
 import SwiftUI
 import TrainingApplication
 import UIKit
-import UniformTypeIdentifiers
 
 struct RootView: View {
   let model: AppModel
@@ -1803,7 +1802,7 @@ private struct TMsView: View {
     }
     .fileImporter(
       isPresented: $showingImport,
-      allowedContentTypes: [.data],
+      allowedContentTypes: [],
       allowsMultipleSelection: false
     ) { result in
       if case .success(let urls) = result {
