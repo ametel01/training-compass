@@ -53,6 +53,15 @@ final class LiftConfigurationTests: XCTestCase {
     XCTAssertEqual(try squat.prescribedWeight(forPercentage: 0.5).kg, 50.0)
     XCTAssertEqual(try squat.prescribedWeight(forPercentage: 0.525).kg, 52.5)
     XCTAssertEqual(squat.trainingMax.kg, 101.0)
+
+    let oneKgIncrement = try LiftConfiguration(
+      id: "lift-tie",
+      identity: .custom(name: "Tie Lift"),
+      trainingMax: TrainingMax(kg: 101),
+      loadingIncrement: LoadingIncrement(kg: 1)
+    )
+    XCTAssertEqual(try oneKgIncrement.prescribedWeight(forPercentage: 0.5).kg, 50)
+    XCTAssertEqual(try oneKgIncrement.prescribedWeight(forPercentage: 0.5001).kg, 51)
   }
 
   func testSetResultWeightCanBeNonLoadableAndReportsWarningInsteadOfRejectingIt() throws {

@@ -117,11 +117,13 @@ private struct CycleView: View {
   @State private var pendingSave: ScheduleTemplateChangePreview?
   @State private var pendingReset: ScheduleTemplateChangePreview?
   @State private var pendingCycleChange: TrainingCycleChangePreview?
+  @State private var pendingCycleActivation: TrainingCycleActivationPreview?
   @State private var pendingCycleDiscard: TrainingCycleChangePreview?
   @State private var anchorDate = TrainingDate.monday(containing: Date()).date()
   @State private var showingSaveConfirmation = false
   @State private var showingResetConfirmation = false
   @State private var showingCycleConfirmation = false
+  @State private var showingCycleActivationConfirmation = false
   @State private var showingCycleDiscardConfirmation = false
   @State private var errorMessage: String?
 
@@ -163,6 +165,26 @@ private struct CycleView: View {
                 Task { await reviewCycleDiscard() }
               }
               .accessibilityIdentifier("cycle.discard")
+              if activeCycle == nil {
+                Button("Activate (retain anchor)") {
+                  Task { await reviewCycleActivation(anchorChoice: .retain) }
+                }
+                .accessibilityIdentifier("cycle.activate")
+                DatePicker(
+                  "Replacement Week 1 Anchor",
+                  selection: $anchorDate,
+                  displayedComponents: [.date]
+                )
+                Button("Activate using replacement date") {
+                  Task {
+                    await reviewCycleActivation(
+                      anchorChoice: .replace(
+                        TrainingDate(date: anchorDate)
+                      ))
+                  }
+                }
+                .accessibilityIdentifier("cycle.activate-replace-anchor")
+              }
             } else {
               DatePicker(
                 "Week 1 Anchor Date",
@@ -310,6 +332,15 @@ private struct CycleView: View {
     } message: {
       Text(cyclePreviewText)
     }
+    .alert("Activate Training Cycle", isPresented: $showingCycleActivationConfirmation) {
+      Button("Cancel", role: .cancel) { pendingCycleActivation = nil }
+      Button("Activate") {
+        guard let pendingCycleActivation else { return }
+        Task { await confirmCycleActivation(pendingCycleActivation) }
+      }
+    } message: {
+      Text(cycleActivationPreviewText)
+    }
     .alert("Discard Draft Training Cycle", isPresented: $showingCycleDiscardConfirmation) {
       Button("Cancel", role: .cancel) { pendingCycleDiscard = nil }
       Button("Discard", role: .destructive) {
@@ -435,8 +466,24 @@ private struct CycleView: View {
     case .edited: "Save Edits"
     case .replacedSchedule: "Replace Schedule"
     case .regenerated: "Regenerate"
+    case .activated: "Activate"
     case .discarded, .none: "Confirm"
     }
+  }
+
+  private var cycleActivationPreviewText: String {
+    guard let preview = pendingCycleActivation else { return "" }
+    let deload =
+      preview.after.includesProvisionalDeload
+      ? "A Deload Week is included."
+      : "No Deload Week is due."
+    let warning =
+      preview.deloadRemovalWarning
+      ? " Customized Deload work will be removed."
+      : ""
+    return "Week 1 remains anchored on (preview.after.week1AnchorDate.iso8601String). "
+      + "The activated cycle stores immutable Training Max snapshots and prescriptions. "
+      + deload + warning
   }
 
   private func reviewCycleCreation() async {
@@ -467,6 +514,28 @@ private struct CycleView: View {
       pendingCycleDiscard = try await model.trainingCycleBoundary.previewDiscard()
       showingCycleDiscardConfirmation = true
     } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reviewCycleActivation(
+    anchorChoice: TrainingCycleActivationAnchorChoice
+  ) async {
+    do {
+      pendingCycleActivation = try await model.trainingCycleBoundary.previewActivation(
+        anchorChoice: anchorChoice
+      )
+      showingCycleActivationConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func confirmCycleActivation(_ preview: TrainingCycleActivationPreview) async {
+    do {
+      _ = try await model.trainingCycleBoundary.confirmActivation(preview)
+      pendingCycleActivation = nil
+      await reload()
+    } catch {
+      pendingCycleActivation = nil
+      errorMessage = String(describing: error)
+    }
   }
 
   private func reviewCycleEdit(_ draft: CycleSessionDraft) async {

@@ -287,6 +287,12 @@ public actor GRDBTrainingRepository: TrainingRepository {
     return try await stores.authoritative.write { db in
       let existingDraft = try Self.trainingCycle(from: db, state: .draft)
       let existingForID = try Self.trainingCycle(from: db, id: cycle.id)
+      if cycle.lifecycleState == .active,
+        let existingActive = try Self.trainingCycle(from: db, state: .active),
+        existingActive.id != cycle.id
+      {
+        throw TrainingCycleRepositoryError.activeCycleAlreadyExists
+      }
       if cycle.lifecycleState == .draft,
         let existingDraft,
         existingDraft.id != cycle.id
@@ -473,7 +479,8 @@ public actor GRDBTrainingRepository: TrainingRepository {
       includesProvisionalDeload: snapshot.includesProvisionalDeload,
       lifecycleState: snapshot.lifecycleState,
       createdAt: snapshot.createdAt,
-      updatedAt: snapshot.updatedAt
+      updatedAt: snapshot.updatedAt,
+      liftSnapshots: snapshot.liftSnapshots
     )
   }
 

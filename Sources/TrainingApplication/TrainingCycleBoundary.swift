@@ -83,6 +83,45 @@ public enum TrainingCycleAuditAction: String, Codable, Equatable, Sendable {
   case replacedSchedule
   case regenerated
   case discarded
+  case activated
+}
+
+public enum TrainingCycleActivationAnchorChoice: Equatable, Sendable {
+  case retain
+  case replace(TrainingDate)
+}
+
+public struct TrainingCycleActivationPreview: Equatable, Sendable {
+  public let before: TrainingCycleSnapshot
+  public let after: TrainingCycle
+  public let activeBefore: TrainingCycleSnapshot?
+  public let anchorChoice: TrainingCycleActivationAnchorChoice?
+  public let cadenceChangesDeload: Bool
+  public let deloadRemovalWarning: Bool
+
+  public init(
+    before: TrainingCycleSnapshot,
+    after: TrainingCycle,
+    activeBefore: TrainingCycleSnapshot?,
+    anchorChoice: TrainingCycleActivationAnchorChoice?,
+    cadenceChangesDeload: Bool,
+    deloadRemovalWarning: Bool
+  ) {
+    self.before = before
+    self.after = after
+    self.activeBefore = activeBefore
+    self.anchorChoice = anchorChoice
+    self.cadenceChangesDeload = cadenceChangesDeload
+    self.deloadRemovalWarning = deloadRemovalWarning
+  }
+
+  public var requiresDeloadConfirmation: Bool { cadenceChangesDeload }
+  public var removesCustomizedDeload: Bool { deloadRemovalWarning }
+  public var warning: String? {
+    deloadRemovalWarning
+      ? "This activation removes customized Deload work. Review and confirm before continuing."
+      : nil
+  }
 }
 
 public struct TrainingCycleAuditEntry: Codable, Equatable, Sendable, Identifiable {
@@ -150,6 +189,7 @@ public enum TrainingCycleRepositoryError: Error, Equatable, Sendable {
   case staleCycle
   case draftAlreadyExists
   case noDraft
+  case activeCycleAlreadyExists
 }
 
 extension TrainingCycleRepository {
@@ -380,6 +420,91 @@ public struct TrainingCycleBoundary: Sendable {
     try await confirm(try await previewRegenerate())
   }
 
+  /// Builds the immutable Active Training Cycle without changing the draft.
+  /// A draft whose anchor is before today must be resolved explicitly with
+  /// `.retain` or `.replace(...)`; activation never shifts dates implicitly.
+  public func previewActivation(
+    anchorChoice: TrainingCycleActivationAnchorChoice? = nil
+  ) async throws -> TrainingCycleActivationPreview {
+    guard let draft = try await repository.loadDraftTrainingCycle() else {
+      throw TrainingCycleValidationError.noDraft
+    }
+    let active = try await repository.loadActiveTrainingCycle()
+    guard active == nil else { throw TrainingCycleValidationError.activeCycleAlreadyExists }
+
+    if draft.week1AnchorDate < today(), anchorChoice == nil {
+      throw TrainingCycleValidationError.pastAnchorRequiresChoice
+    }
+    let chosenAnchor: TrainingDate
+    switch anchorChoice {
+    case .retain, nil:
+      chosenAnchor = draft.week1AnchorDate
+    case .replace(let date):
+      chosenAnchor = date
+    }
+
+    let completed = try await repository.completedTrainingCycleCount()
+    let shouldIncludeDeload = (completed + 1).isMultiple(of: 2)
+    let cadenceChanged = draft.includesProvisionalDeload != shouldIncludeDeload
+    let removalWarning =
+      cadenceChanged && draft.includesProvisionalDeload
+      && hasCustomizedDeload(draft)
+    let cadenceAdjusted = try adjustCadence(
+      draft,
+      includeDeload: shouldIncludeDeload,
+      anchorDate: chosenAnchor
+    )
+    let activated = try await activateCycle(cadenceAdjusted)
+    return TrainingCycleActivationPreview(
+      before: draft.snapshot,
+      after: activated,
+      activeBefore: active?.snapshot,
+      anchorChoice: anchorChoice,
+      cadenceChangesDeload: cadenceChanged,
+      deloadRemovalWarning: removalWarning
+    )
+  }
+
+  public func previewActivation(
+    anchorDate: TrainingDate,
+    replacingAnchor: Bool = true
+  ) async throws -> TrainingCycleActivationPreview {
+    try await previewActivation(
+      anchorChoice: replacingAnchor ? .replace(anchorDate) : .retain
+    )
+  }
+
+  @discardableResult
+  public func confirmActivation(
+    _ preview: TrainingCycleActivationPreview,
+    confirmDeloadChange: Bool = true
+  ) async throws -> TrainingCycleAuditEntry {
+    guard !preview.cadenceChangesDeload || confirmDeloadChange else {
+      throw TrainingCycleValidationError.deloadConfirmationRequired
+    }
+    guard try await repository.loadActiveTrainingCycle() == nil else {
+      throw TrainingCycleValidationError.activeCycleAlreadyExists
+    }
+    return try await repository.saveTrainingCycle(
+      preview.after,
+      expectedBefore: preview.before,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: timestamp(),
+      action: .activated
+    )
+  }
+
+  @discardableResult
+  public func activate(
+    anchorChoice: TrainingCycleActivationAnchorChoice? = nil,
+    confirmDeloadChange: Bool = true
+  ) async throws -> TrainingCycleAuditEntry {
+    try await confirmActivation(
+      try await previewActivation(anchorChoice: anchorChoice),
+      confirmDeloadChange: confirmDeloadChange
+    )
+  }
+
   public func previewDiscard() async throws -> TrainingCycleChangePreview {
     guard let existing = try await repository.loadDraftTrainingCycle() else {
       throw TrainingCycleValidationError.noDraft
@@ -408,6 +533,191 @@ public struct TrainingCycleBoundary: Sendable {
 
   private func timestamp() -> Int64 {
     Int64(clock.now().timeIntervalSince1970)
+  }
+
+  private func today() -> TrainingDate {
+    TrainingDate(date: clock.now(), calendar: calendar.calendar())
+  }
+
+  private func adjustCadence(
+    _ draft: TrainingCycle,
+    includeDeload: Bool,
+    anchorDate: TrainingDate
+  ) throws -> TrainingCycle {
+    var weeks = draft.weeks
+    if !includeDeload, weeks.last?.kind == .deload {
+      weeks.removeLast()
+    }
+
+    let dayShift = daysBetween(draft.week1AnchorDate, anchorDate)
+    let shiftedWeeks = weeks.enumerated().map { index, week in
+      let weekStart = week.startDate.adding(days: dayShift)
+      let sessions = week.sessions.map { session in
+        TrainingCycleSession(
+          id: session.id,
+          intendedDate: session.intendedDate.adding(days: dayShift),
+          sourceTemplateSessionID: session.sourceTemplateSessionID,
+          primaryLiftID: session.primaryLiftID,
+          assistanceLiftID: session.assistanceLiftID,
+          prescriptions: session.prescriptions
+        )
+      }
+      return TrainingWeek(
+        id: week.id,
+        position: index + 1,
+        kind: week.kind,
+        startDate: weekStart,
+        sessions: sessions
+      )
+    }
+    if includeDeload, !shiftedWeeks.contains(where: { $0.kind == .deload }) {
+      let startDate = anchorDate.adding(days: shiftedWeeks.count * 7)
+      let sessions = draft.sourceTemplate.sessions.map { templateSession in
+        TrainingCycleSession(
+          id: uuidGenerator.makeUUID().uuidString,
+          intendedDate: startDate.adding(days: templateSession.intendedWeekday.rawValue - 1),
+          sourceTemplateSessionID: templateSession.id,
+          primaryLiftID: templateSession.primaryLiftID,
+          assistanceLiftID: templateSession.assistanceLiftID
+        )
+      }
+      weeks =
+        shiftedWeeks + [
+          TrainingWeek(
+            id: uuidGenerator.makeUUID().uuidString,
+            position: shiftedWeeks.count + 1,
+            kind: .deload,
+            startDate: startDate,
+            sessions: sessions
+          )
+        ]
+    } else {
+      weeks = shiftedWeeks
+    }
+    return TrainingCycle(
+      id: draft.id,
+      week1AnchorDate: anchorDate,
+      weeks: weeks,
+      sourceTemplate: draft.sourceTemplate,
+      includesProvisionalDeload: includeDeload,
+      lifecycleState: .draft,
+      createdAt: draft.createdAt,
+      updatedAt: timestamp()
+    )
+  }
+
+  private func daysBetween(_ from: TrainingDate, _ to: TrainingDate) -> Int {
+    var date = from
+    var days = 0
+    if date < to {
+      while date < to {
+        date = date.adding(days: 1)
+        days += 1
+      }
+    } else {
+      while to < date {
+        date = date.adding(days: -1)
+        days -= 1
+      }
+    }
+    return days
+  }
+
+  private func hasCustomizedDeload(_ cycle: TrainingCycle) -> Bool {
+    guard let week = cycle.weeks.last, week.kind == .deload else { return false }
+    guard week.sessions.count == cycle.sourceTemplate.sessions.count else { return true }
+    return zip(week.sessions, cycle.sourceTemplate.sessions).contains { session, template in
+      session.primaryLiftID != template.primaryLiftID
+        || session.assistanceLiftID != template.assistanceLiftID
+        || session.sourceTemplateSessionID != template.id
+        || session.intendedDate
+          != week.startDate.adding(days: template.intendedWeekday.rawValue - 1)
+    }
+  }
+
+  private func activateCycle(_ draft: TrainingCycle) async throws -> TrainingCycle {
+    let configurations = try await liftRepository.loadLiftConfigurations()
+    let byID = Dictionary(uniqueKeysWithValues: configurations.map { ($0.id, $0) })
+    let usedIDs = Set(
+      draft.weeks.flatMap { week in
+        week.sessions.flatMap { [$0.primaryLiftID, $0.assistanceLiftID] }
+      })
+    var snapshots: [String: LiftConfigurationSnapshot] = [:]
+    for id in usedIDs {
+      guard let configuration = byID[id] else {
+        throw TrainingCycleValidationError.unconfiguredLift(id)
+      }
+      guard configuration.trainingMax.kg.isFinite, configuration.trainingMax.kg > 0 else {
+        throw TrainingCycleValidationError.missingTrainingMax(id)
+      }
+      snapshots[id] = configuration.snapshot
+    }
+
+    let weeks = try draft.weeks.map { week in
+      let sessions = try week.sessions.map { session in
+        let primary = try makePrescriptions(
+          role: .primary,
+          liftID: session.primaryLiftID,
+          kind: week.kind,
+          snapshots: snapshots
+        )
+        let assistance = try makePrescriptions(
+          role: .assistance,
+          liftID: session.assistanceLiftID,
+          kind: week.kind,
+          snapshots: snapshots
+        )
+        return TrainingCycleSession(
+          id: session.id,
+          intendedDate: session.intendedDate,
+          sourceTemplateSessionID: session.sourceTemplateSessionID,
+          primaryLiftID: session.primaryLiftID,
+          assistanceLiftID: session.assistanceLiftID,
+          prescriptions: primary + assistance
+        )
+      }
+      return TrainingWeek(
+        id: week.id,
+        position: week.position,
+        kind: week.kind,
+        startDate: week.startDate,
+        sessions: sessions
+      )
+    }
+    return TrainingCycle(
+      id: draft.id,
+      week1AnchorDate: draft.week1AnchorDate,
+      weeks: weeks,
+      sourceTemplate: draft.sourceTemplate,
+      includesProvisionalDeload: draft.includesProvisionalDeload,
+      lifecycleState: .active,
+      createdAt: draft.createdAt,
+      updatedAt: timestamp(),
+      liftSnapshots: snapshots
+    )
+  }
+
+  private func makePrescriptions(
+    role: TrainingPrescriptionRole,
+    liftID: String,
+    kind: TrainingWeekKind,
+    snapshots: [String: LiftConfigurationSnapshot]
+  ) throws -> [TrainingSetPrescription] {
+    guard let snapshot = snapshots[liftID] else {
+      throw TrainingCycleValidationError.missingTrainingMax(liftID)
+    }
+    return try FiveThreeOnePrescription.specifications(for: kind, role: role).enumerated().map {
+      index, specification in
+      TrainingSetPrescription(
+        id: uuidGenerator.makeUUID().uuidString,
+        setNumber: index + 1,
+        role: role,
+        percentage: specification.percentage,
+        repetitions: specification.repetitions,
+        weightKg: try snapshot.prescribedWeightKg(forPercentage: specification.percentage),
+        isPlusSetEligible: specification.isPlusSetEligible
+      )
+    }
   }
 
   private func makeEditedCycle(

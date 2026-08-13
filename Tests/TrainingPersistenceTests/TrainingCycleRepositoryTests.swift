@@ -40,6 +40,50 @@ final class TrainingCycleRepositoryTests: XCTestCase {
     XCTAssertNil(history[1].after)
   }
 
+  func testActivationReplacesDraftWithDurableSingleActiveCycle() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let draft = makeCycle()
+    _ = try await repository.saveTrainingCycle(
+      draft,
+      expectedBefore: nil,
+      auditID: "cycle-audit-create",
+      occurredAt: 10,
+      action: .created
+    )
+    let active = TrainingCycle(
+      id: draft.id,
+      week1AnchorDate: draft.week1AnchorDate,
+      weeks: draft.weeks,
+      sourceTemplate: draft.sourceTemplate,
+      includesProvisionalDeload: draft.includesProvisionalDeload,
+      lifecycleState: .active,
+      createdAt: draft.createdAt,
+      updatedAt: 20,
+      liftSnapshots: [
+        "squat": LiftConfigurationSnapshot(
+          identity: .progression(.squat), trainingMaxKg: 100, loadingIncrementKg: 2.5
+        )
+      ]
+    )
+    _ = try await repository.saveTrainingCycle(
+      active,
+      expectedBefore: draft.snapshot,
+      auditID: "cycle-audit-activate",
+      occurredAt: 20,
+      action: .activated
+    )
+    let restarted = GRDBTrainingRepository(root: root)
+    let savedDraft = try await restarted.loadDraftTrainingCycle()
+    let savedActive = try await restarted.loadActiveTrainingCycle()
+    let history = try await restarted.trainingCycleAuditHistory(for: draft.id)
+    XCTAssertNil(savedDraft)
+    XCTAssertEqual(savedActive, active)
+    XCTAssertEqual(history.map(\.action), [.created, .activated])
+  }
+
   private func makeCycle() -> TrainingCycle {
     let template = ScheduleTemplate(sessions: [
       ScheduleSession(

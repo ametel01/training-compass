@@ -249,6 +249,23 @@ public struct LiftConfigurationSnapshot: Codable, Equatable, Sendable {
       && trainingMaxKg.isFinite && trainingMaxKg > 0
       && loadingIncrementKg.isFinite && loadingIncrementKg > 0
   }
+
+  /// Calculates a load from this frozen configuration using nearest-increment
+  /// rounding. Exact half-increment ties deliberately round down.
+  public func prescribedWeightKg(forPercentage percentage: Double) throws -> Double {
+    guard percentage.isFinite, percentage > 0, percentage <= 1 else {
+      throw WeightValidationError.invalidPercentage
+    }
+    let exact = trainingMaxKg * percentage / loadingIncrementKg
+    let lower = exact.rounded(.down)
+    let fraction = exact - lower
+    let roundedUnits = fraction > 0.5 + 0.000000001 ? lower + 1 : lower
+    return roundedUnits * loadingIncrementKg
+  }
+
+  public func prescribedWeight(forPercentage percentage: Double) throws -> LoadableWeight {
+    try LoadableWeight(kg: prescribedWeightKg(forPercentage: percentage))
+  }
 }
 
 public enum LiftConfigurationAuditAction: String, Codable, Equatable, Sendable {

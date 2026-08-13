@@ -130,6 +130,78 @@ final class TrainingCycleBoundaryTests: XCTestCase {
     XCTAssertEqual(savedTemplate, makeTemplate())
   }
 
+  func testActivationSnapshotsLiftsAndBuildsExactFiveThreeOnePrescriptions() async throws {
+    let repository = InMemoryCycleRepository(template: makeTemplate())
+    let boundary = makeBoundary(
+      repository: repository,
+      date: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    _ = try await boundary.create(anchorDate: TrainingDate(year: 2024, month: 1, day: 1))
+
+    let preview = try await boundary.previewActivation()
+    XCTAssertEqual(preview.after.lifecycleState, .active)
+    XCTAssertEqual(preview.after.liftSnapshots["squat"]?.trainingMaxKg, 100)
+    XCTAssertEqual(preview.after.liftSnapshots["bench"]?.loadingIncrementKg, 2.5)
+    let session = try XCTUnwrap(preview.after.weeks[0].sessions[0])
+    XCTAssertEqual(
+      session.prescriptions.filter { $0.role == .primary }.map(\.repetitions), [5, 5, 5])
+    XCTAssertEqual(
+      session.prescriptions.filter { $0.role == .primary }.map(\.weightKg), [65, 75, 85])
+    XCTAssertEqual(session.prescriptions.filter { $0.role == .assistance }.count, 5)
+    XCTAssertEqual(
+      Set(session.prescriptions.filter { $0.role == .assistance }.map(\.percentage)),
+      [0.65]
+    )
+    XCTAssertEqual(session.prescriptions.filter(\.isPlusSetEligible).count, 1)
+
+    _ = try await boundary.confirmActivation(preview)
+    let draftAfterActivation = try await boundary.draft()
+    let activeAfterActivation = try await boundary.active()
+    XCTAssertNil(draftAfterActivation)
+    XCTAssertEqual(activeAfterActivation?.lifecycleState, .active)
+  }
+
+  func testPastAnchorRequiresExplicitChoiceAndReplacementShiftsDatesWithoutTimezone() async throws {
+    let repository = InMemoryCycleRepository(template: makeTemplate(), completedCount: 1)
+    let boundary = makeBoundary(
+      repository: repository,
+      date: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    _ = try await boundary.create(anchorDate: TrainingDate(year: 2023, month: 11, day: 6))
+    do {
+      _ = try await boundary.previewActivation()
+      XCTFail("Expected an explicit anchor choice")
+    } catch let error as TrainingCycleValidationError {
+      XCTAssertEqual(error, .pastAnchorRequiresChoice)
+    }
+    let preview = try await boundary.previewActivation(
+      anchorChoice: .replace(
+        TrainingDate(year: 2024, month: 2, day: 5)
+      ))
+    XCTAssertEqual(preview.after.week1AnchorDate, TrainingDate(year: 2024, month: 2, day: 5))
+    XCTAssertEqual(preview.after.weeks[1].startDate, TrainingDate(year: 2024, month: 2, day: 12))
+    XCTAssertEqual(
+      preview.after.weeks[0].sessions[0].intendedDate, TrainingDate(year: 2024, month: 2, day: 5))
+    XCTAssertEqual(
+      preview.after.weeks.last?.startDate, TrainingDate(year: 2024, month: 2, day: 26))
+  }
+
+  func testDeloadAssistanceUsesFiftyPercentAndNoPlusSet() async throws {
+    let repository = InMemoryCycleRepository(template: makeTemplate(), completedCount: 1)
+    let boundary = makeBoundary(
+      repository: repository,
+      date: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    _ = try await boundary.create(anchorDate: TrainingDate(year: 2024, month: 1, day: 1))
+    let preview = try await boundary.previewActivation()
+    let deload = try XCTUnwrap(preview.after.weeks.last)
+    XCTAssertEqual(deload.kind, .deload)
+    let assistance = deload.sessions[0].prescriptions.filter { $0.role == .assistance }
+    XCTAssertEqual(Set(assistance.map(\.percentage)), [0.50])
+    XCTAssertEqual(Set(assistance.map(\.repetitions)), [10])
+    XCTAssertTrue(assistance.allSatisfy { !$0.isPlusSetEligible })
+  }
+
   private func makeBoundary(
     repository: InMemoryCycleRepository,
     date: Date
@@ -219,7 +291,7 @@ private actor InMemoryCycleRepository: TrainingCycleRepository, ScheduleTemplate
 {
   private let template: ScheduleTemplate
   private var draftCycle: TrainingCycle?
-  private let activeCycle: TrainingCycle?
+  private var activeCycle: TrainingCycle?
   private var completedCount: Int
   private var audits: [TrainingCycleAuditEntry] = []
 
@@ -247,7 +319,12 @@ private actor InMemoryCycleRepository: TrainingCycleRepository, ScheduleTemplate
       id: auditID, cycleID: cycle.id, action: action, occurredAt: occurredAt,
       before: draftCycle?.snapshot, after: cycle.snapshot
     )
-    draftCycle = cycle
+    if cycle.lifecycleState == .active {
+      activeCycle = cycle
+      draftCycle = nil
+    } else {
+      draftCycle = cycle
+    }
     audits.append(audit)
     return audit
   }

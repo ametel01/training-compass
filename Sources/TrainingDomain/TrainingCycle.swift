@@ -100,25 +100,134 @@ public enum TrainingWeekKind: String, Codable, Equatable, Sendable {
   public var isDeload: Bool { self == .deload }
 }
 
+/// The two prescription roles that can occur in a 5/3/1 session.
+public enum TrainingPrescriptionRole: String, Codable, Equatable, Hashable, Sendable {
+  case primary
+  case assistance
+}
+
+/// A frozen, loadable prescription captured when a cycle is activated.
+public struct TrainingSetPrescription: Codable, Equatable, Hashable, Identifiable, Sendable {
+  public let id: String
+  public let setNumber: Int
+  public let role: TrainingPrescriptionRole
+  public let percentage: Double
+  public let repetitions: Int
+  public let weightKg: Double
+  public let isPlusSetEligible: Bool
+
+  public init(
+    id: String,
+    setNumber: Int,
+    role: TrainingPrescriptionRole,
+    percentage: Double,
+    repetitions: Int,
+    weightKg: Double,
+    isPlusSetEligible: Bool = false
+  ) {
+    self.id = id
+    self.setNumber = setNumber
+    self.role = role
+    self.percentage = percentage
+    self.repetitions = repetitions
+    self.weightKg = weightKg
+    self.isPlusSetEligible = isPlusSetEligible
+  }
+
+  public var weight: Double { weightKg }
+  public var isPlusSet: Bool { isPlusSetEligible }
+}
+
+/// Short aliases keep the domain vocabulary convenient at call sites.
+public enum FiveThreeOnePrescription {
+  public struct Specification: Equatable, Sendable {
+    public let percentage: Double
+    public let repetitions: Int
+    public let isPlusSetEligible: Bool
+
+    public init(percentage: Double, repetitions: Int, isPlusSetEligible: Bool) {
+      self.percentage = percentage
+      self.repetitions = repetitions
+      self.isPlusSetEligible = isPlusSetEligible
+    }
+  }
+
+  public static func specifications(
+    for kind: TrainingWeekKind,
+    role: TrainingPrescriptionRole
+  ) -> [Specification] {
+    switch (kind, role) {
+    case (.week1, .primary):
+      [
+        .init(percentage: 0.65, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.75, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.85, repetitions: 5, isPlusSetEligible: true),
+      ]
+    case (.week2, .primary):
+      [
+        .init(percentage: 0.70, repetitions: 3, isPlusSetEligible: false),
+        .init(percentage: 0.80, repetitions: 3, isPlusSetEligible: false),
+        .init(percentage: 0.90, repetitions: 3, isPlusSetEligible: true),
+      ]
+    case (.week3, .primary):
+      [
+        .init(percentage: 0.75, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.85, repetitions: 3, isPlusSetEligible: false),
+        .init(percentage: 0.95, repetitions: 1, isPlusSetEligible: true),
+      ]
+    case (.deload, .primary):
+      [
+        .init(percentage: 0.40, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.50, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.60, repetitions: 5, isPlusSetEligible: false),
+      ]
+    case (.week1, .assistance), (.week2, .assistance), (.week3, .assistance):
+      Array(repeating: .init(percentage: 0.65, repetitions: 10, isPlusSetEligible: false), count: 5)
+    case (.deload, .assistance):
+      Array(repeating: .init(percentage: 0.50, repetitions: 10, isPlusSetEligible: false), count: 5)
+    }
+  }
+}
+
 public struct TrainingCycleSession: Codable, Equatable, Hashable, Identifiable, Sendable {
   public let id: String
   public let intendedDate: TrainingDate
   public let sourceTemplateSessionID: String
   public let primaryLiftID: String
   public let assistanceLiftID: String
+  public let prescriptions: [TrainingSetPrescription]
 
   public init(
     id: String,
     intendedDate: TrainingDate,
     sourceTemplateSessionID: String,
     primaryLiftID: String,
-    assistanceLiftID: String
+    assistanceLiftID: String,
+    prescriptions: [TrainingSetPrescription] = []
   ) {
     self.id = id
     self.intendedDate = intendedDate
     self.sourceTemplateSessionID = sourceTemplateSessionID
     self.primaryLiftID = primaryLiftID
     self.assistanceLiftID = assistanceLiftID
+    self.prescriptions = prescriptions
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, intendedDate, sourceTemplateSessionID, primaryLiftID, assistanceLiftID, prescriptions
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      id: try container.decode(String.self, forKey: .id),
+      intendedDate: try container.decode(TrainingDate.self, forKey: .intendedDate),
+      sourceTemplateSessionID: try container.decode(String.self, forKey: .sourceTemplateSessionID),
+      primaryLiftID: try container.decode(String.self, forKey: .primaryLiftID),
+      assistanceLiftID: try container.decode(String.self, forKey: .assistanceLiftID),
+      prescriptions: try container.decodeIfPresent(
+        [TrainingSetPrescription].self, forKey: .prescriptions) ?? []
+    )
   }
 
   public var primaryLiftRole: String { primaryLiftID }
@@ -158,6 +267,7 @@ public struct TrainingCycleSnapshot: Codable, Equatable, Sendable {
   public let lifecycleState: TrainingCycleLifecycleState
   public let createdAt: Int64
   public let updatedAt: Int64
+  public let liftSnapshots: [String: LiftConfigurationSnapshot]
 
   public init(
     id: String,
@@ -167,7 +277,8 @@ public struct TrainingCycleSnapshot: Codable, Equatable, Sendable {
     includesProvisionalDeload: Bool,
     lifecycleState: TrainingCycleLifecycleState,
     createdAt: Int64 = 0,
-    updatedAt: Int64 = 0
+    updatedAt: Int64 = 0,
+    liftSnapshots: [String: LiftConfigurationSnapshot] = [:]
   ) {
     self.id = id
     self.week1AnchorDate = week1AnchorDate
@@ -177,6 +288,30 @@ public struct TrainingCycleSnapshot: Codable, Equatable, Sendable {
     self.lifecycleState = lifecycleState
     self.createdAt = createdAt
     self.updatedAt = updatedAt
+    self.liftSnapshots = liftSnapshots
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, week1AnchorDate, weeks, sourceTemplate, includesProvisionalDeload,
+      lifecycleState, createdAt, updatedAt, liftSnapshots
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      id: try container.decode(String.self, forKey: .id),
+      week1AnchorDate: try container.decode(TrainingDate.self, forKey: .week1AnchorDate),
+      weeks: try container.decode([TrainingWeek].self, forKey: .weeks),
+      sourceTemplate: try container.decode(ScheduleTemplateSnapshot.self, forKey: .sourceTemplate),
+      includesProvisionalDeload: try container.decode(
+        Bool.self, forKey: .includesProvisionalDeload),
+      lifecycleState: try container.decode(
+        TrainingCycleLifecycleState.self, forKey: .lifecycleState),
+      createdAt: try container.decode(Int64.self, forKey: .createdAt),
+      updatedAt: try container.decode(Int64.self, forKey: .updatedAt),
+      liftSnapshots: try container.decodeIfPresent(
+        [String: LiftConfigurationSnapshot].self, forKey: .liftSnapshots) ?? [:]
+    )
   }
 }
 
@@ -189,6 +324,7 @@ public struct TrainingCycle: Codable, Equatable, Identifiable, Sendable {
   public let lifecycleState: TrainingCycleLifecycleState
   public let createdAt: Int64
   public let updatedAt: Int64
+  public let liftSnapshots: [String: LiftConfigurationSnapshot]
 
   public init(
     id: String,
@@ -198,7 +334,8 @@ public struct TrainingCycle: Codable, Equatable, Identifiable, Sendable {
     includesProvisionalDeload: Bool,
     lifecycleState: TrainingCycleLifecycleState = .draft,
     createdAt: Int64 = 0,
-    updatedAt: Int64 = 0
+    updatedAt: Int64 = 0,
+    liftSnapshots: [String: LiftConfigurationSnapshot] = [:]
   ) {
     self.id = id
     self.week1AnchorDate = week1AnchorDate
@@ -208,6 +345,30 @@ public struct TrainingCycle: Codable, Equatable, Identifiable, Sendable {
     self.lifecycleState = lifecycleState
     self.createdAt = createdAt
     self.updatedAt = updatedAt
+    self.liftSnapshots = liftSnapshots
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, week1AnchorDate, weeks, sourceTemplate, includesProvisionalDeload,
+      lifecycleState, createdAt, updatedAt, liftSnapshots
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      id: try container.decode(String.self, forKey: .id),
+      week1AnchorDate: try container.decode(TrainingDate.self, forKey: .week1AnchorDate),
+      weeks: try container.decode([TrainingWeek].self, forKey: .weeks),
+      sourceTemplate: try container.decode(ScheduleTemplateSnapshot.self, forKey: .sourceTemplate),
+      includesProvisionalDeload: try container.decode(
+        Bool.self, forKey: .includesProvisionalDeload),
+      lifecycleState: try container.decode(
+        TrainingCycleLifecycleState.self, forKey: .lifecycleState),
+      createdAt: try container.decode(Int64.self, forKey: .createdAt),
+      updatedAt: try container.decode(Int64.self, forKey: .updatedAt),
+      liftSnapshots: try container.decodeIfPresent(
+        [String: LiftConfigurationSnapshot].self, forKey: .liftSnapshots) ?? [:]
+    )
   }
 
   public var snapshot: TrainingCycleSnapshot {
@@ -219,7 +380,8 @@ public struct TrainingCycle: Codable, Equatable, Identifiable, Sendable {
       includesProvisionalDeload: includesProvisionalDeload,
       lifecycleState: lifecycleState,
       createdAt: createdAt,
-      updatedAt: updatedAt
+      updatedAt: updatedAt,
+      liftSnapshots: liftSnapshots
     )
   }
 
@@ -227,6 +389,8 @@ public struct TrainingCycle: Codable, Equatable, Identifiable, Sendable {
   public var totalWeeks: Int { weeks.count }
   public var isDraft: Bool { lifecycleState == .draft }
   public var isActive: Bool { lifecycleState == .active }
+
+  public var trainingMaxSnapshots: [String: LiftConfigurationSnapshot] { liftSnapshots }
 }
 
 public enum TrainingCycleValidationError: Error, Equatable, Sendable {
@@ -239,4 +403,7 @@ public enum TrainingCycleValidationError: Error, Equatable, Sendable {
   case noDraft
   case staleDraft
   case activeCycleAlreadyExists
+  case pastAnchorRequiresChoice
+  case deloadConfirmationRequired
+  case missingTrainingMax(String)
 }
