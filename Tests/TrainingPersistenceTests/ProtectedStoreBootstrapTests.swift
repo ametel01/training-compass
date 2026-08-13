@@ -66,6 +66,34 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
       1
     )
   }
+
+  func testUpgradesAV5StoreDirectlyToV6() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let bootstrapper = ProtectedStoreBootstrapper()
+    let stores = try bootstrapper.open(in: root)
+
+    try stores.authoritative.write { db in
+      for table in ["session_completions", "additional_sets", "omitted_sets"] {
+        try db.execute(sql: "DROP TABLE \(table)")
+      }
+      try db.execute(
+        sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
+        arguments: ["authoritative_v6_session_logging_completion"]
+      )
+    }
+
+    let upgraded = try bootstrapper.open(in: root)
+    XCTAssertTrue(
+      try upgraded.authoritative.read { db in
+        let omitted = try db.tableExists("omitted_sets")
+        let additional = try db.tableExists("additional_sets")
+        let completions = try db.tableExists("session_completions")
+        return omitted && additional && completions
+      }
+    )
+  }
 }
 
 private final class ProtectionSpy: StoreProtectionManaging, @unchecked Sendable {

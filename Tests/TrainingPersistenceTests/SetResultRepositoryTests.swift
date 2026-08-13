@@ -89,6 +89,41 @@ final class SetResultRepositoryTests: XCTestCase {
     XCTAssertEqual(history.count, 1)
   }
 
+  func testOmissionAdditionalSetsAndCompletionSurviveRestart() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    _ = try await repository.saveTrainingCycle(
+      makeActiveCycle(), expectedBefore: nil, auditID: "cycle-audit", occurredAt: 10,
+      action: .activated
+    )
+    let omission = OmittedSet(
+      sessionID: "session", prescriptionID: "prescription", reason: "Skipped", omittedAt: 20
+    )
+    try await repository.saveOmittedSet(
+      omission, expectedResult: nil, auditID: "omission-audit", occurredAt: 20, action: .omitted
+    )
+    let additional = try AdditionalSet(
+      id: "additional", sessionID: "session", position: 0, liftID: "row",
+      weightKg: 40, repetitions: 8, note: "Strict", recordedAt: 21
+    )
+    _ = try await repository.saveAdditionalSet(additional)
+    _ = try await repository.completeSession(
+      CompletedSession(sessionID: "session", confirmedAt: 22), confirmation: .confirmed
+    )
+
+    let restarted = GRDBTrainingRepository(root: root)
+    let savedOmissions = try await restarted.loadOmittedSets(for: "session")
+    let savedAdditional = try await restarted.loadAdditionalSets(for: "session")
+    let savedCompletion = try await restarted.loadCompletedSession(sessionID: "session")
+    let savedResults = try await restarted.loadSetResults(for: "session")
+    XCTAssertEqual(savedOmissions, [omission])
+    XCTAssertEqual(savedAdditional, [additional])
+    XCTAssertEqual(savedCompletion, CompletedSession(sessionID: "session", confirmedAt: 22))
+    XCTAssertTrue(savedResults.isEmpty)
+  }
+
   private func makeActiveCycle() -> TrainingCycle {
     let template = ScheduleTemplate(sessions: [
       ScheduleSession(

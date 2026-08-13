@@ -478,6 +478,13 @@ public actor GRDBTrainingRepository: TrainingRepository {
           result.recordedAt,
         ]
       )
+      // A performed result supersedes an earlier Omitted disposition. Keeping this
+      // in the same transaction guarantees the two states cannot coexist after a
+      // restart or an interrupted write.
+      try db.execute(
+        sql: "DELETE FROM omitted_sets WHERE session_id = ? AND prescription_id = ?",
+        arguments: [result.sessionID, result.prescriptionID]
+      )
       try db.execute(
         sql: """
           INSERT INTO set_result_audit
@@ -521,6 +528,239 @@ public actor GRDBTrainingRepository: TrainingRepository {
           """,
         arguments: [sessionID]
       ).map(Self.setResultAuditEntry(from:))
+    }
+  }
+
+  public func loadOmittedSets(for sessionID: String) async throws -> [OmittedSet] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT session_id, prescription_id, reason, omitted_at
+          FROM omitted_sets
+          WHERE session_id = ?
+          ORDER BY omitted_at, rowid
+          """,
+        arguments: [sessionID]
+      ).map {
+        OmittedSet(
+          sessionID: $0["session_id"],
+          prescriptionID: $0["prescription_id"],
+          reason: $0["reason"],
+          omittedAt: $0["omitted_at"]
+        )
+      }
+    }
+  }
+
+  public func saveOmittedSet(
+    _ omission: OmittedSet,
+    expectedResult: RecordedSetResult?,
+    auditID: String,
+    occurredAt: Int64,
+    action: OmittedSetAuditAction
+  ) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == omission.sessionID })
+      else { throw SetResultRepositoryError.unknownSession }
+      guard session.prescriptions.contains(where: { $0.id == omission.prescriptionID }) else {
+        throw SetResultRepositoryError.unknownPrescription
+      }
+      let current = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT result_json FROM set_results
+          WHERE session_id = ? AND prescription_id = ?
+          """,
+        arguments: [omission.sessionID, omission.prescriptionID]
+      ).map(Self.recordedSetResult(from:))
+      guard current == expectedResult else { throw SetResultRepositoryError.staleResult }
+      try db.execute(
+        sql: """
+          INSERT INTO omitted_sets (session_id, prescription_id, reason, omitted_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(session_id, prescription_id) DO UPDATE SET
+            reason = excluded.reason,
+            omitted_at = excluded.omitted_at
+          """,
+        arguments: [
+          omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt,
+        ]
+      )
+      try db.execute(
+        sql: "DELETE FROM set_results WHERE session_id = ? AND prescription_id = ?",
+        arguments: [omission.sessionID, omission.prescriptionID]
+      )
+      _ = auditID
+      _ = occurredAt
+      _ = action
+    }
+  }
+
+  public func loadAdditionalSets(for sessionID: String) async throws -> [AdditionalSet] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, session_id, position, lift_id, weight_kg, repetitions, note, recorded_at
+          FROM additional_sets
+          WHERE session_id = ?
+          ORDER BY position, rowid
+          """,
+        arguments: [sessionID]
+      ).map { row in
+        try AdditionalSet(
+          id: row["id"],
+          sessionID: row["session_id"],
+          position: row["position"],
+          liftID: row["lift_id"],
+          weightKg: row["weight_kg"],
+          repetitions: row["repetitions"],
+          note: row["note"],
+          recordedAt: row["recorded_at"]
+        )
+      }
+    }
+  }
+
+  public func saveAdditionalSet(_ set: AdditionalSet) async throws -> AdditionalSet {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        active.weeks.flatMap(\.sessions).contains(where: { $0.id == set.sessionID })
+      else { throw SetResultRepositoryError.unknownSession }
+      let existing =
+        try Row.fetchOne(
+          db,
+          sql: "SELECT id FROM additional_sets WHERE id = ? AND session_id = ?",
+          arguments: [set.id, set.sessionID]
+        ) != nil
+      if existing {
+        try db.execute(
+          sql: """
+            UPDATE additional_sets
+            SET position = ?, lift_id = ?, weight_kg = ?, repetitions = ?, note = ?, recorded_at = ?
+            WHERE id = ? AND session_id = ?
+            """,
+          arguments: [
+            set.position, set.liftID, set.weightKg, set.repetitions, set.note, set.recordedAt,
+            set.id, set.sessionID,
+          ]
+        )
+      } else {
+        try db.execute(
+          sql: """
+            INSERT INTO additional_sets
+              (id, session_id, position, lift_id, weight_kg, repetitions, note, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            set.id, set.sessionID, set.position, set.liftID, set.weightKg, set.repetitions,
+            set.note, set.recordedAt,
+          ]
+        )
+      }
+      return set
+    }
+  }
+
+  public func deleteAdditionalSet(sessionID: String, id: String) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      guard
+        try Row.fetchOne(
+          db,
+          sql: "SELECT id FROM additional_sets WHERE id = ? AND session_id = ?",
+          arguments: [id, sessionID]
+        ) != nil
+      else { throw SetResultRepositoryError.unknownPrescription }
+      try db.execute(
+        sql: "DELETE FROM additional_sets WHERE id = ? AND session_id = ?",
+        arguments: [id, sessionID]
+      )
+      try Self.compactAdditionalSets(db, sessionID: sessionID)
+    }
+  }
+
+  public func reorderAdditionalSets(sessionID: String, orderedIDs: [String]) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: "SELECT id FROM additional_sets WHERE session_id = ? ORDER BY position, rowid",
+        arguments: [sessionID]
+      )
+      let currentIDs: [String] = rows.map { $0["id"] }
+      guard Set(currentIDs) == Set(orderedIDs), currentIDs.count == orderedIDs.count else {
+        throw SetResultRepositoryError.unknownPrescription
+      }
+      for (offset, id) in orderedIDs.enumerated() {
+        try db.execute(
+          sql: "UPDATE additional_sets SET position = ? WHERE id = ? AND session_id = ?",
+          arguments: [offset + currentIDs.count, id, sessionID]
+        )
+      }
+      for (offset, id) in orderedIDs.enumerated() {
+        try db.execute(
+          sql: "UPDATE additional_sets SET position = ? WHERE id = ? AND session_id = ?",
+          arguments: [offset, id, sessionID]
+        )
+      }
+    }
+  }
+
+  public func loadCompletedSession(sessionID: String) async throws -> CompletedSession? {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchOne(
+        db,
+        sql: "SELECT session_id, confirmed_at FROM session_completions WHERE session_id = ?",
+        arguments: [sessionID]
+      ).map { CompletedSession(sessionID: $0["session_id"], confirmedAt: $0["confirmed_at"]) }
+    }
+  }
+
+  public func completeSession(
+    _ completion: CompletedSession,
+    confirmation: SessionCompletionConfirmation
+  ) async throws -> CompletedSession {
+    guard confirmation == .confirmed else { throw SessionLoggingError.incompleteSession }
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: {
+          $0.id == completion.sessionID
+        })
+      else { throw SetResultRepositoryError.unknownSession }
+      let resultIDs = try Set(
+        String.fetchAll(
+          db,
+          sql: "SELECT prescription_id FROM set_results WHERE session_id = ?",
+          arguments: [completion.sessionID]
+        )
+      )
+      let omittedIDs = try Set(
+        String.fetchAll(
+          db,
+          sql: "SELECT prescription_id FROM omitted_sets WHERE session_id = ?",
+          arguments: [completion.sessionID]
+        )
+      )
+      guard
+        session.prescriptions.allSatisfy({ resultIDs.contains($0.id) || omittedIDs.contains($0.id) }
+        )
+      else {
+        throw SessionLoggingError.incompleteSession
+      }
+      try db.execute(
+        sql: "INSERT INTO session_completions (session_id, confirmed_at) VALUES (?, ?)",
+        arguments: [completion.sessionID, completion.confirmedAt]
+      )
+      return completion
     }
   }
 
@@ -633,6 +873,26 @@ public actor GRDBTrainingRepository: TrainingRepository {
       return try JSONDecoder().decode(RecordedSetResult.self, from: data)
     } catch {
       throw PersistenceError.invalidSetResult
+    }
+  }
+
+  private static func compactAdditionalSets(_ db: Database, sessionID: String) throws {
+    let ids = try String.fetchAll(
+      db,
+      sql: "SELECT id FROM additional_sets WHERE session_id = ? ORDER BY position, rowid",
+      arguments: [sessionID]
+    )
+    for (offset, id) in ids.enumerated() {
+      try db.execute(
+        sql: "UPDATE additional_sets SET position = ? WHERE id = ? AND session_id = ?",
+        arguments: [offset + ids.count, id, sessionID]
+      )
+    }
+    for (offset, id) in ids.enumerated() {
+      try db.execute(
+        sql: "UPDATE additional_sets SET position = ? WHERE id = ? AND session_id = ?",
+        arguments: [offset, id, sessionID]
+      )
     }
   }
 

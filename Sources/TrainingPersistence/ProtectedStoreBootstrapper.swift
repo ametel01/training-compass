@@ -220,6 +220,40 @@ public struct ProtectedStoreBootstrapper: Sendable {
         columns: ["session_id", "occurred_at"]
       )
     }
+    migrator.registerMigration("authoritative_v6_session_logging_completion") { db in
+      try db.create(table: "omitted_sets") { table in
+        table.column("session_id", .text).notNull()
+        table.column("prescription_id", .text).notNull()
+        table.column("reason", .text)
+        table.column("omitted_at", .integer).notNull()
+        table.primaryKey(["session_id", "prescription_id"])
+      }
+      try db.create(
+        index: "omitted_sets_session",
+        on: "omitted_sets",
+        columns: ["session_id", "omitted_at"]
+      )
+      try db.create(table: "additional_sets") { table in
+        table.column("id", .text).primaryKey()
+        table.column("session_id", .text).notNull()
+        table.column("position", .integer).notNull().check { $0 >= 0 }
+        table.column("lift_id", .text).notNull().check { $0 != "" }
+        table.column("weight_kg", .double).notNull().check { $0 > 0 }
+        table.column("repetitions", .integer).notNull().check { $0 >= 0 }
+        table.column("note", .text)
+        table.column("recorded_at", .integer).notNull()
+      }
+      try db.create(
+        index: "additional_sets_session_order",
+        on: "additional_sets",
+        columns: ["session_id", "position"],
+        unique: true
+      )
+      try db.create(table: "session_completions") { table in
+        table.column("session_id", .text).primaryKey()
+        table.column("confirmed_at", .integer).notNull()
+      }
+    }
     return migrator
   }
 

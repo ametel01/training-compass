@@ -82,6 +82,72 @@ final class SessionLoggingBoundaryTests: XCTestCase {
     await reconciliationTask.value
   }
 
+  func testZeroRepetitionsIsAConfirmedFailedResult() async throws {
+    let repository = SessionLoggingTestRepository(active: makeActiveCycle())
+    let boundary = makeBoundary(repository: repository)
+    let prescription = makeActiveCycle().weeks[0].sessions[0].prescriptions[0]
+
+    _ = try await boundary.recordSetResult(
+      sessionID: "session", prescriptionID: prescription.id, weightKg: 65, repetitions: 0
+    )
+
+    let todayValue = try await boundary.today()
+    let today = try XCTUnwrap(todayValue)
+    let set = try XCTUnwrap(today.sets.first)
+    XCTAssertEqual(set.result?.repetitions, 0)
+    XCTAssertEqual(set.completionState, .failed)
+  }
+
+  func testOmittingASetRemovesItsResultAndAllowsCompletion() async throws {
+    let repository = SessionLoggingTestRepository(active: makeActiveCycle())
+    let boundary = makeBoundary(repository: repository)
+    let prescriptions = makeActiveCycle().weeks[0].sessions[0].prescriptions
+    _ = try await boundary.recordSetResult(
+      sessionID: "session", prescriptionID: prescriptions[0].id, weightKg: 65, repetitions: 0
+    )
+    _ = try await boundary.omitSet(
+      sessionID: "session", prescriptionID: prescriptions[1].id, reason: "Equipment unavailable"
+    )
+    for prescription in prescriptions.dropFirst(2) {
+      _ = try await boundary.recordSetResult(
+        sessionID: "session", prescriptionID: prescription.id, weightKg: 50, repetitions: 5
+      )
+    }
+
+    let beforeCompletionValue = try await boundary.today()
+    let beforeCompletion = try XCTUnwrap(beforeCompletionValue)
+    XCTAssertEqual(beforeCompletion.state, .readyToComplete)
+    XCTAssertEqual(beforeCompletion.sets[1].completionState, .omitted)
+    XCTAssertNil(beforeCompletion.sets[1].result)
+    let completed = try await boundary.confirmSession(sessionID: "session")
+    XCTAssertEqual(completed.state, .completed)
+    XCTAssertEqual(completed.plannedVersusActual.omitted.count, 1)
+  }
+
+  func testAdditionalSetsCanBeEditedRemovedAndReordered() async throws {
+    let repository = SessionLoggingTestRepository(active: makeActiveCycle())
+    let boundary = makeBoundary(repository: repository)
+    let first = try await boundary.addAdditionalSet(
+      sessionID: "session", liftID: "row", weightKg: 40, repetitions: 8, note: "Strict"
+    )
+    let second = try await boundary.addAdditionalSet(
+      sessionID: "session", liftID: "row", weightKg: 42.5, repetitions: 6
+    )
+    _ = try await boundary.editAdditionalSet(
+      sessionID: "session", id: first.id, liftID: "row", weightKg: 45, repetitions: 5
+    )
+    try await boundary.reorderAdditionalSets(
+      sessionID: "session", orderedIDs: [second.id, first.id])
+    let snapshotValue = try await boundary.today()
+    let snapshot = try XCTUnwrap(snapshotValue)
+    XCTAssertEqual(snapshot.additionalSets.map(\.id), [second.id, first.id])
+    XCTAssertEqual(snapshot.additionalSets[1].weightKg, 45)
+    try await boundary.removeAdditionalSet(sessionID: "session", id: second.id)
+    let afterRemovalValue = try await boundary.today()
+    let afterRemoval = try XCTUnwrap(afterRemovalValue)
+    XCTAssertEqual(afterRemoval.additionalSets.count, 1)
+  }
+
   private func makeActiveCycle() -> TrainingCycle {
     let template = ScheduleTemplate(sessions: [
       ScheduleSession(
@@ -142,6 +208,16 @@ final class SessionLoggingBoundaryTests: XCTestCase {
       ]
     )
   }
+
+  private func makeBoundary(repository: SessionLoggingTestRepository) -> SessionLoggingBoundary {
+    SessionLoggingBoundary(
+      cycleRepository: repository,
+      resultRepository: repository,
+      clock: SessionLoggingFixedClock(),
+      calendar: SessionLoggingFixedCalendar(),
+      uuidGenerator: SessionLoggingUUIDGenerator()
+    )
+  }
 }
 
 private struct SessionLoggingFixedClock: Clock {
@@ -168,6 +244,9 @@ private final class SessionLoggingUUIDGenerator: UUIDGenerator, @unchecked Senda
 private actor SessionLoggingTestRepository: TrainingCycleRepository, SetResultRepository {
   let active: TrainingCycle?
   var results: [String: RecordedSetResult] = [:]
+  var omissions: [String: OmittedSet] = [:]
+  var additional: [String: AdditionalSet] = [:]
+  var completion: CompletedSession?
   var audits: [SetResultAuditEntry] = []
 
   init(active: TrainingCycle?) { self.active = active }
@@ -188,6 +267,7 @@ private actor SessionLoggingTestRepository: TrainingCycleRepository, SetResultRe
     let before = results[key]
     guard before == expectedBefore else { throw SetResultRepositoryError.staleResult }
     results[key] = result
+    omissions.removeValue(forKey: key)
     let audit = SetResultAuditEntry(
       id: auditID,
       sessionID: result.sessionID,
@@ -203,6 +283,73 @@ private actor SessionLoggingTestRepository: TrainingCycleRepository, SetResultRe
 
   func setResultAuditHistory(for sessionID: String) async throws -> [SetResultAuditEntry] {
     audits.filter { $0.sessionID == sessionID }
+  }
+
+  func loadOmittedSets(for sessionID: String) async throws -> [OmittedSet] {
+    omissions.values.filter { $0.sessionID == sessionID }
+  }
+
+  func saveOmittedSet(
+    _ omission: OmittedSet,
+    expectedResult: RecordedSetResult?,
+    auditID: String,
+    occurredAt: Int64,
+    action: OmittedSetAuditAction
+  ) async throws {
+    let key = omission.id
+    let current = results[key]
+    guard current == expectedResult else { throw SetResultRepositoryError.staleResult }
+    results.removeValue(forKey: key)
+    omissions[key] = omission
+  }
+
+  func loadAdditionalSets(for sessionID: String) async throws -> [AdditionalSet] {
+    additional.values.filter { $0.sessionID == sessionID }.sorted { $0.position < $1.position }
+  }
+
+  func saveAdditionalSet(_ set: AdditionalSet) async throws -> AdditionalSet {
+    additional[set.id] = set
+    return set
+  }
+
+  func deleteAdditionalSet(sessionID: String, id: String) async throws {
+    additional.removeValue(forKey: id)
+    let remaining = additional.values.filter { $0.sessionID == sessionID }.sorted {
+      $0.position < $1.position
+    }
+    for (position, set) in remaining.enumerated() {
+      additional[set.id] = try AdditionalSet(
+        id: set.id, sessionID: set.sessionID, position: position, liftID: set.liftID,
+        weightKg: set.weightKg, repetitions: set.repetitions, note: set.note,
+        recordedAt: set.recordedAt
+      )
+    }
+  }
+
+  func reorderAdditionalSets(sessionID: String, orderedIDs: [String]) async throws {
+    for (position, id) in orderedIDs.enumerated() {
+      guard let set = additional[id], set.sessionID == sessionID else {
+        throw SetResultRepositoryError.unknownPrescription
+      }
+      additional[id] = try AdditionalSet(
+        id: set.id, sessionID: set.sessionID, position: position, liftID: set.liftID,
+        weightKg: set.weightKg, repetitions: set.repetitions, note: set.note,
+        recordedAt: set.recordedAt
+      )
+    }
+  }
+
+  func loadCompletedSession(sessionID: String) async throws -> CompletedSession? {
+    completion?.sessionID == sessionID ? completion : nil
+  }
+
+  func completeSession(
+    _ completion: CompletedSession,
+    confirmation: SessionCompletionConfirmation
+  ) async throws -> CompletedSession {
+    guard confirmation == .confirmed else { throw SessionLoggingError.incompleteSession }
+    self.completion = completion
+    return completion
   }
 }
 

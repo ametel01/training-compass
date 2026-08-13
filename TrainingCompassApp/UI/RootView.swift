@@ -54,6 +54,12 @@ private struct TodayView: View {
   @State private var today: TodaySessionSnapshot?
   @State private var weightText: [String: String] = [:]
   @State private var repetitionsText: [String: String] = [:]
+  @State private var additionalLiftID = ""
+  @State private var additionalWeightText = ""
+  @State private var additionalRepetitionsText = ""
+  @State private var additionalNote = ""
+  @State private var editingAdditionalSetID: String?
+  @State private var showingCompletionConfirmation = false
   @State private var errorMessage: String?
 
   var body: some View {
@@ -109,12 +115,90 @@ private struct TodayView: View {
                   },
                   set: { repetitionsText[set.id] = $0 }
                 ),
-                onConfirm: { Task { await confirm(set) } }
+                onConfirm: { Task { await confirm(set) } },
+                onOmit: { Task { await omit(set) } }
               )
+            }
+          }
+
+          Section("Additional Sets") {
+            ForEach(today.additionalSets) { additional in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(
+                  "\(additional.liftID) · \(additional.weightKg, specifier: "%.2f") kg · \(additional.repetitions) reps"
+                )
+                if let note = additional.note {
+                  Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                  Button("Edit") { beginEditing(additional) }
+                  Button("Remove", role: .destructive) { Task { await remove(additional) } }
+                }
+                .font(.caption)
+              }
+            }
+            .onMove { from, to in
+              let ids = today.additionalSets.map(\.id).reordered(fromOffsets: from, toOffset: to)
+              Task { await reorderAdditionalSets(ids) }
+            }
+            TextField("Lift", text: $additionalLiftID)
+            TextField("Weight (kg)", text: $additionalWeightText)
+              .keyboardType(.decimalPad)
+            TextField("Repetitions", text: $additionalRepetitionsText)
+              .keyboardType(.numberPad)
+            TextField("Note (optional)", text: $additionalNote)
+            HStack {
+              Button(editingAdditionalSetID == nil ? "Add Additional Set" : "Save Additional Set") {
+                Task { await saveAdditionalSet() }
+              }
+              .buttonStyle(.borderedProminent)
+              if editingAdditionalSetID != nil {
+                Button("Cancel") { clearAdditionalDraft() }
+              }
+            }
+          }
+
+          if let completion = today.completion {
+            Section("Completed Session") {
+              LabeledContent("Confirmed", value: String(completion.confirmedAt))
+              LabeledContent("Performed", value: "\(today.plannedVersusActual.performed.count)")
+              LabeledContent("Omitted", value: "\(today.plannedVersusActual.omitted.count)")
+              LabeledContent("Additional", value: "\(today.plannedVersusActual.additional.count)")
+              ForEach(today.sets) { set in
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(
+                    "Set \(set.prescription.setNumber) · \(set.prescription.role.rawValue.capitalized)"
+                  )
+                  Text(
+                    "Planned: \(set.prescription.weightKg, specifier: "%.2f") kg × \(set.prescription.repetitions) reps"
+                  )
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  if let result = set.result {
+                    Text(
+                      "Actual: \(result.weightKg, specifier: "%.2f") kg × \(result.repetitions) reps\(result.repetitions == 0 ? " · Failed" : "")"
+                    )
+                    .font(.caption)
+                  } else if let omission = set.omission {
+                    Text(omission.reason.map { "Omitted: \($0)" } ?? "Omitted")
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                  }
+                }
+              }
+            }
+          } else if today.state == .readyToComplete {
+            Section {
+              Button("Complete Session") { showingCompletionConfirmation = true }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("today.complete")
+            } footer: {
+              Text("Every prescribed set has a confirmed result or an Omitted disposition.")
             }
           }
         }
         .refreshable { await reload() }
+        .toolbar { EditButton() }
       } else {
         ContentUnavailableView {
           Label("Nothing scheduled today", systemImage: "checkmark.circle")
@@ -141,6 +225,16 @@ private struct TodayView: View {
       Button("OK", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "Try again.")
+    }
+    .confirmationDialog(
+      "Complete this Session?",
+      isPresented: $showingCompletionConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Confirm Completion") { Task { await complete() } }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Completion records the planned-versus-actual work and every set disposition.")
     }
   }
 
@@ -194,6 +288,81 @@ private struct TodayView: View {
       errorMessage = String(describing: error)
     }
   }
+
+  private func omit(_ set: TodaySetSnapshot) async {
+    do {
+      _ = try await model.sessionLoggingBoundary.omitSet(
+        sessionID: today?.session.id ?? "",
+        prescriptionID: set.prescription.id,
+        expectedBefore: set.result
+      )
+      await reload()
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func complete() async {
+    do {
+      _ = try await model.sessionLoggingBoundary.confirmSession(sessionID: today?.session.id ?? "")
+      await reload()
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func beginEditing(_ set: AdditionalSet) {
+    editingAdditionalSetID = set.id
+    additionalLiftID = set.liftID
+    additionalWeightText = String(set.weightKg)
+    additionalRepetitionsText = String(set.repetitions)
+    additionalNote = set.note ?? ""
+  }
+
+  private func clearAdditionalDraft() {
+    editingAdditionalSetID = nil
+    additionalLiftID = ""
+    additionalWeightText = ""
+    additionalRepetitionsText = ""
+    additionalNote = ""
+  }
+
+  private func saveAdditionalSet() async {
+    guard let weight = Double(additionalWeightText),
+      let repetitions = Int(additionalRepetitionsText),
+      !additionalLiftID.isEmpty
+    else {
+      errorMessage = "Enter a lift, positive kilogram weight, and non-negative repetitions."
+      return
+    }
+    do {
+      if let id = editingAdditionalSetID {
+        _ = try await model.sessionLoggingBoundary.editAdditionalSet(
+          sessionID: today?.session.id ?? "", id: id, liftID: additionalLiftID,
+          weightKg: weight, repetitions: repetitions, note: additionalNote
+        )
+      } else {
+        _ = try await model.sessionLoggingBoundary.addAdditionalSet(
+          sessionID: today?.session.id ?? "", liftID: additionalLiftID,
+          weightKg: weight, repetitions: repetitions, note: additionalNote
+        )
+      }
+      clearAdditionalDraft()
+      await reload()
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func remove(_ set: AdditionalSet) async {
+    do {
+      try await model.sessionLoggingBoundary.removeAdditionalSet(
+        sessionID: today?.session.id ?? "", id: set.id)
+      await reload()
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reorderAdditionalSets(_ ids: [String]) async {
+    do {
+      try await model.sessionLoggingBoundary.reorderAdditionalSets(
+        sessionID: today?.session.id ?? "", orderedIDs: ids)
+      await reload()
+    } catch { errorMessage = String(describing: error) }
+  }
 }
 
 private struct TodaySetRow: View {
@@ -201,6 +370,7 @@ private struct TodaySetRow: View {
   @Binding var weight: String
   @Binding var repetitions: String
   let onConfirm: () -> Void
+  let onOmit: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -227,6 +397,11 @@ private struct TodaySetRow: View {
           .buttonStyle(.borderedProminent)
           .accessibilityIdentifier("today.confirm.\(set.id)")
       }
+      if set.omission == nil {
+        Button("Omit Set", role: .destructive) { onOmit() }
+          .font(.caption)
+          .accessibilityIdentifier("today.omit.\(set.id)")
+      }
       if set.hasLoadingIncrementWarning {
         Label(
           "Actual weight is outside this lift's Loading Increment; it will still be recorded.",
@@ -239,6 +414,19 @@ private struct TodaySetRow: View {
         Label("Confirmed actual result", systemImage: "checkmark.circle.fill")
           .font(.caption)
           .foregroundStyle(.green)
+      }
+      if set.completionState == .failed {
+        Label("Failed attempt recorded (0 reps)", systemImage: "exclamationmark.circle")
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+      if let omission = set.omission {
+        Label(
+          omission.reason.map { "Omitted: \($0)" } ?? "Omitted set",
+          systemImage: "minus.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
     }
     .padding(.vertical, 4)
@@ -974,6 +1162,18 @@ extension TrainingWeekRequest {
         )
       }
     )
+  }
+}
+
+extension Array {
+  fileprivate
+    func reordered(fromOffsets offsets: IndexSet, toOffset destination: Int) -> [Element]
+  {
+    var copy = self
+    let moving = offsets.sorted(by: >).map { copy.remove(at: $0) }.reversed()
+    let adjustedDestination = Swift.min(destination, copy.count)
+    copy.insert(contentsOf: moving, at: adjustedDestination)
+    return copy
   }
 }
 

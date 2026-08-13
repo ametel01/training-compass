@@ -164,6 +164,78 @@ public struct RecordedSetResult: Codable, Equatable, Identifiable, Sendable {
   public var repetitions: Int { result.repetitions }
 }
 
+/// A prescribed set the owner explicitly chose not to perform.
+public struct OmittedSet: Codable, Equatable, Identifiable, Sendable {
+  public let sessionID: String
+  public let prescriptionID: String
+  public let reason: String?
+  public let omittedAt: Int64
+
+  public init(
+    sessionID: String,
+    prescriptionID: String,
+    reason: String? = nil,
+    omittedAt: Int64
+  ) {
+    self.sessionID = sessionID
+    self.prescriptionID = prescriptionID
+    self.reason = reason?.nilIfEmpty
+    self.omittedAt = omittedAt
+  }
+
+  public var id: String { "\(sessionID):\(prescriptionID)" }
+}
+
+/// An ordered, owner-recorded set that is not part of a Session's prescription.
+public struct AdditionalSet: Codable, Equatable, Identifiable, Sendable {
+  public let id: String
+  public let sessionID: String
+  public let position: Int
+  public let liftID: String
+  public let weightKg: Double
+  public let repetitions: Int
+  public let note: String?
+  public let recordedAt: Int64
+
+  public init(
+    id: String,
+    sessionID: String,
+    position: Int,
+    liftID: String,
+    weightKg: Double,
+    repetitions: Int,
+    note: String? = nil,
+    recordedAt: Int64
+  ) throws {
+    guard !liftID.isEmpty else {
+      throw AdditionalSetValidationError.emptyLift
+    }
+    guard position >= 0 else { throw AdditionalSetValidationError.invalidPosition }
+    _ = try SetResultWeight(kg: weightKg)
+    guard repetitions >= 0 else { throw AdditionalSetValidationError.invalidRepetitions }
+    self.id = id
+    self.sessionID = sessionID
+    self.position = position
+    self.liftID = liftID
+    self.weightKg = weightKg
+    self.repetitions = repetitions
+    self.note = note?.nilIfEmpty
+    self.recordedAt = recordedAt
+  }
+}
+
+public enum AdditionalSetValidationError: Error, Codable, Equatable, Sendable {
+  case emptyLift
+  case invalidPosition
+  case invalidRepetitions
+}
+
+extension String {
+  fileprivate
+    var nilIfEmpty: String?
+  { isEmpty ? nil : self }
+}
+
 /// Short aliases keep the domain vocabulary convenient at call sites.
 public enum FiveThreeOnePrescription {
   public struct Specification: Equatable, Sendable {

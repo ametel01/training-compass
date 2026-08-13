@@ -136,6 +136,8 @@ public struct SetResult: Codable, Equatable, Sendable {
   public func alignment(to increment: LoadingIncrement) -> SetResultWeightAlignment {
     weight.alignment(to: increment)
   }
+
+  public var isFailed: Bool { repetitions == 0 }
 }
 
 public struct SetResultWeight: Codable, Equatable, Sendable {
