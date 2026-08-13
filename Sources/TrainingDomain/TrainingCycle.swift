@@ -112,9 +112,22 @@ public enum TrainingSessionStatus: String, Codable, Equatable, Hashable, Sendabl
   case inProgress
   case completed
   case skipped
+  /// A session that was still outstanding when its Active Training Cycle was
+  /// abandoned. This is intentionally distinct from an owner-chosen skip.
+  case unperformed
 
   public var isTerminal: Bool {
-    self == .completed || self == .skipped
+    self == .completed || self == .skipped || self == .unperformed
+  }
+
+  public var displayName: String {
+    switch self {
+    case .scheduled: "Scheduled"
+    case .inProgress: "In Progress"
+    case .completed: "Completed"
+    case .skipped: "Skipped"
+    case .unperformed: "Unperformed"
+    }
   }
 }
 
@@ -373,10 +386,17 @@ public struct TrainingWeek: Codable, Equatable, Hashable, Identifiable, Sendable
 
   public var isDeload: Bool { kind.isDeload }
 
-  /// A week is finished only when every planned session has a terminal disposition.
+  /// A week is finishable only when every planned session is Completed or
+  /// Skipped. Unperformed Sessions belong only to abandoned cycle history and
+  /// must never make a week look finished.
   public var isFinished: Bool {
-    !sessions.isEmpty && sessions.allSatisfy { $0.status.isTerminal }
+    !sessions.isEmpty
+      && sessions.allSatisfy {
+        $0.status == .completed || $0.status == .skipped
+      }
   }
+
+  public var isFinishable: Bool { isFinished }
 }
 
 public struct TrainingCycleSnapshot: Codable, Equatable, Sendable {
@@ -529,4 +549,9 @@ public enum TrainingCycleValidationError: Error, Equatable, Sendable {
   case missingTrainingMax(String)
   case calendarChangeWarningRequired
   case scheduledSessionRequired
+  case noActiveCycle
+  case cycleNotFinishable
+  case weekNotFinishable
+  case weekSequenceWarningRequired
+  case confirmationRequired
 }

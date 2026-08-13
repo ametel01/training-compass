@@ -265,6 +265,21 @@ public actor GRDBTrainingRepository: TrainingRepository {
     try await loadTrainingCycle(state: .active)
   }
 
+  public func loadTrainingCycles() async throws -> [TrainingCycle] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT cycle_json FROM training_cycles
+          ORDER BY anchor_date, updated_at, rowid
+          """
+      ).map { row in
+        try Self.projectedTrainingCycle(from: db, cycle: Self.trainingCycle(from: row))
+      }
+    }
+  }
+
   public func completedTrainingCycleCount() async throws -> Int {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
@@ -282,6 +297,26 @@ public actor GRDBTrainingRepository: TrainingRepository {
     auditID: String,
     occurredAt: Int64,
     action: TrainingCycleAuditAction
+  ) async throws -> TrainingCycleAuditEntry {
+    try await saveTrainingCycle(
+      cycle,
+      expectedBefore: expectedBefore,
+      auditID: auditID,
+      occurredAt: occurredAt,
+      action: action,
+      note: nil,
+      targetID: nil
+    )
+  }
+
+  public func saveTrainingCycle(
+    _ cycle: TrainingCycle,
+    expectedBefore: TrainingCycleSnapshot?,
+    auditID: String,
+    occurredAt: Int64,
+    action: TrainingCycleAuditAction,
+    note: String?,
+    targetID: String?
   ) async throws -> TrainingCycleAuditEntry {
     let stores = try await readyStores()
     return try await stores.authoritative.write { db in
@@ -340,22 +375,33 @@ public actor GRDBTrainingRepository: TrainingRepository {
         )
       }
       for session in cycle.weeks.flatMap(\.sessions) {
-        try Self.upsertSessionProjection(
-          db,
-          cycleID: cycle.id,
-          session: session,
-          status: session.status,
-          intendedDate: session.intendedDate,
-          primaryLiftID: session.primaryLiftID,
-          assistanceLiftID: session.assistanceLiftID,
-          updatedAt: cycle.updatedAt
-        )
+        if session.status == .unperformed {
+          // The v7 projection CHECK constraint intentionally predates the
+          // Unperformed terminal history state. Removing its projection lets
+          // the cycle JSON remain authoritative without weakening old schema
+          // constraints; projectedSession falls back to the stored status.
+          try db.execute(
+            sql: "DELETE FROM session_projections WHERE session_id = ? AND cycle_id = ?",
+            arguments: [session.id, cycle.id]
+          )
+        } else {
+          try Self.upsertSessionProjection(
+            db,
+            cycleID: cycle.id,
+            session: session,
+            status: session.status,
+            intendedDate: session.intendedDate,
+            primaryLiftID: session.primaryLiftID,
+            assistanceLiftID: session.assistanceLiftID,
+            updatedAt: cycle.updatedAt
+          )
+        }
       }
       try db.execute(
         sql: """
           INSERT INTO training_cycle_audit
-            (id, cycle_id, action, occurred_at, before_json, after_json)
-          VALUES (?, ?, ?, ?, ?, ?)
+            (id, cycle_id, action, occurred_at, before_json, after_json, note, target_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
           auditID,
@@ -364,6 +410,8 @@ public actor GRDBTrainingRepository: TrainingRepository {
           occurredAt,
           try before.map(Self.encodeSnapshot),
           cycleJSON,
+          note?.isEmpty == true ? nil : note,
+          targetID?.isEmpty == true ? nil : targetID,
         ]
       )
       return TrainingCycleAuditEntry(
@@ -372,7 +420,9 @@ public actor GRDBTrainingRepository: TrainingRepository {
         action: action,
         occurredAt: occurredAt,
         before: before,
-        after: cycle.snapshot
+        after: cycle.snapshot,
+        note: note,
+        targetID: targetID
       )
     }
   }
@@ -430,7 +480,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
       try Row.fetchAll(
         db,
         sql: """
-          SELECT id, cycle_id, action, occurred_at, before_json, after_json
+          SELECT id, cycle_id, action, occurred_at, before_json, after_json, note, target_id
           FROM training_cycle_audit
           WHERE cycle_id = ?
           ORDER BY occurred_at, rowid
@@ -1288,10 +1338,14 @@ public actor GRDBTrainingRepository: TrainingRepository {
           arguments: [session.id, session.id, session.id]
         ) ?? 0
       let hasWork = workCount > 0
-      let status =
-        hasCompletion
-        ? TrainingSessionStatus.completed
-        : (hasWork ? .inProgress : session.status)
+      let status: TrainingSessionStatus
+      if session.status == .unperformed {
+        status = .unperformed
+      } else if hasCompletion {
+        status = .completed
+      } else {
+        status = hasWork ? .inProgress : session.status
+      }
       return TrainingCycleSession(
         id: session.id,
         intendedDate: session.intendedDate,
@@ -1353,7 +1407,9 @@ public actor GRDBTrainingRepository: TrainingRepository {
       action: action,
       occurredAt: row["occurred_at"],
       before: before,
-      after: after
+      after: after,
+      note: row["note"],
+      targetID: row["target_id"]
     )
   }
 

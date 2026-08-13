@@ -66,7 +66,7 @@ guard
     "session_projections", "session_correction_audit",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v8")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v10")
 }
 
 let authoritativeRowCount = try reopenedStores.authoritative.read { db in
@@ -80,7 +80,7 @@ guard authoritativeRowCount == 1, reconstructibleRowCount == 1 else {
 }
 
 print(
-  "Authoritative v8 and reconstructible v1 migration interruption, retry, and idempotence passed.")
+  "Authoritative v10 and reconstructible v1 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

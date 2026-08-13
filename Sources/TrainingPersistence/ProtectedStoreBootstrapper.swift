@@ -312,6 +312,16 @@ public struct ProtectedStoreBootstrapper: Sendable {
         index: "schedule_template_audit_time", on: "schedule_template_audit",
         columns: ["template_id", "occurred_at"])
     }
+    migrator.registerMigration("authoritative_v9_cycle_lifecycle_notes") { db in
+      try db.alter(table: "training_cycle_audit") { table in
+        table.add(column: "note", .text)
+      }
+    }
+    migrator.registerMigration("authoritative_v10_cycle_lifecycle_targets") { db in
+      try db.alter(table: "training_cycle_audit") { table in
+        table.add(column: "target_id", .text)
+      }
+    }
     return migrator
   }
 

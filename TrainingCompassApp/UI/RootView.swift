@@ -455,6 +455,7 @@ private struct CycleView: View {
   @State private var template: ScheduleTemplate?
   @State private var draftCycle: TrainingCycle?
   @State private var activeCycle: TrainingCycle?
+  @State private var cycleHistory: [TrainingCycleHistoryEntry] = []
   @State private var cycleAudits: [TrainingCycleAuditEntry] = []
   @State private var workingSessions: [ScheduleSession] = []
   @State private var lifts: [LiftConfiguration] = []
@@ -471,6 +472,7 @@ private struct CycleView: View {
   @State private var showingCycleConfirmation = false
   @State private var showingCycleActivationConfirmation = false
   @State private var showingCycleDiscardConfirmation = false
+  @State private var pendingLifecycleRequest: CycleLifecycleRequest?
   @State private var errorMessage: String?
 
   var body: some View {
@@ -559,7 +561,8 @@ private struct CycleView: View {
                     cycleSessionDraft = CycleSessionDraft(
                       session: $0, week: $1, cycleID: activeCycle.id
                     )
-                  }
+                  },
+                  onRequestLifecycle: { pendingLifecycleRequest = $0 }
                 )
               }
             }
@@ -574,6 +577,30 @@ private struct CycleView: View {
                     audit.changeKind == .calendarChange
                       ? "Calendar Change"
                       : audit.changeKind == .programEdit ? "Program Edit" : audit.action.rawValue)
+                }
+              }
+            }
+
+            if !cycleHistory.isEmpty {
+              Section("Training Cycle History") {
+                ForEach(cycleHistory) { entry in
+                  DisclosureGroup {
+                    ForEach(entry.audits) { audit in
+                      Text(audit.action.rawValue + (audit.note.map { " · \($0)" } ?? ""))
+                        .font(.caption)
+                    }
+                    Text("Sessions: \(entry.sessions.count) planned")
+                      .font(.caption)
+                  } label: {
+                    VStack(alignment: .leading) {
+                      Text(entry.week1AnchorDate.iso8601String)
+                      Text(
+                        "\(entry.lifecycleBadge) · \(entry.includesDeloadBadge ? "Deload" : "No Deload")"
+                      )
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                    }
+                  }
                 }
               }
             }
@@ -714,6 +741,24 @@ private struct CycleView: View {
         "This permanently removes the editable draft. The Schedule Template and any Active Training Cycle remain unchanged."
       )
     }
+    .confirmationDialog(
+      lifecycleRequestTitle,
+      isPresented: Binding(
+        get: { pendingLifecycleRequest != nil },
+        set: { if !$0 { pendingLifecycleRequest = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button(lifecycleRequestConfirmTitle, role: lifecycleRequestIsDestructive ? .destructive : nil)
+      {
+        let request = pendingLifecycleRequest
+        pendingLifecycleRequest = nil
+        Task { await perform(request) }
+      }
+      Button("Cancel", role: .cancel) { pendingLifecycleRequest = nil }
+    } message: {
+      Text(lifecycleRequestMessage)
+    }
   }
 
   private var defaultPreviewText: String {
@@ -737,10 +782,73 @@ private struct CycleView: View {
       } else {
         cycleAudits = []
       }
+      cycleHistory = try await model.trainingCycleBoundary.history()
     } catch {
       template = nil
       draftCycle = nil
       errorMessage = nil
+    }
+  }
+
+  private var lifecycleRequestTitle: String {
+    switch pendingLifecycleRequest {
+    case .skipSession: "Skip Session?"
+    case .skipWeek: "Skip Remaining Sessions?"
+    case .finishWeek: "Finish Training Week?"
+    case .complete: "Complete Training Cycle?"
+    case .abandon: "Abandon Training Cycle?"
+    case nil: "Confirm Cycle Change"
+    }
+  }
+
+  private var lifecycleRequestConfirmTitle: String {
+    switch pendingLifecycleRequest {
+    case .skipSession: "Skip Session"
+    case .skipWeek: "Skip Remaining Sessions"
+    case .finishWeek: "Finish Week"
+    case .complete: "Complete Cycle"
+    case .abandon: "Abandon Cycle"
+    case nil: "Confirm"
+    }
+  }
+
+  private var lifecycleRequestIsDestructive: Bool {
+    if case .abandon = pendingLifecycleRequest { return true }
+    return false
+  }
+
+  private var lifecycleRequestMessage: String {
+    if case .complete = pendingLifecycleRequest, let activeCycle {
+      let count = activeCycle.weeks.flatMap(\.sessions).filter { $0.status == .skipped }.count
+      return count == 0
+        ? "No Sessions were Skipped. This lifecycle change is recorded in cycle history."
+        : "\(count) Session\(count == 1 ? "" : "s") will be recorded as Skipped before completion."
+    }
+    return "This lifecycle change is recorded in the cycle history."
+  }
+
+  private func perform(_ request: CycleLifecycleRequest?) async {
+    do {
+      switch request {
+      case .skipSession(let sessionID):
+        _ = try await model.trainingCycleBoundary.skipSession(
+          sessionID: sessionID, confirmation: .confirmed)
+      case .skipWeek(let weekID):
+        _ = try await model.trainingCycleBoundary.skipRemainingSessions(
+          in: weekID, confirmation: .confirmed)
+      case .finishWeek(let weekID):
+        _ = try await model.trainingCycleBoundary.finishWeek(
+          weekID: weekID, confirmation: .confirmed)
+      case .complete:
+        _ = try await model.trainingCycleBoundary.completeCycle(confirmation: .confirmed)
+      case .abandon:
+        _ = try await model.trainingCycleBoundary.abandonCycle(confirmation: .confirmed)
+      case nil:
+        return
+      }
+      await reload()
+    } catch {
+      errorMessage = String(describing: error)
     }
   }
 
@@ -838,6 +946,10 @@ private struct CycleView: View {
     case .replacedSchedule: "Replace Schedule"
     case .regenerated: "Regenerate"
     case .activated: "Activate"
+    case .sessionSkipped: "Skip Session"
+    case .weekFinished: "Finish Week"
+    case .completed: "Complete Cycle"
+    case .abandoned: "Abandon Cycle"
     case .discarded, .none: "Confirm"
     }
   }
@@ -1147,6 +1259,7 @@ private struct ActiveCycleSection: View {
   let cycle: TrainingCycle
   let liftName: (String) -> String
   let onEdit: (TrainingCycleSession, TrainingWeek) -> Void
+  let onRequestLifecycle: (CycleLifecycleRequest) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -1174,11 +1287,42 @@ private struct ActiveCycleSection: View {
                 .foregroundStyle(.secondary)
               }
             }
+            if session.status == .scheduled {
+              Button("Skip Session") { onRequestLifecycle(.skipSession(session.id)) }
+                .font(.caption)
+                .accessibilityIdentifier("cycle.skip.\(session.id)")
+            }
+          }
+          if week.sessions.contains(where: { $0.status == .scheduled }) {
+            Button("Skip Remaining Sessions in Week") {
+              onRequestLifecycle(.skipWeek(week.id))
+            }
+            .font(.caption)
+            .accessibilityIdentifier("cycle.skip-week.\(week.id)")
+          }
+          if week.isFinishable {
+            Button("Finish Week") { onRequestLifecycle(.finishWeek(week.id)) }
+              .font(.caption)
+              .accessibilityIdentifier("cycle.finish-week.(week.id)")
           }
         }
       }
+      Button("Complete Training Cycle") { onRequestLifecycle(.complete) }
+        .buttonStyle(.borderedProminent)
+        .disabled(!cycle.weeks.allSatisfy(\.isFinished))
+        .accessibilityIdentifier("cycle.complete")
+      Button("Abandon Training Cycle", role: .destructive) { onRequestLifecycle(.abandon) }
+        .accessibilityIdentifier("cycle.abandon")
     }
   }
+}
+
+private enum CycleLifecycleRequest {
+  case skipSession(String)
+  case skipWeek(String)
+  case finishWeek(String)
+  case complete
+  case abandon
 }
 
 private struct CycleHistorySection: View {

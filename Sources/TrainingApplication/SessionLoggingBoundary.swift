@@ -229,6 +229,7 @@ public enum TodaySessionState: String, Codable, Equatable, Sendable {
   case readyToComplete
   case completed
   case skipped
+  case unperformed
 
   public var displayName: String {
     switch self {
@@ -237,6 +238,7 @@ public enum TodaySessionState: String, Codable, Equatable, Sendable {
     case .readyToComplete: "Ready to Complete"
     case .completed: "Completed"
     case .skipped: "Skipped"
+    case .unperformed: "Unperformed"
     }
   }
 }
@@ -280,6 +282,7 @@ public struct TodaySessionSnapshot: Codable, Equatable, Sendable, Identifiable {
   public var id: String { session.id }
   public var state: TodaySessionState {
     if session.status == .skipped { return .skipped }
+    if session.status == .unperformed { return .unperformed }
     if completion != nil || session.status == .completed { return .completed }
     if sets.allSatisfy(\.isResolved) { return .readyToComplete }
     if sets.contains(where: { $0.isResolved }) { return .inProgress }
@@ -321,6 +324,19 @@ public struct SessionWorkSummary: Codable, Equatable, Sendable {
     self.omitted = omitted
     self.additional = additional
   }
+}
+
+public struct SessionCompletionPreview: Equatable, Sendable {
+  public let snapshot: TodaySessionSnapshot
+  public let warnings: [String]
+
+  public init(snapshot: TodaySessionSnapshot, warnings: [String] = []) {
+    self.snapshot = snapshot
+    self.warnings = warnings
+  }
+
+  public var requiresWarningAcknowledgement: Bool { !warnings.isEmpty }
+  public var warning: String? { warnings.first }
 }
 
 public protocol SetResultRepository: Sendable {
@@ -511,6 +527,14 @@ public struct SessionLoggingBoundary: Sendable {
       return nil
     }
     let (_, week, session) = located
+    return try await snapshot(cycle: cycle, week: week, session: session)
+  }
+
+  private func snapshot(
+    cycle: TrainingCycle,
+    week: TrainingWeek,
+    session: TrainingCycleSession
+  ) async throws -> TodaySessionSnapshot {
     let results = try await resultRepository.loadSetResults(for: session.id)
     let omissions = try await resultRepository.loadOmittedSets(for: session.id)
     let additionalSets = try await resultRepository.loadAdditionalSets(for: session.id)
@@ -665,18 +689,57 @@ public struct SessionLoggingBoundary: Sendable {
     sessionID: String,
     confirmation: SessionCompletionConfirmation
   ) async throws -> TodaySessionSnapshot {
+    try await completeSession(
+      sessionID: sessionID,
+      confirmation: confirmation,
+      acknowledgeLaterWeek: false
+    )
+  }
+
+  public func previewCompleteSession(sessionID: String) async throws -> SessionCompletionPreview {
     guard let current = try await activeSession(sessionID: sessionID) else {
       throw SessionLoggingError.unknownSession
     }
     guard current.sets.allSatisfy(\.isResolved) else {
       throw SessionLoggingError.incompleteSession
     }
+    guard let cycle = try await cycleRepository.loadActiveTrainingCycle(),
+      let week = cycle.weeks.first(where: { $0.id == current.weekID })
+    else { throw SessionLoggingError.unknownSession }
+    let hasEarlierUnfinishedWeek = cycle.weeks.contains {
+      $0.position < week.position && !$0.isFinished
+    }
+    let warnings =
+      hasEarlierUnfinishedWeek
+      ? [
+        "An earlier Training Week remains unfinished. Completing this later Session is allowed only after acknowledging the warning."
+      ]
+      : []
+    return SessionCompletionPreview(snapshot: current, warnings: warnings)
+  }
+
+  @discardableResult
+  public func completeSession(
+    sessionID: String,
+    confirmation: SessionCompletionConfirmation,
+    acknowledgeLaterWeek: Bool
+  ) async throws -> TodaySessionSnapshot {
+    guard let current = try await activeSession(sessionID: sessionID) else {
+      throw SessionLoggingError.unknownSession
+    }
+    guard current.sets.allSatisfy(\.isResolved) else {
+      throw SessionLoggingError.incompleteSession
+    }
+    let preview = try await previewCompleteSession(sessionID: sessionID)
+    guard !preview.requiresWarningAcknowledgement || acknowledgeLaterWeek else {
+      throw SessionLoggingError.weekSequenceWarningRequired
+    }
     guard current.completion == nil else { throw SessionLoggingError.alreadyCompleted }
     let completion = try await resultRepository.completeSession(
       CompletedSession(sessionID: sessionID, confirmedAt: timestamp()),
       confirmation: confirmation
     )
-    guard let snapshot = try await session(on: current.intendedDate) else {
+    guard let snapshot = try await activeSession(sessionID: sessionID) else {
       throw SessionLoggingError.unknownSession
     }
     _ = completion
@@ -734,7 +797,7 @@ public struct SessionLoggingBoundary: Sendable {
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp()
     )
-    guard let reopened = try await session(on: request.intendedDate) else {
+    guard let reopened = try await activeSession(sessionID: request.sessionID) else {
       throw SessionLoggingError.unknownSession
     }
     return reopened
@@ -806,28 +869,63 @@ public struct SessionLoggingBoundary: Sendable {
     guard confirmation == .confirmed else {
       throw SessionLoggingError.confirmationRequired
     }
-    guard let current = try await correctionSnapshot(sessionID: sessionID) else {
+    guard let cycle = try await cycleRepository.loadActiveTrainingCycle(),
+      let located = cycle.weeks.enumerated().first(where: {
+        $0.element.sessions.contains(where: { $0.id == sessionID })
+      })
+    else {
       throw SessionLoggingError.unknownSession
     }
-    let request = SessionCorrectionRequest(
-      sessionID: current.sessionID,
-      status: .skipped,
+    let weekIndex = located.offset
+    guard
+      let sessionIndex = cycle.weeks[weekIndex].sessions.firstIndex(where: {
+        $0.id == sessionID
+      })
+    else { throw SessionLoggingError.unknownSession }
+    let current = cycle.weeks[weekIndex].sessions[sessionIndex]
+    guard current.status == .scheduled else {
+      throw SessionLoggingError.sessionNotTerminal
+    }
+    let replacementSession = TrainingCycleSession(
+      id: current.id,
       intendedDate: current.intendedDate,
+      sourceTemplateSessionID: current.sourceTemplateSessionID,
       primaryLiftID: current.primaryLiftID,
       assistanceLiftID: current.assistanceLiftID,
-      results: current.results,
-      omissions: current.omissions,
-      additionalSets: current.additionalSets,
-      note: note
+      prescriptions: current.prescriptions,
+      status: .skipped
     )
-    _ = try await resultRepository.applySessionCorrection(
-      request,
-      expectedBefore: current,
-      confirmation: confirmation,
+    var weeks = cycle.weeks
+    var sessions = weeks[weekIndex].sessions
+    sessions[sessionIndex] = replacementSession
+    weeks[weekIndex] = TrainingWeek(
+      id: weeks[weekIndex].id,
+      position: weeks[weekIndex].position,
+      kind: weeks[weekIndex].kind,
+      startDate: weeks[weekIndex].startDate,
+      sessions: sessions
+    )
+    let replacement = TrainingCycle(
+      id: cycle.id,
+      week1AnchorDate: cycle.week1AnchorDate,
+      weeks: weeks,
+      sourceTemplate: cycle.sourceTemplate,
+      includesProvisionalDeload: cycle.includesProvisionalDeload,
+      lifecycleState: cycle.lifecycleState,
+      createdAt: cycle.createdAt,
+      updatedAt: timestamp(),
+      liftSnapshots: cycle.liftSnapshots
+    )
+    _ = try await cycleRepository.saveTrainingCycle(
+      replacement,
+      expectedBefore: cycle.snapshot,
       auditID: uuidGenerator.makeUUID().uuidString,
-      occurredAt: timestamp()
+      occurredAt: timestamp(),
+      action: .sessionSkipped,
+      note: note,
+      targetID: nil
     )
-    guard let skipped = try await session(on: request.intendedDate) else {
+    guard let skipped = try await activeSession(sessionID: sessionID) else {
       throw SessionLoggingError.unknownSession
     }
     return skipped
@@ -839,6 +937,84 @@ public struct SessionLoggingBoundary: Sendable {
     note: String? = nil
   ) async throws -> TodaySessionSnapshot {
     try await skipSession(sessionID: sessionID, confirmation: confirmation, note: note)
+  }
+
+  /// Skips each remaining Scheduled Session in a Training Week. The owner
+  /// confirms once, while the repository receives one audited mutation per
+  /// Session. There is intentionally no cycle-wide bulk skip operation.
+  @discardableResult
+  public func skipRemainingSessions(
+    in weekID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> [TodaySessionSnapshot] {
+    guard confirmation == .confirmed else {
+      throw SessionLoggingError.confirmationRequired
+    }
+    guard var cycle = try await cycleRepository.loadActiveTrainingCycle(),
+      let weekIndex = cycle.weeks.firstIndex(where: { $0.id == weekID })
+    else { throw SessionLoggingError.unknownSession }
+    let scheduled = cycle.weeks[weekIndex].sessions.filter { $0.status == .scheduled }
+    guard !scheduled.isEmpty else { throw SessionLoggingError.sessionNotTerminal }
+    for session in scheduled {
+      let week = cycle.weeks[weekIndex]
+      let sessions = week.sessions.map { current in
+        guard current.id == session.id else { return current }
+        return TrainingCycleSession(
+          id: current.id,
+          intendedDate: current.intendedDate,
+          sourceTemplateSessionID: current.sourceTemplateSessionID,
+          primaryLiftID: current.primaryLiftID,
+          assistanceLiftID: current.assistanceLiftID,
+          prescriptions: current.prescriptions,
+          status: .skipped
+        )
+      }
+      var weeks = cycle.weeks
+      weeks[weekIndex] = TrainingWeek(
+        id: week.id,
+        position: week.position,
+        kind: week.kind,
+        startDate: week.startDate,
+        sessions: sessions
+      )
+      let replacement = TrainingCycle(
+        id: cycle.id,
+        week1AnchorDate: cycle.week1AnchorDate,
+        weeks: weeks,
+        sourceTemplate: cycle.sourceTemplate,
+        includesProvisionalDeload: cycle.includesProvisionalDeload,
+        lifecycleState: cycle.lifecycleState,
+        createdAt: cycle.createdAt,
+        updatedAt: timestamp(),
+        liftSnapshots: cycle.liftSnapshots
+      )
+      _ = try await cycleRepository.saveTrainingCycle(
+        replacement,
+        expectedBefore: cycle.snapshot,
+        auditID: uuidGenerator.makeUUID().uuidString,
+        occurredAt: timestamp(),
+        action: .sessionSkipped,
+        note: note,
+        targetID: nil
+      )
+      cycle = replacement
+    }
+    var snapshots: [TodaySessionSnapshot] = []
+    for scheduledSession in scheduled {
+      if let snapshot = try await self.activeSession(sessionID: scheduledSession.id) {
+        snapshots.append(snapshot)
+      }
+    }
+    return snapshots
+  }
+
+  public func skipWeek(
+    weekID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> [TodaySessionSnapshot] {
+    try await skipRemainingSessions(in: weekID, confirmation: confirmation, note: note)
   }
 
   public func correctionSnapshot(sessionID: String) async throws
@@ -883,9 +1059,11 @@ public struct SessionLoggingBoundary: Sendable {
 
   private func activeSession(sessionID: String) async throws -> TodaySessionSnapshot? {
     guard let cycle = try await cycleRepository.loadActiveTrainingCycle(),
-      let currentSession = cycle.weeks.flatMap(\.sessions).first(where: { $0.id == sessionID })
+      let located = cycle.weeks.enumerated().flatMap({ weekIndex, week in
+        week.sessions.map { (weekIndex, week, $0) }
+      }).first(where: { $0.2.id == sessionID })
     else { return nil }
-    return try await session(on: currentSession.intendedDate)
+    return try await snapshot(cycle: cycle, week: located.1, session: located.2)
   }
 
   private func timestamp() -> Int64 {
@@ -900,6 +1078,7 @@ public enum SessionLoggingError: Error, Equatable, Sendable {
   case alreadyCompleted
   case unknownAdditionalSet
   case sessionNotTerminal
+  case weekSequenceWarningRequired
 }
 
 /// Convenience boundary for callers that do not need the ordinary Today
