@@ -1,7 +1,7 @@
 # Gate 0 acceptance matrix
 
 This matrix covers the protected shell, Local Training Core, and Health
-reconciliation foundation from GitHub issues #1 through #18. A row is evidence-backed only when
+reconciliation foundation from GitHub issues #1 through #19. A row is evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
 
@@ -34,6 +34,7 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #15: Full App Erasure | Confirmed local erasure and clean restart | The installation contains authoritative data, reconstructible data, and temporary export artifacts | 21571 | Explicit confirmation names every local copy and external copies; connections close, both protected stores and temporary artifacts are removed, interruption is safely retried, and first launch returns without deleting external HealthKit or backup copies | Application, persistence, UI, privacy | Yes | `TrainingErasureBoundaryTests`; `TrainingErasureRepositoryTests`; `TrainingCompassUITests` |
 | Issue #17: Connect Health and import Health Workouts | Opt-in authorization and incremental import | Owner opens Health; local stores are ready | Synthetic HealthKit adapter | Core read types are explained before authorization; postponing leaves local workflows usable and Write-back unrequested; source-aware workouts with stable HealthKit UUIDs, dates, duration, provenance, local date, and reconciliation context are upserted into reconstructible storage in durable pages; successful empty and limited-history results remain distinguishable | Application, persistence, adapter, UI | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; Health destination |
 | Issue #18: Reconcile Health workout additions, replacements, and deletions | Foreground, observer, unlock, retry, and manual invalidation | Local stores are ready; Health access is authorized | Synthetic anchored HealthKit pages | One actor coordinator coalesces overlapping triggers; each bounded page atomically commits upserts, deletions, facts, and its anchor; retries resume from the last committed page; deleted UUIDs leave current Health-derived views | Application, persistence, adapter | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; `make verify-migrations` |
+| Issue #19: Inspect Health Data Status and refresh incrementally | Cached status, partial streams, foreground return, and manual refresh | Local stores are ready; requested Health streams may be independently available | Synthetic anchored HealthKit pages and status fixtures | One inspectable status screen reports requested scope, coverage, mirror availability, reconciliation, last successful check, and current failure per stream; refresh coalesces with foreground work and preserves cached content | Application, persistence, UI | Yes | `HealthWorkoutBoundaryTests`; Health status destination; `make verify` |
 
 ## Required scenario-variant coverage
 
@@ -61,14 +62,16 @@ must name the automated evidence that proves the boundary.
 | Issue #15 | Confirmed Full App Erasure | Cancelled confirmation leaves data | Missing temporary artifacts are safe | Interrupted erasure completes before reopen | External copies remain explicitly out of scope |
 | Issue #17 | Read-only Health connection and first durable workout page | Write-back is never requested; postponing keeps local workflows available | Successful empty and limited-history outcomes do not claim denied access | Import progress can be dismissed while page commits continue | HealthKit UUID, source, and device provenance remain local and reconstructible |
 | Issue #18 | Anchored coordinator commits additions/replacements and deletions | Batch limits and single-writer transaction boundaries | Locked/cancelled/retryable work preserves cached data and anchor | Trigger coalescing and checkpoint resume tests | Deletion ledger and stream facts are reconstructible |
+| Issue #19 | Cached success, successful-empty, limited history, and active refresh rows | First and later failures remain per-stream and privacy-safe | Partial stream failure preserves cached sections and retries from checkpoints | Foreground/manual coalescing and recovery status tests | No HealthKit write-back; status never infers hidden read permission |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
 replacement, explicit export-first confirmation, optional HealthKit reference
 material, privacy-safe failure handling, temporary-file cleanup, and Full App
 Erasure. Issue #17 adds the opt-in Health connection foundation; Issue #18 adds
-anchored, deletion-aware reconciliation. Status, rebuild, and Health-derived
-presentation remain intentionally deferred to the blocked follow-on issues.
+anchored, deletion-aware reconciliation; Issue #19 adds inspectable per-stream
+status and non-destructive incremental refresh. Health-derived enrichment and
+rebuild remain outside this slice.
 Unfinished Health capabilities remain outside the Local Training Core.
 Health authorization remains outside these slices for the remaining deferred
 follow-on capabilities; Issue #17's opt-in connection foundation is included

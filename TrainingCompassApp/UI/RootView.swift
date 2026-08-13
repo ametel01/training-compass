@@ -5,6 +5,7 @@ import UIKit
 struct RootView: View {
   let model: AppModel
   let concealsSensitiveContent: Bool
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     ZStack {
@@ -41,6 +42,13 @@ struct RootView: View {
       }
       .privacySensitive()
       .task { await model.prepare() }
+      .onChange(of: scenePhase) { _, phase in
+        guard phase == .active else { return }
+        Task {
+          _ = try? await model.healthWorkoutImportBoundary?.refreshHealthData(
+            trigger: .foreground)
+        }
+      }
 
       if concealsSensitiveContent {
         PrivacyShield()
@@ -53,8 +61,10 @@ struct RootView: View {
 
 private struct HealthView: View {
   let model: AppModel
+  @Environment(\.scenePhase) private var scenePhase
 
   @State private var authorization = HealthAuthorizationSnapshot(state: .notRequested)
+  @State private var healthStatus = HealthDataStatus()
   @State private var importedWorkouts: [HealthWorkout] = []
   @State private var isConnecting = false
   @State private var isImporting = false
@@ -62,6 +72,15 @@ private struct HealthView: View {
 
   var body: some View {
     List {
+      Section("Health Data Status") {
+        HealthStatusSection(
+          status: healthStatus,
+          isRefreshing: isImporting,
+          canRefresh: model.healthWorkoutImportBoundary != nil,
+          onRefresh: { Task { await refreshHealthData() } }
+        )
+      }
+
       Section("Connect Health") {
         Text(
           "Training Compass can read Health Workouts and selected recovery evidence from Apple Health. Local planning, logging, history, export, import, and restoration remain available without access."
@@ -94,11 +113,9 @@ private struct HealthView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
           }
-          Button(isImporting ? "Importing Health Workouts…" : "Refresh Health Workouts") {
-            Task { await importWorkouts() }
-          }
-          .disabled(isImporting || model.healthWorkoutImportBoundary == nil)
-          .accessibilityIdentifier("health.refresh")
+          Text("Use Refresh Health Data above to reconcile every requested stream.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         } else {
           Text("Health data is unavailable on this device. Local training remains fully available.")
             .foregroundStyle(.secondary)
@@ -145,12 +162,16 @@ private struct HealthView: View {
         }
       }
     }
-    .navigationTitle("Health")
+    .navigationTitle("Health Data Status")
     .accessibilityIdentifier("health.destination")
-    .task(id: model.phase) {
+    .task(id: "\(model.phase)-\(scenePhase)") {
       guard model.phase == .ready, let boundary = model.healthWorkoutImportBoundary else { return }
       authorization = await boundary.authorizationSnapshot()
+      healthStatus = await boundary.healthDataStatus()
       importedWorkouts = (try? await boundary.cachedWorkouts()) ?? []
+      if scenePhase == .active, authorization.state == .authorized {
+        await refreshHealthData()
+      }
     }
     .alert(
       "Health connection unavailable",
@@ -171,6 +192,7 @@ private struct HealthView: View {
     defer { isConnecting = false }
     do {
       authorization = try await boundary.connectHealth()
+      healthStatus = await boundary.healthDataStatus()
       if authorization.state == .authorized { await importWorkouts() }
     } catch {
       errorMessage =
@@ -195,6 +217,7 @@ private struct HealthView: View {
           }
         }
         authorization = await boundary.authorizationSnapshot()
+        healthStatus = await boundary.healthDataStatus()
         importedWorkouts = try await boundary.cachedWorkouts()
         if result.state == .successfulEmpty { importedWorkouts = [] }
         isImporting = false
@@ -203,6 +226,87 @@ private struct HealthView: View {
         errorMessage =
           "Health data could not be refreshed. Cached local training remains available."
       }
+    }
+  }
+
+  private func refreshHealthData() async {
+    guard let boundary = model.healthWorkoutImportBoundary else { return }
+    guard !isImporting else { return }
+    isImporting = true
+    healthStatus = HealthDataStatus(
+      authorization: healthStatus.authorization,
+      streams: healthStatus.streams.map { stream in
+        HealthStreamStatus(
+          stream: stream.stream,
+          requested: stream.requested,
+          authorization: stream.authorization,
+          coverage: stream.coverage,
+          mirroredContent: stream.mirroredContent,
+          reconciliation: .updating,
+          lastSuccessfulCheck: stream.lastSuccessfulCheck,
+          failure: stream.failure,
+          attemptCount: stream.attemptCount + 1
+        )
+      }
+    )
+    do {
+      _ = try await boundary.refreshHealthData(trigger: .manualInvalidation)
+      authorization = await boundary.authorizationSnapshot()
+      healthStatus = await boundary.healthDataStatus()
+      importedWorkouts = (try? await boundary.cachedWorkouts()) ?? importedWorkouts
+    } catch {
+      healthStatus = await boundary.healthDataStatus()
+      errorMessage =
+        "Health data could not be refreshed. Cached Health content and local training remain available."
+    }
+    isImporting = false
+  }
+}
+
+private struct HealthStatusRow: View {
+  let status: HealthStreamStatus
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack {
+        Text(status.stream.displayName).font(.headline)
+        Spacer()
+        Text(status.statusLabel)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(status.failure == nil ? Color.secondary : Color.orange)
+      }
+      Text(status.lastCheckedLabel).font(.caption)
+      Text("\(status.historyLabel) · \(status.contentLabel)")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      if let attention = status.attentionLabel {
+        Text(attention).font(.caption2).foregroundStyle(.orange)
+      }
+    }
+    .accessibilityIdentifier("health.status.\(status.stream.rawValue)")
+  }
+}
+
+private struct HealthStatusSection: View {
+  let status: HealthDataStatus
+  let isRefreshing: Bool
+  let canRefresh: Bool
+  let onRefresh: () -> Void
+
+  var body: some View {
+    Text(
+      "Each requested Health Data Stream reconciles independently. A check describes Health's response and mirror state—not the newest sample and not hidden read permission."
+    )
+    .font(.subheadline)
+    ForEach(status.streams) { stream in
+      HealthStatusRow(status: stream)
+    }
+    Button(isRefreshing ? "Updating Health Data…" : "Refresh Health Data", action: onRefresh)
+      .disabled(isRefreshing || !canRefresh)
+      .accessibilityIdentifier("health.refresh-data")
+    if status.isUpdating {
+      ProgressView("Reconciliation is active; cached views remain available.")
+        .font(.caption)
     }
   }
 }
@@ -225,6 +329,15 @@ private struct StrengthProgressView: View {
         )
       } else if let progress {
         List {
+          Section {
+            NavigationLink {
+              HealthView(model: model)
+            } label: {
+              Label("Health Data Status", systemImage: "heart.text.square")
+            }
+            .accessibilityIdentifier("progress.health-status")
+          }
+
           if !progress.availableLifts.isEmpty {
             Section("Lift") {
               Picker("Selected Lift", selection: selectedLiftBinding) {
@@ -419,6 +532,15 @@ private struct TodayView: View {
         }
       } else if let today {
         List {
+          Section {
+            NavigationLink {
+              HealthView(model: model)
+            } label: {
+              Label("Health Data Status", systemImage: "heart.text.square")
+            }
+            .accessibilityIdentifier("today.health-status")
+          }
+
           Section("Scheduled Session") {
             LabeledContent("Date", value: today.intendedDate.iso8601String)
             LabeledContent("Training Week", value: today.weekKind.displayName)
@@ -1911,6 +2033,17 @@ private struct TMsView: View {
       }
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
+          NavigationLink {
+            HealthView(model: model)
+          } label: {
+            Label("Health Data Status", systemImage: "heart.text.square")
+          }
+          NavigationLink {
+            SettingsView(model: model)
+          } label: {
+            Label("Settings", systemImage: "gearshape")
+          }
+          .accessibilityIdentifier("tm.settings")
           Button("Export", systemImage: "square.and.arrow.up") {
             showingExport = true
           }
@@ -2055,6 +2188,25 @@ private struct TMsView: View {
       pendingPreview = nil
       errorMessage = String(describing: error)
     }
+  }
+}
+
+private struct SettingsView: View {
+  let model: AppModel
+
+  var body: some View {
+    List {
+      Section("Health") {
+        NavigationLink {
+          HealthView(model: model)
+        } label: {
+          Label("Health Data Status", systemImage: "heart.text.square")
+        }
+        .accessibilityIdentifier("settings.health-status")
+      }
+    }
+    .navigationTitle("Settings")
+    .accessibilityIdentifier("settings.destination")
   }
 }
 

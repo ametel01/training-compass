@@ -402,6 +402,24 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  public func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
+    -> HealthMirrorContentSnapshot
+  {
+    let stores = try await readyStores()
+    let count = try await stores.reconstructible.read { db -> Int in
+      let table: String
+      switch stream {
+      case .workouts: table = "health_workouts"
+      case .heartRate, .activeEnergy, .sleep, .restingHeartRate, .heartRateVariability:
+        // Recovery streams do not yet have a mirror table.  Returning nil is
+        // distinct from a successful empty query and keeps status honest.
+        return -1
+      }
+      return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0
+    }
+    return .init(stream: stream, recordCount: count < 0 ? nil : count)
+  }
+
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in

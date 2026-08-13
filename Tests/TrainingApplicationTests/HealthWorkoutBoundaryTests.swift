@@ -76,6 +76,67 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertTrue(authorization.hasLimitedHistory)
   }
 
+  func testHealthStatusDerivesIndependentCoverageAndCompactLanguage() {
+    let checked = HealthStreamStatus(
+      stream: .workouts,
+      authorization: .authorized,
+      coverage: .available,
+      mirroredContent: .available,
+      lastSuccessfulCheck: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    XCTAssertEqual(checked.statusLabel, "Checked")
+    XCTAssertEqual(checked.historyLabel, "History: History available")
+    XCTAssertEqual(checked.contentLabel, "Content: Mirrored content available")
+    XCTAssertTrue(checked.lastCheckedLabel.hasPrefix("Last checked:"))
+
+    let empty = HealthStreamStatus(
+      stream: .sleep,
+      authorization: .authorized,
+      coverage: .available,
+      mirroredContent: .empty,
+      lastSuccessfulCheck: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    XCTAssertEqual(empty.statusLabel, "Checked · successful empty")
+
+    let updating = HealthStreamStatus(
+      stream: .heartRate,
+      authorization: .authorized,
+      mirroredContent: .available,
+      reconciliation: .updating,
+      lastSuccessfulCheck: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    XCTAssertEqual(updating.statusLabel, "Updating")
+    XCTAssertEqual(updating.attentionLabel, nil)
+
+    let firstFailure = HealthStreamStatus(
+      stream: .activeEnergy,
+      authorization: .authorized,
+      failure: .init(code: "health-check-failed")
+    )
+    XCTAssertTrue(firstFailure.statusLabel.contains("first check failed"))
+    XCTAssertTrue(firstFailure.attentionLabel?.contains("Refresh Health Data") == true)
+  }
+
+  func testCoordinatorReportsAStatusForEveryRequestedStreamWithoutClaimingPermission()
+    async
+    throws
+  {
+    let client = FakeHealthClient(pages: [HealthWorkoutPage(workouts: [])])
+    let repository = FakeHealthRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: HealthSyncStream.allCases,
+      authorization: .init(state: .authorized)
+    )
+
+    let result = try await coordinator.foreground()
+    XCTAssertEqual(result.streamStatuses.map(\.stream), HealthSyncStream.allCases)
+    XCTAssertEqual(
+      result.streamStatuses.first(where: { $0.stream == .workouts })?.statusLabel, "Checked")
+    XCTAssertEqual(result.streamStatuses.count, HealthReadType.allCases.count)
+  }
+
   func testCoordinatorResumesFromCommittedAnchorAndCoalescesTriggers() async throws {
     let client = SequencedHealthClient(pages: [
       HealthWorkoutPage(workouts: [fixture("one")], nextPageToken: "anchor-1"),
@@ -96,6 +157,34 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertEqual(anchors, [nil, "anchor-1"])
     XCTAssertEqual(checkpoint?.anchor, nil)
     XCTAssertTrue(loaded.isEmpty)
+  }
+
+  func testCoordinatorPreservesCachedStateOnPartialFailureAndRecovers() async throws {
+    let client = FlakyHealthClient(workout: fixture("cached"))
+    let repository = SyncRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts, .sleep],
+      authorization: .init(state: .authorized)
+    )
+
+    let first = try await coordinator.foreground()
+    XCTAssertEqual(
+      first.streamStatuses.first(where: { $0.stream == .workouts })?.statusLabel, "Checked")
+
+    await client.setFailure(for: .sleep, enabled: true)
+    let partial = try await coordinator.retry()
+    let workoutStatus = try XCTUnwrap(
+      partial.streamStatuses.first(where: { $0.stream == .workouts }))
+    let sleepStatus = try XCTUnwrap(partial.streamStatuses.first(where: { $0.stream == .sleep }))
+    XCTAssertNil(workoutStatus.failure)
+    XCTAssertNotNil(sleepStatus.failure)
+    XCTAssertTrue(sleepStatus.statusLabel.contains("cached data remains available"))
+
+    await client.setFailure(for: .sleep, enabled: false)
+    let recovered = try await coordinator.retry()
+    XCTAssertNil(recovered.streamStatuses.first(where: { $0.stream == .sleep })?.failure)
   }
 
   private func fixture(_ id: String) -> HealthWorkout {
@@ -176,6 +265,38 @@ private actor SequencedHealthClient: HealthWorkoutClient {
   }
 }
 
+private actor FlakyHealthClient: HealthWorkoutClient {
+  let workout: HealthWorkout
+  private var failures: Set<HealthSyncStream> = []
+
+  init(workout: HealthWorkout) { self.workout = workout }
+
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot {
+    .init(state: .authorized, requested: request)
+  }
+
+  func setFailure(for stream: HealthSyncStream, enabled: Bool) {
+    if enabled { failures.insert(stream) } else { failures.remove(stream) }
+  }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    try await fetchHealthPage(for: .workouts, after: pageToken)
+  }
+
+  func fetchHealthPage(
+    for stream: HealthSyncStream, after pageToken: String?
+  ) async throws -> HealthWorkoutPage {
+    if failures.contains(stream) { throw HealthSyncError.unavailable }
+    return stream == .workouts
+      ? HealthWorkoutPage(workouts: [workout])
+      : HealthWorkoutPage(workouts: [])
+  }
+}
+
 private actor SyncRepository: HealthWorkoutRepository {
   private var values: [HealthWorkout] = []
   private(set) var checkpoint: HealthSyncCheckpoint?
@@ -207,5 +328,11 @@ private actor SyncRepository: HealthWorkoutRepository {
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
   {
     checkpoint
+  }
+
+  func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
+    -> HealthMirrorContentSnapshot
+  {
+    .init(stream: stream, recordCount: stream == .workouts && !values.isEmpty ? values.count : 0)
   }
 }

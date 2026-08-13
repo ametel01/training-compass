@@ -15,4 +15,4 @@ Use a paired, recently unlocked iPhone running stable iOS 26. Health access is o
 11. Record the release envelope checks from the [release-candidate checklist](release-candidate-checklist.md): launch/resume, mutation/query responsiveness, migration/import/export duration, peak memory, storage headroom, and interruption recovery. HealthKit wait time is not app-controlled latency. Validate the privacy-safe JSON with `scripts/check-release-envelope.py`.
 12. Record pass or fail with device model, iOS version, and the validated coarse measurements only. Do not record paths, UUIDs, dates, owner measurements, routes, or free text copied from the device.
 
-A passing checklist proves launch, storage behavior, the confirmed local training slices, and the opt-in Health connection foundation; observer reconciliation, status, rebuild, and Health-derived presentation remain outside this approval.
+A passing checklist proves launch, storage behavior, the confirmed local training slices, and the opt-in Health connection and status slices; Health-derived enrichment and projection rebuild remain outside this approval.
