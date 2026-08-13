@@ -22,6 +22,7 @@ final class AppModel {
   let sessionLoggingBoundary: SessionLoggingBoundary
   let progressBoundary: ProgressBoundary
   let trainingMaxProposalBoundary: TrainingMaxProposalBoundary
+  let trainingExportBoundary: TrainingExportBoundary
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -30,7 +31,8 @@ final class AppModel {
     trainingCycleBoundary: TrainingCycleBoundary,
     sessionLoggingBoundary: SessionLoggingBoundary,
     progressBoundary: ProgressBoundary,
-    trainingMaxProposalBoundary: TrainingMaxProposalBoundary
+    trainingMaxProposalBoundary: TrainingMaxProposalBoundary,
+    trainingExportBoundary: TrainingExportBoundary
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -39,6 +41,7 @@ final class AppModel {
     self.sessionLoggingBoundary = sessionLoggingBoundary
     self.progressBoundary = progressBoundary
     self.trainingMaxProposalBoundary = trainingMaxProposalBoundary
+    self.trainingExportBoundary = trainingExportBoundary
   }
 
   func prepare() async {
@@ -66,6 +69,7 @@ final class AppModel {
       timeZone: CurrentTimeZoneProvider(),
       uuidGenerator: RandomUUIDGenerator(),
       fileSystem: fileSystem,
+      exportFileSystem: FoundationTrainingExportFileSystem(),
       repository: repository,
       healthKit: PreDataHealthKitAdapter(),
       logger: UnifiedPrivacyLogger()
@@ -99,6 +103,13 @@ final class AppModel {
         repository: repository,
         clock: dependencies.clock,
         uuidGenerator: dependencies.uuidGenerator
+      ),
+      trainingExportBoundary: TrainingExportBoundary(
+        repository: repository,
+        clock: dependencies.clock,
+        timeZone: dependencies.timeZone,
+        uuidGenerator: dependencies.uuidGenerator,
+        fileSystem: dependencies.exportFileSystem
       )
     )
   }

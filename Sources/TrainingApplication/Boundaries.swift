@@ -24,7 +24,7 @@ public protocol ApplicationFileSystem: Sendable {
 
 public protocol TrainingRepository: Sendable, LiftConfigurationRepository,
   ScheduleTemplateRepository, TrainingCycleRepository, SetResultRepository,
-  TrainingMaxProposalRepository
+  TrainingMaxProposalRepository, TrainingAuthoritativeExportRepository
 {
   func prepareStores() async throws
 }
@@ -53,6 +53,7 @@ public struct ApplicationDependencies: Sendable {
   public let timeZone: any TimeZoneProvider
   public let uuidGenerator: any UUIDGenerator
   public let fileSystem: any ApplicationFileSystem
+  public let exportFileSystem: any TrainingExportFileSystem
   public let repository: any TrainingRepository
   public let healthKit: any HealthKitClient
   public let logger: any PrivacyLogger
@@ -63,6 +64,7 @@ public struct ApplicationDependencies: Sendable {
     timeZone: any TimeZoneProvider,
     uuidGenerator: any UUIDGenerator,
     fileSystem: any ApplicationFileSystem,
+    exportFileSystem: any TrainingExportFileSystem,
     repository: any TrainingRepository,
     healthKit: any HealthKitClient,
     logger: any PrivacyLogger
@@ -72,6 +74,7 @@ public struct ApplicationDependencies: Sendable {
     self.timeZone = timeZone
     self.uuidGenerator = uuidGenerator
     self.fileSystem = fileSystem
+    self.exportFileSystem = exportFileSystem
     self.repository = repository
     self.healthKit = healthKit
     self.logger = logger

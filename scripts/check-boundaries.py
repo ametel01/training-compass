@@ -13,7 +13,7 @@ IMPORT = re.compile(r"^\s*(?:@_exported\s+)?import(?:\s+(?:class|enum|func|proto
 ALLOWED_IMPORTS = {
     "TrainingDomain": set(),
     "TrainingInsights": {"TrainingDomain"},
-    "TrainingApplication": {"Foundation", "TrainingDomain", "TrainingInsights"},
+    "TrainingApplication": {"CryptoKit", "Foundation", "TrainingDomain", "TrainingInsights"},
     "TrainingPersistence": {"Foundation", "GRDB", "TrainingApplication"},
     "HealthKitAdapter": {"HealthKit", "TrainingApplication"},
 }
@@ -89,6 +89,7 @@ app_allowed = {
     "Observation",
     "OSLog",
     "SwiftUI",
+    "UIKit",
     "TrainingApplication",
     "TrainingPersistence",
 }

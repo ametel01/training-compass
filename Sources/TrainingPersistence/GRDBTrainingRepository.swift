@@ -17,6 +17,11 @@ public actor GRDBTrainingRepository: TrainingRepository {
     stores = try bootstrapper.open(in: root)
   }
 
+  public func loadAuthoritativeExportData() async throws -> TrainingAuthoritativeExportData {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read(Self.authoritativeExportData(from:))
+  }
+
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
@@ -1775,6 +1780,92 @@ public actor GRDBTrainingRepository: TrainingRepository {
         sql: "UPDATE additional_sets SET position = ? WHERE id = ? AND session_id = ?",
         arguments: [offset, id, sessionID]
       )
+    }
+  }
+
+  private static func authoritativeExportData(from db: Database) throws
+    -> TrainingAuthoritativeExportData
+  {
+    let tableNames = try String.fetchAll(
+      db,
+      sql: """
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+        """
+    )
+    let exportTableNames = tableNames.filter { !$0.hasSuffix("_projections") }
+    let tables = try exportTableNames.map { tableName -> TrainingExportTable in
+      let quotedName = "\"" + tableName.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+      let rows = try Row.fetchAll(db, sql: "SELECT rowid, * FROM \(quotedName) ORDER BY rowid")
+      let records = rows.map { row -> TrainingExportRecord in
+        let columns = Array(row.columnNames)
+        let values = Array(row.databaseValues)
+        var fields: [String: TrainingExportJSONValue] = [:]
+        for (index, column) in columns.enumerated() where column != "rowid" {
+          fields[column] = exportValue(values[index])
+        }
+        let id = stableExportRecordID(table: tableName, fields: fields)
+        return TrainingExportRecord(id: id, fields: fields)
+      }
+      return TrainingExportTable(name: tableName, records: records)
+    }
+    let preferences =
+      tables
+      .filter {
+        ["preferences", "user_preferences", "app_preferences"].contains($0.name.lowercased())
+      }
+      .flatMap { table in
+        table.records.compactMap { record -> TrainingExportPreference? in
+          guard let key = preferenceKey(for: record) else { return nil }
+          return TrainingExportPreference(
+            key: key,
+            value: record.fields["value"] ?? .null
+          )
+        }
+      }
+    return TrainingAuthoritativeExportData(tables: tables, preferences: preferences)
+  }
+
+  private static func stableExportRecordID(
+    table: String,
+    fields: [String: TrainingExportJSONValue]
+  ) -> String {
+    if let id = fields["id"], case .string(let value) = id { return value }
+    let identityColumns = ["session_id", "prescription_id", "lift_id", "cycle_id", "template_id"]
+    let parts = identityColumns.compactMap { column -> String? in
+      guard let value = fields[column] else { return nil }
+      switch value {
+      case .string(let string): return "\(column)=\(string)"
+      case .integer(let integer): return "\(column)=\(integer)"
+      default: return nil
+      }
+    }
+    if !parts.isEmpty { return parts.joined(separator: "|") }
+    return TrainingExportRecord.stableID(table: table, fields: fields)
+  }
+
+  private static func preferenceKey(for record: TrainingExportRecord) -> String? {
+    for field in ["key", "name", "id"] {
+      if let value = record.fields[field], case .string(let string) = value, !string.isEmpty {
+        return string
+      }
+    }
+    return record.id
+  }
+
+  private static func exportValue(_ value: DatabaseValue) -> TrainingExportJSONValue {
+    switch value.storage {
+    case .null:
+      return .null
+    case .int64(let value):
+      return .integer(value)
+    case .double(let value):
+      return .number(value)
+    case .string(let value):
+      return .string(value)
+    case .blob(let value):
+      return .blob(base64: value.base64EncodedString())
     }
   }
 

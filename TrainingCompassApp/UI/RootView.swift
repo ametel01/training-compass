@@ -1,5 +1,6 @@
 import SwiftUI
 import TrainingApplication
+import UIKit
 
 struct RootView: View {
   let model: AppModel
@@ -463,7 +464,9 @@ private struct TodayView: View {
       )
       await reload()
     } catch {
-      errorMessage = String(describing: error)
+      errorMessage =
+        (error as? TrainingExportError)?.privacySafeDescription
+        ?? "The export could not be prepared."
     }
   }
 
@@ -1634,6 +1637,7 @@ private struct TMsView: View {
   @State private var manualValue = ""
   @State private var showingConfirmation = false
   @State private var errorMessage: String?
+  @State private var showingExport = false
 
   var body: some View {
     List {
@@ -1717,23 +1721,29 @@ private struct TMsView: View {
             }
           }
         }
-        Button {
-          draft = TMDraft.newCustom()
-        } label: {
-          Label("Add custom lift", systemImage: "plus")
-        }
-        .accessibilityIdentifier("tm.add-custom")
-        Button {
-          draft = TMDraft.newVariant()
-        } label: {
-          Label("Add variant", systemImage: "plus")
-        }
-        .accessibilityIdentifier("tm.add-variant")
       }
     }
     .refreshable { await reload() }
     .navigationTitle("TMs")
     .accessibilityIdentifier("tms.destination")
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarLeading) {
+        Button("Add custom", systemImage: "plus") {
+          draft = TMDraft.newCustom()
+        }
+        .accessibilityIdentifier("tm.add-custom")
+        Button("Add variant", systemImage: "plus") {
+          draft = TMDraft.newVariant()
+        }
+        .accessibilityIdentifier("tm.add-variant")
+      }
+      ToolbarItem(placement: .topBarTrailing) {
+        Button("Export", systemImage: "square.and.arrow.up") {
+          showingExport = true
+        }
+        .accessibilityIdentifier("tm.export")
+      }
+    }
     .task(id: model.phase) {
       if model.phase == .ready {
         await reload()
@@ -1767,6 +1777,9 @@ private struct TMsView: View {
           }
         }
       }
+    }
+    .sheet(isPresented: $showingExport) {
+      TrainingExportView(boundary: model.trainingExportBoundary)
     }
     .alert("Confirm lift change", isPresented: $showingConfirmation) {
       Button("Cancel", role: .cancel) {
@@ -1837,6 +1850,142 @@ private struct TMsView: View {
       errorMessage = String(describing: error)
     }
   }
+}
+
+private struct TrainingExportView: View {
+  @Environment(\.dismiss) private var dismiss
+  let boundary: TrainingExportBoundary
+
+  @State private var preview: TrainingExportPreview?
+  @State private var artifact: TrainingExportArtifact?
+  @State private var includeMirror = false
+  @State private var showingWarning = false
+  @State private var showingShare = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if let artifact {
+          List {
+            Section("Inspect Archive") {
+              Text(artifact.archive.summary.readableText)
+                .font(.caption)
+                .textSelection(.enabled)
+              LabeledContent("SHA-256", value: artifact.archive.integrity.digest)
+              LabeledContent("File", value: artifact.url.lastPathComponent)
+            }
+            Section {
+              Button("Share Archive", systemImage: "square.and.arrow.up") {
+                showingShare = true
+              }
+              .buttonStyle(.borderedProminent)
+              .accessibilityIdentifier("export.share")
+            }
+          }
+        } else if let preview {
+          List {
+            Section("Sensitive Data") {
+              Text(preview.warning)
+                .font(.callout)
+              Toggle("Include optional HealthKit Mirror reference", isOn: $includeMirror)
+                .onChange(of: includeMirror) { _, _ in
+                  Task { await loadPreview() }
+                }
+            }
+            Section("Preview") {
+              Text(preview.summary.readableText)
+                .font(.caption)
+              Button("Create Export") { showingWarning = true }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("export.create")
+            }
+          }
+        } else {
+          ProgressView("Preparing export preview…")
+        }
+      }
+      .navigationTitle("Training Compass Export")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Close") { dismiss() }
+        }
+      }
+      .task { await loadPreview() }
+      .alert("Sensitive fitness data", isPresented: $showingWarning) {
+        Button("Cancel", role: .cancel) {}
+        Button("Create Unencrypted Archive") {
+          guard let preview else { return }
+          do {
+            artifact = try boundary.create(preview, confirmation: .confirmed)
+          } catch {
+            errorMessage =
+              (error as? TrainingExportError)?.privacySafeDescription
+              ?? "The export could not be created."
+          }
+        }
+      } message: {
+        Text(preview?.warning ?? "This archive contains sensitive fitness data.")
+      }
+      .sheet(isPresented: $showingShare) {
+        if let artifact {
+          TrainingExportShareSheet(url: artifact.url) { outcome in
+            do {
+              _ = try boundary.completeShare(artifact, outcome: outcome)
+              self.artifact = nil
+              showingShare = false
+            } catch {
+              errorMessage =
+                (error as? TrainingExportError)?.privacySafeDescription
+                ?? "The export could not be shared."
+            }
+          }
+        }
+      }
+      .alert(
+        "Could not export data",
+        isPresented: Binding(
+          get: { errorMessage != nil },
+          set: { if !$0 { errorMessage = nil } }
+        )
+      ) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(errorMessage ?? "Try again.")
+      }
+      .onDisappear {
+        if let artifact {
+          try? boundary.cleanup(artifact)
+          self.artifact = nil
+        }
+      }
+    }
+  }
+
+  private func loadPreview() async {
+    do {
+      preview = try await boundary.preview(includeHealthKitMirror: includeMirror)
+    } catch {
+      errorMessage =
+        (error as? TrainingExportError)?.privacySafeDescription
+        ?? "The export preview could not be prepared."
+    }
+  }
+}
+
+private struct TrainingExportShareSheet: UIViewControllerRepresentable {
+  let url: URL
+  let completion: (TrainingExportShareOutcome) -> Void
+
+  func makeUIViewController(context: Context) -> UIActivityViewController {
+    let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    controller.completionWithItemsHandler = { activityType, completed, _, _ in
+      completion(activityType != nil && completed ? .shared : .cancelled)
+    }
+    return controller
+  }
+
+  func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 private struct TMRow: View {
