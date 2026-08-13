@@ -36,6 +36,7 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #18: Reconcile Health workout additions, replacements, and deletions | Foreground, observer, unlock, retry, and manual invalidation | Local stores are ready; Health access is authorized | Synthetic anchored HealthKit pages | One actor coordinator coalesces overlapping triggers; each bounded page atomically commits upserts, deletions, facts, and its anchor; retries resume from the last committed page; deleted UUIDs leave current Health-derived views | Application, persistence, adapter | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; `make verify-migrations` |
 | Issue #19: Inspect Health Data Status and refresh incrementally | Cached status, partial streams, foreground return, and manual refresh | Local stores are ready; requested Health streams may be independently available | Synthetic anchored HealthKit pages and status fixtures | One inspectable status screen reports requested scope, coverage, mirror availability, reconciliation, last successful check, and current failure per stream; refresh coalesces with foreground work and preserves cached content | Application, persistence, UI | Yes | `HealthWorkoutBoundaryTests`; Health status destination; `make verify` |
 | Issue #20: Rebuild reconstructible Health data safely | Confirmed deep repair, interruption, storage pressure, and exact UUID reconnection | Authorized Health access; local authoritative training history exists | Synthetic paged HealthKit data, cancellation, lock/background expiry, and storage-pressure fixtures | Settings offers a distinct confirmed rebuild that clears only the HealthKit Mirror, anchors, derived projections, and reconstructible checkpoints; bounded batches are durably checkpointed and resumed; authoritative Sessions, audits, and UUID link facts remain usable | Application, persistence, UI | Yes | `HealthDataRebuildBoundaryTests`; `HealthWorkoutRepositoryTests`; Health Data Rebuild destination; `make verify-migrations` |
+| Issue #21: Show Health Workouts on Today and in history | Same-day event presentation and Health-only history | The HealthKit Mirror contains imported workouts, with or without an active local Session | Synthetic same-day, out-of-order, duplicate, limited, delayed, failed, deleted, and missing-provenance events | Today and Progress retain separate source badges, reverse-chronological Health-only events, stable local dates, provenance, and last successful reconciliation context; deleted UUIDs are absent from current events | Application, persistence, UI | Yes | `HealthWorkoutBoundaryTests`; Health destination; Today and Progress destinations |
 
 ## Required scenario-variant coverage
 
@@ -74,7 +75,9 @@ Erasure. Issue #17 adds the opt-in Health connection foundation; Issue #18 adds
 anchored, deletion-aware reconciliation; Issue #19 adds inspectable per-stream
 status and non-destructive incremental refresh; Issue #20 adds a separate,
 confirmed deep-repair workflow for reconstructible Health data that never runs
-automatically as part of ordinary status refresh.
+automatically as part of ordinary status refresh; Issue #21 presents current
+Health-only Training Events on Today and in reverse-chronological history
+without inferring links to local Sessions.
 Unfinished Health capabilities remain outside the Local Training Core.
 Health authorization remains outside these slices for the remaining deferred
 follow-on capabilities; Issue #17's opt-in connection foundation is included

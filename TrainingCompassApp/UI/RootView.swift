@@ -65,7 +65,7 @@ private struct HealthView: View {
 
   @State private var authorization = HealthAuthorizationSnapshot(state: .notRequested)
   @State private var healthStatus = HealthDataStatus()
-  @State private var importedWorkouts: [HealthWorkout] = []
+  @State private var healthHistory = HealthWorkoutHistorySnapshot(state: .loading)
   @State private var isConnecting = false
   @State private var isImporting = false
   @State private var errorMessage: String?
@@ -133,19 +133,25 @@ private struct HealthView: View {
       }
 
       Section("Health Workouts") {
+        if healthHistory.state != .available {
+          Label(healthHistory.state.displayName, systemImage: healthHistoryStateIcon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(
+              healthHistory.state == .delayedUpdate ? Color.orange : Color.secondary
+            )
+            .accessibilityIdentifier("health.workouts.state")
+        }
         if isImporting {
           ProgressView("Importing the first durable batch…")
           Button("Continue in background") {
             isImporting = false
           }
           .accessibilityIdentifier("health.dismiss-progress")
-        } else if importedWorkouts.isEmpty {
+        } else if healthHistory.events.isEmpty {
           ContentUnavailableView(
             "No Health data is currently available",
             systemImage: "heart.slash",
-            description: Text(
-              "This successful empty result does not reveal whether a read type is denied. Check access in Health settings, then refresh."
-            )
+            description: Text(healthHistoryDescription)
           )
           Button("Check Health access") {
             Task { await connect() }
@@ -157,17 +163,30 @@ private struct HealthView: View {
           .disabled(isImporting)
           .accessibilityIdentifier("health.refresh-empty")
         } else {
-          ForEach(importedWorkouts) { workout in
+          ForEach(healthHistory.events) { entry in
             VStack(alignment: .leading, spacing: 3) {
-              Text(workout.activityType).font(.headline)
-              Text(
-                "\(workout.startDate.formatted(date: .abbreviated, time: .shortened)) · \(Int(workout.duration / 60)) min"
-              )
-              .font(.subheadline)
-              Text("Health Workout · \(workout.sourceName ?? "Source unavailable")")
+              HStack {
+                Text(entry.event.activityType).font(.headline)
+                Spacer()
+                Text(entry.event.sourceBadge)
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.tint)
+              }
+              Text("\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min")
+                .font(.subheadline)
+              Text("Health Workout · \(entry.provenance.displayName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+              Text(entry.provenance.detailLabel)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+              if let context = entry.event.reconciliationContext {
+                Text("Last reconciliation: \(context)")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+              }
             }
+            .accessibilityIdentifier("health.workout.\(entry.id)")
           }
         }
       }
@@ -179,7 +198,9 @@ private struct HealthView: View {
       authorization = await boundary.authorizationSnapshot()
       await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
-      importedWorkouts = (try? await boundary.cachedWorkouts()) ?? []
+      healthHistory =
+        (try? await boundary.healthWorkoutHistory())
+        ?? HealthWorkoutHistorySnapshot(state: .unavailable)
       if scenePhase == .active, authorization.state == .authorized {
         await refreshHealthData()
       }
@@ -219,9 +240,11 @@ private struct HealthView: View {
     Task {
       do {
         let result = try await boundary.importWorkouts { update in
-          let cached = (try? await boundary.cachedWorkouts()) ?? []
+          let cached =
+            (try? await boundary.healthWorkoutHistory())
+            ?? HealthWorkoutHistorySnapshot(state: .loading)
           await MainActor.run {
-            importedWorkouts = cached
+            healthHistory = cached
             if update.state == .limitedHistory {
               authorization = HealthAuthorizationSnapshot(
                 state: .authorized, requested: .core, hasLimitedHistory: true)
@@ -231,8 +254,10 @@ private struct HealthView: View {
         authorization = await boundary.authorizationSnapshot()
         await model.healthDataRebuildBoundary?.setAuthorization(authorization)
         healthStatus = await boundary.healthDataStatus()
-        importedWorkouts = try await boundary.cachedWorkouts()
-        if result.state == .successfulEmpty { importedWorkouts = [] }
+        healthHistory = try await boundary.healthWorkoutHistory()
+        if result.state == .successfulEmpty {
+          healthHistory = HealthWorkoutHistorySnapshot(state: .successfulEmpty)
+        }
         isImporting = false
       } catch {
         isImporting = false
@@ -266,13 +291,47 @@ private struct HealthView: View {
       _ = try await boundary.refreshHealthData(trigger: .manualInvalidation)
       authorization = await boundary.authorizationSnapshot()
       healthStatus = await boundary.healthDataStatus()
-      importedWorkouts = (try? await boundary.cachedWorkouts()) ?? importedWorkouts
+      healthHistory = (try? await boundary.healthWorkoutHistory()) ?? healthHistory
     } catch {
       healthStatus = await boundary.healthDataStatus()
       errorMessage =
         "Health data could not be refreshed. Cached Health content and local training remain available."
     }
     isImporting = false
+  }
+
+  private var healthHistoryDescription: String {
+    switch healthHistory.state {
+    case .firstFailure:
+      "The first Health check failed. Local training remains available; try Refresh Health Data."
+    case .delayedUpdate:
+      "Health has not refreshed successfully yet. Cached local views remain available."
+    case .limitedHistory:
+      "Health reports limited recent history. Refresh to check for more available data."
+    case .unavailableProvenance:
+      "Health data is available, but its source provenance is unavailable."
+    case .unavailable:
+      "Health data is unavailable on this device. Local training remains fully available."
+    case .deleted:
+      "The last Health workout was deleted in Health. Refresh to reconcile current events."
+    default:
+      "This successful empty result does not reveal whether a read type is denied. Check access in Health settings, then refresh."
+    }
+  }
+
+  private var healthHistoryStateIcon: String {
+    switch healthHistory.state {
+    case .loading: "arrow.triangle.2.circlepath"
+    case .cached: "internaldrive"
+    case .successfulEmpty: "heart.slash"
+    case .limitedHistory: "clock"
+    case .delayedUpdate: "clock.badge.exclamationmark"
+    case .firstFailure: "exclamationmark.triangle"
+    case .deleted: "trash"
+    case .unavailableProvenance: "questionmark.circle"
+    case .unavailable: "heart.slash"
+    case .available: "checkmark.circle"
+    }
   }
 }
 
@@ -431,6 +490,7 @@ private struct StrengthProgressView: View {
   let model: AppModel
 
   @State private var progress: E1RMProgress?
+  @State private var healthHistory: HealthWorkoutHistorySnapshot?
   @State private var selectedLiftID: String?
   @State private var showingLongerHistory = false
   @State private var errorMessage: String?
@@ -486,6 +546,8 @@ private struct StrengthProgressView: View {
             }
           }
 
+          healthHistorySection
+
           Section("History") {
             let visible =
               showingLongerHistory ? progress.observations : Array(progress.observations.suffix(3))
@@ -537,12 +599,18 @@ private struct StrengthProgressView: View {
         }
         .refreshable { await reload() }
       } else {
-        ContentUnavailableView(
-          "No Progress Yet",
-          systemImage: "chart.line.uptrend.xyaxis",
-          description: Text(
-            "Complete an eligible normal-week Primary Plus Set to see e1RM progress.")
-        )
+        List {
+          Section("e1RM Progress") {
+            ContentUnavailableView(
+              "No Progress Yet",
+              systemImage: "chart.line.uptrend.xyaxis",
+              description: Text(
+                "Complete an eligible normal-week Primary Plus Set to see e1RM progress.")
+            )
+          }
+          healthHistorySection
+        }
+        .refreshable { await reload() }
       }
     }
     .navigationTitle("Progress")
@@ -573,6 +641,51 @@ private struct StrengthProgressView: View {
     )
   }
 
+  @ViewBuilder
+  private var healthHistorySection: some View {
+    Section("Health-only Training Events") {
+      if let healthHistory {
+        if healthHistory.events.isEmpty {
+          Text(healthHistory.state.displayName)
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(healthHistory.events) { entry in
+            NavigationLink {
+              HealthWorkoutHistoryDetailView(entry: entry)
+            } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                  Text(entry.event.activityType).font(.headline)
+                  Spacer()
+                  Text(entry.event.sourceBadge)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                }
+                Text(
+                  "\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min"
+                )
+                .font(.caption)
+                Text(
+                  "Source: \(entry.provenance.displayName) · \(entry.provenance.detailLabel)"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                if let context = entry.event.reconciliationContext {
+                  Text("Last reconciliation: \(context)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+              }
+            }
+            .accessibilityIdentifier("progress.health-event.\(entry.id)")
+          }
+        }
+      } else {
+        ProgressView("Loading Health history…")
+      }
+    }
+  }
+
   private func reload() async {
     do {
       progress = try await model.progressBoundary.progress(selectedLiftID: selectedLiftID)
@@ -581,6 +694,43 @@ private struct StrengthProgressView: View {
       progress = nil
       errorMessage = String(describing: error)
     }
+    healthHistory = try? await model.healthWorkoutImportBoundary?.healthWorkoutHistory()
+    if healthHistory == nil { healthHistory = HealthWorkoutHistorySnapshot(state: .unavailable) }
+  }
+}
+
+private struct HealthWorkoutHistoryDetailView: View {
+  let entry: HealthWorkoutHistoryEntry
+
+  var body: some View {
+    List {
+      Section("Health Workout") {
+        LabeledContent("Activity", value: entry.event.activityType)
+        LabeledContent("Source", value: entry.provenance.displayName)
+        LabeledContent("Source badge", value: entry.event.sourceBadge)
+        LabeledContent("Date", value: entry.event.localDate)
+        LabeledContent("Duration", value: "\(Int(entry.event.duration / 60)) min")
+        LabeledContent("HealthKit UUID", value: entry.event.healthKitUUID)
+      }
+      Section("Available Provenance") {
+        LabeledContent("Details", value: entry.provenance.detailLabel)
+        LabeledContent("Timezone", value: entry.event.timeZoneSource.displayName)
+        if let timezone = entry.event.sourceTimeZoneIdentifier {
+          LabeledContent("Timezone identifier", value: timezone)
+        }
+      }
+      Section("Reconciliation") {
+        LabeledContent("State", value: entry.state.displayName)
+        if let context = entry.event.reconciliationContext {
+          LabeledContent("Context", value: context)
+        }
+        if let date = entry.event.lastSuccessfulReconciliation {
+          LabeledContent(
+            "Last successful check", value: date.formatted(date: .abbreviated, time: .shortened))
+        }
+      }
+    }
+    .navigationTitle("Health Workout")
   }
 }
 
@@ -622,6 +772,7 @@ private struct TodayView: View {
   let model: AppModel
 
   @State private var today: TodaySessionSnapshot?
+  @State private var todayHealthEvents: [HealthWorkoutHistoryEntry] = []
   @State private var weightText: [String: String] = [:]
   @State private var repetitionsText: [String: String] = [:]
   @State private var additionalLiftID = ""
@@ -657,7 +808,22 @@ private struct TodayView: View {
             .accessibilityIdentifier("today.health-status")
           }
 
+          Section("Today’s Training Events") {
+            if todayHealthEvents.isEmpty {
+              Text("No imported Health Workouts for this local date.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else {
+              ForEach(todayHealthEvents) { entry in
+                TodayHealthWorkoutRow(entry: entry)
+              }
+            }
+          }
+
           Section("Scheduled Session") {
+            Label("5/3/1 Session", systemImage: "figure.strengthtraining.traditional")
+              .font(.headline)
+              .foregroundStyle(.tint)
             LabeledContent("Date", value: today.intendedDate.iso8601String)
             LabeledContent("Training Week", value: today.weekKind.displayName)
             LabeledContent("State", value: today.state.displayName)
@@ -779,13 +945,23 @@ private struct TodayView: View {
         .refreshable { await reload() }
         .toolbar { EditButton() }
       } else {
-        ContentUnavailableView {
-          Label("Nothing scheduled today", systemImage: "checkmark.circle")
-        } description: {
-          Text(
-            "Activate a Training Cycle with a Session intended for today to log prescribed work here."
-          )
-          .multilineTextAlignment(.center)
+        List {
+          Section("Today’s Training Events") {
+            if todayHealthEvents.isEmpty {
+              ContentUnavailableView {
+                Label("Nothing scheduled today", systemImage: "checkmark.circle")
+              } description: {
+                Text(
+                  "No local Session is planned. Imported Health Workouts for today remain available separately."
+                )
+                .multilineTextAlignment(.center)
+              }
+            } else {
+              ForEach(todayHealthEvents) { entry in
+                TodayHealthWorkoutRow(entry: entry)
+              }
+            }
+          }
         }
       }
     }
@@ -837,8 +1013,12 @@ private struct TodayView: View {
   private func reload() async {
     do {
       today = try await model.sessionLoggingBoundary.today()
+      let date = today?.intendedDate ?? TrainingDate(date: Date())
+      todayHealthEvents =
+        (try? await model.healthWorkoutImportBoundary?.todayHealthWorkouts(on: date)) ?? []
     } catch {
       today = nil
+      todayHealthEvents = []
       errorMessage = String(describing: error)
     }
   }
@@ -943,6 +1123,34 @@ private struct TodayView: View {
         sessionID: today?.session.id ?? "", orderedIDs: ids)
       await reload()
     } catch { errorMessage = String(describing: error) }
+  }
+}
+
+private struct TodayHealthWorkoutRow: View {
+  let entry: HealthWorkoutHistoryEntry
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack {
+        Label("Health Workout", systemImage: "heart.text.square")
+          .font(.headline)
+        Spacer()
+        Text(entry.state.displayName)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(
+            entry.state == .unavailableProvenance ? Color.orange : Color.accentColor)
+      }
+      Text(entry.event.activityType)
+        .font(.subheadline)
+      Text(
+        "\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min"
+      )
+      .font(.caption)
+      Text(entry.provenance.displayName)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .accessibilityIdentifier("today.health-workout.\(entry.id)")
   }
 }
 

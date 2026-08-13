@@ -187,6 +187,137 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertNil(recovered.streamStatuses.first(where: { $0.stream == .sleep })?.failure)
   }
 
+  func testHealthHistoryIsReverseChronologicalAndRetainsSourceAndReconciliationContext()
+    async throws
+  {
+    let older = fixture("older")
+    let newer = HealthWorkout(
+      healthKitUUID: "newer",
+      activityType: "running",
+      startDate: older.startDate.addingTimeInterval(3_600),
+      endDate: older.endDate.addingTimeInterval(3_600),
+      duration: 900,
+      sourceName: "Phone",
+      sourceBundleIdentifier: "com.example.phone",
+      sourceProductType: "iPhone",
+      deviceName: "Owner iPhone",
+      sourceTimeZoneIdentifier: "UTC",
+      localDate: older.localDate,
+      timeZoneSource: .sourceMetadata,
+      firstImportedAt: older.firstImportedAt,
+      reconciliationContext: "page-newer"
+    )
+    let repository = HistoryRepository(
+      workouts: [older, newer],
+      checkpoint: HealthSyncCheckpoint(
+        stream: .workouts,
+        anchor: "anchor-2",
+        reconciliationContext: "observer-success",
+        committedAt: Date(timeIntervalSince1970: 1_700_001_000)
+      )
+    )
+    let boundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: repository,
+      authorization: .init(state: .authorized)
+    )
+
+    let history = try await boundary.healthWorkoutHistory()
+
+    XCTAssertEqual(history.state, .available)
+    XCTAssertEqual(history.events.map(\.id), ["newer", "older"])
+    XCTAssertEqual(history.events.first?.event.source, .health)
+    XCTAssertEqual(history.events.first?.event.sourceBadge, "Health")
+    XCTAssertEqual(history.events.first?.event.reconciliationContext, "observer-success")
+    XCTAssertEqual(
+      history.events.first?.event.lastSuccessfulReconciliation,
+      Date(timeIntervalSince1970: 1_700_001_000)
+    )
+    XCTAssertEqual(history.events.first?.provenance.sourceName, "Phone")
+  }
+
+  func testTodayHealthHistoryUsesStableLocalDateAndDoesNotLinkToSession() async throws {
+    let workout = fixture("today")
+    let repository = HistoryRepository(workouts: [workout])
+    let boundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: repository,
+      authorization: .init(state: .authorized)
+    )
+
+    let events = try await boundary.todayHealthWorkouts(
+      on: TrainingDate(year: 2023, month: 11, day: 14))
+
+    XCTAssertEqual(events.count, 1)
+    XCTAssertEqual(events.first?.event.kind, .healthWorkout)
+    XCTAssertNil(events.first?.event.localSessionID)
+    XCTAssertEqual(events.first?.event.localDate, "2023-11-14")
+  }
+
+  func testHistoryDeduplicatesRepeatedHealthKitUUIDsAndRetainsDeviceTimezoneSource()
+    async
+    throws
+  {
+    let first = HealthWorkout(
+      healthKitUUID: "same-uuid",
+      activityType: "running",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_060),
+      duration: 60,
+      localDate: "2023-11-14",
+      timeZoneSource: .deviceAtFirstImport
+    )
+    let replacement = HealthWorkout(
+      healthKitUUID: first.healthKitUUID,
+      activityType: "cycling",
+      startDate: first.startDate,
+      endDate: first.endDate,
+      duration: first.duration,
+      localDate: first.localDate,
+      timeZoneSource: .deviceAtFirstImport,
+      reconciliationContext: "replacement"
+    )
+    let boundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: HistoryRepository(workouts: [first, replacement]),
+      authorization: .init(state: .authorized)
+    )
+
+    let history = try await boundary.healthWorkoutHistory()
+
+    XCTAssertEqual(history.events.count, 1)
+    XCTAssertEqual(history.events.first?.event.activityType, "cycling")
+    XCTAssertEqual(history.events.first?.event.timeZoneSource, .deviceAtFirstImport)
+  }
+
+  func testHistoryDistinguishesSuccessfulEmptyAndMissingProvenance() async throws {
+    let emptyBoundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: HistoryRepository(),
+      authorization: .init(state: .authorized)
+    )
+    let empty = try await emptyBoundary.healthWorkoutHistory()
+    XCTAssertEqual(empty.state, .successfulEmpty)
+
+    let noProvenance = HealthWorkout(
+      healthKitUUID: "no-provenance",
+      activityType: "other",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_060),
+      duration: 60,
+      localDate: "2023-11-14",
+      timeZoneSource: .unavailable
+    )
+    let provenanceBoundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: HistoryRepository(workouts: [noProvenance]),
+      authorization: .init(state: .authorized)
+    )
+    let provenance = try await provenanceBoundary.healthWorkoutHistory()
+    XCTAssertEqual(provenance.events.first?.state, .unavailableProvenance)
+    XCTAssertEqual(provenance.events.first?.provenance.displayName, "Source unavailable")
+  }
+
   private func fixture(_ id: String) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: id,
@@ -334,5 +465,41 @@ private actor SyncRepository: HealthWorkoutRepository {
     -> HealthMirrorContentSnapshot
   {
     .init(stream: stream, recordCount: stream == .workouts && !values.isEmpty ? values.count : 0)
+  }
+}
+
+private actor HistoryRepository: HealthWorkoutRepository {
+  private var values: [HealthWorkout]
+  private let storedCheckpoint: HealthSyncCheckpoint?
+
+  init(
+    workouts: [HealthWorkout] = [],
+    checkpoint: HealthSyncCheckpoint? = HealthSyncCheckpoint(
+      stream: .workouts,
+      anchor: "history-anchor",
+      reconciliationContext: "initial",
+      committedAt: Date(timeIntervalSince1970: 1_700_000_800)
+    )
+  ) {
+    self.values = workouts
+    self.storedCheckpoint = checkpoint
+  }
+
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
+  {
+    values = workouts
+  }
+
+  func loadHealthWorkouts() async throws -> [HealthWorkout] { values }
+
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
+  {
+    stream == .workouts ? storedCheckpoint : nil
+  }
+
+  func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
+    -> HealthMirrorContentSnapshot
+  {
+    .init(stream: stream, recordCount: stream == .workouts ? values.count : 0)
   }
 }

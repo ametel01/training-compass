@@ -101,6 +101,14 @@ public enum HealthWorkoutTimeZoneSource: String, Codable, Equatable, Sendable {
   case sourceMetadata
   case deviceAtFirstImport
   case unavailable
+
+  public var displayName: String {
+    switch self {
+    case .sourceMetadata: "Source timezone metadata"
+    case .deviceAtFirstImport: "Device timezone at first import"
+    case .unavailable: "Timezone unavailable"
+    }
+  }
 }
 
 /// A privacy-safe, reconstructible representation of one HealthKit workout.
@@ -173,6 +181,198 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
     let components = calendar.dateComponents([.year, .month, .day], from: date)
     return String(
       format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+  }
+}
+
+/// The source badge shown wherever an imported workout is presented.  It is
+/// deliberately separate from the activity type so a Health workout cannot be
+/// mistaken for a locally recorded 5/3/1 Session.
+public enum TrainingEventSource: String, Codable, Equatable, Sendable {
+  case localTraining
+  case health
+
+  public var displayName: String {
+    switch self {
+    case .localTraining: "5/3/1 Session"
+    case .health: "Health"
+    }
+  }
+}
+
+public enum TrainingEventKind: String, Codable, Equatable, Sendable {
+  case healthWorkout
+}
+
+/// A source-owned event projection.  This first event slice intentionally
+/// contains only Health workouts; local Sessions remain independently owned by
+/// the Session boundaries and are never inferred or linked here.
+public struct TrainingEvent: Codable, Equatable, Identifiable, Sendable {
+  public let id: String
+  public let kind: TrainingEventKind
+  public let source: TrainingEventSource
+  public let localDate: String
+  public let startDate: Date
+  public let endDate: Date
+  public let duration: TimeInterval
+  public let activityType: String
+  public let healthKitUUID: String
+  public let sourceName: String?
+  public let sourceBundleIdentifier: String?
+  public let sourceProductType: String?
+  public let sourceOSVersion: String?
+  public let deviceName: String?
+  public let deviceModel: String?
+  public let sourceTimeZoneIdentifier: String?
+  public let timeZoneSource: HealthWorkoutTimeZoneSource
+  public let reconciliationContext: String?
+  public let lastSuccessfulReconciliation: Date?
+  /// Reserved for the explicit linking slice. It is nil for every event in
+  /// this issue, making the no-automatic-link rule observable at the seam.
+  public let localSessionID: String?
+
+  public init(
+    workout: HealthWorkout,
+    reconciliationContext: String? = nil,
+    lastSuccessfulReconciliation: Date? = nil
+  ) {
+    self.id = workout.healthKitUUID
+    self.kind = .healthWorkout
+    self.source = .health
+    self.localDate = workout.localDate
+    self.startDate = workout.startDate
+    self.endDate = workout.endDate
+    self.duration = workout.duration
+    self.activityType = workout.activityType
+    self.healthKitUUID = workout.healthKitUUID
+    self.sourceName = workout.sourceName
+    self.sourceBundleIdentifier = workout.sourceBundleIdentifier
+    self.sourceProductType = workout.sourceProductType
+    self.sourceOSVersion = workout.sourceOSVersion
+    self.deviceName = workout.deviceName
+    self.deviceModel = workout.deviceModel
+    self.sourceTimeZoneIdentifier = workout.sourceTimeZoneIdentifier
+    self.timeZoneSource = workout.timeZoneSource
+    self.reconciliationContext = reconciliationContext ?? workout.reconciliationContext
+    self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
+    self.localSessionID = nil
+  }
+
+  public var sourceBadge: String { source.displayName }
+}
+
+public struct HealthWorkoutProvenance: Codable, Equatable, Sendable {
+  public let sourceName: String?
+  public let sourceBundleIdentifier: String?
+  public let sourceProductType: String?
+  public let sourceOSVersion: String?
+  public let deviceName: String?
+  public let deviceModel: String?
+  public let sourceTimeZoneIdentifier: String?
+  public let timeZoneSource: HealthWorkoutTimeZoneSource
+
+  public init(workout: HealthWorkout) {
+    sourceName = workout.sourceName
+    sourceBundleIdentifier = workout.sourceBundleIdentifier
+    sourceProductType = workout.sourceProductType
+    sourceOSVersion = workout.sourceOSVersion
+    deviceName = workout.deviceName
+    deviceModel = workout.deviceModel
+    sourceTimeZoneIdentifier = workout.sourceTimeZoneIdentifier
+    timeZoneSource = workout.timeZoneSource
+  }
+
+  public var isAvailable: Bool {
+    sourceName != nil || sourceBundleIdentifier != nil || deviceName != nil
+      || sourceProductType != nil || sourceOSVersion != nil || deviceModel != nil
+      || sourceTimeZoneIdentifier != nil || timeZoneSource != .unavailable
+  }
+
+  public var displayName: String {
+    sourceName ?? sourceProductType ?? deviceName ?? sourceBundleIdentifier
+      ?? "Source unavailable"
+  }
+
+  public var detailLabel: String {
+    var details: [String] = []
+    if let sourceProductType { details.append(sourceProductType) }
+    if let deviceName { details.append(deviceName) }
+    if let deviceModel, deviceModel != deviceName { details.append(deviceModel) }
+    if let sourceBundleIdentifier { details.append(sourceBundleIdentifier) }
+    if let sourceOSVersion { details.append("OS \(sourceOSVersion)") }
+    if let sourceTimeZoneIdentifier { details.append(sourceTimeZoneIdentifier) }
+    if details.isEmpty { return "Provenance unavailable" }
+    return details.joined(separator: " · ")
+  }
+}
+
+public enum HealthWorkoutPresentationState: String, Codable, Equatable, Sendable {
+  case loading
+  case cached
+  case available
+  case successfulEmpty
+  case limitedHistory
+  case delayedUpdate
+  case firstFailure
+  case deleted
+  case unavailableProvenance
+  case unavailable
+
+  public var displayName: String {
+    switch self {
+    case .loading: "Loading"
+    case .cached: "Cached"
+    case .available: "Available"
+    case .successfulEmpty: "No Health data currently available"
+    case .limitedHistory: "Limited history"
+    case .delayedUpdate: "Update delayed"
+    case .firstFailure: "First check failed"
+    case .deleted: "Deleted in Health"
+    case .unavailableProvenance: "Provenance unavailable"
+    case .unavailable: "Health unavailable"
+    }
+  }
+}
+
+public struct HealthWorkoutHistoryEntry: Codable, Equatable, Identifiable, Sendable {
+  public let event: TrainingEvent
+  public let provenance: HealthWorkoutProvenance
+  public let state: HealthWorkoutPresentationState
+
+  public init(
+    event: TrainingEvent,
+    provenance: HealthWorkoutProvenance,
+    state: HealthWorkoutPresentationState
+  ) {
+    self.event = event
+    self.provenance = provenance
+    self.state = state
+  }
+
+  public var id: String { event.id }
+  public var healthKitUUID: String { event.healthKitUUID }
+}
+
+public struct HealthWorkoutHistorySnapshot: Codable, Equatable, Sendable {
+  public let events: [HealthWorkoutHistoryEntry]
+  public let state: HealthWorkoutPresentationState
+  public let lastSuccessfulReconciliation: Date?
+  public let reconciliationContext: String?
+  /// Deleted UUIDs are retained as reconciliation evidence but are never
+  /// returned as current events.
+  public let deletedHealthKitUUIDs: [String]
+
+  public init(
+    events: [HealthWorkoutHistoryEntry] = [],
+    state: HealthWorkoutPresentationState,
+    lastSuccessfulReconciliation: Date? = nil,
+    reconciliationContext: String? = nil,
+    deletedHealthKitUUIDs: [String] = []
+  ) {
+    self.events = events
+    self.state = state
+    self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
+    self.reconciliationContext = reconciliationContext
+    self.deletedHealthKitUUIDs = deletedHealthKitUUIDs
   }
 }
 
@@ -545,6 +745,7 @@ public protocol HealthWorkoutRepository: Sendable {
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
     -> HealthMirrorContentSnapshot
+  func loadHealthWorkoutDeletionUUIDs() async throws -> [String]
   func loadHealthRebuildState() async throws -> HealthRebuildState?
   func beginHealthRebuild() async throws
   func updateHealthRebuildState(_ state: HealthRebuildState) async throws
@@ -585,6 +786,8 @@ extension HealthWorkoutRepository {
   {
     .init(stream: stream, recordCount: nil)
   }
+
+  public func loadHealthWorkoutDeletionUUIDs() async throws -> [String] { [] }
 
   public func loadHealthRebuildState() async throws -> HealthRebuildState? {
     throw HealthSyncError.unavailable
@@ -767,6 +970,98 @@ public actor HealthWorkoutImportBoundary {
 
   public func cachedWorkouts() async throws -> [HealthWorkout] {
     try await repository.loadHealthWorkouts()
+  }
+
+  /// Returns current Health-only Training Events with source and reconciliation
+  /// context. The mirror is the only source of current events, so a deleted
+  /// HealthKit UUID is retained only in `deletedHealthKitUUIDs` and never
+  /// reintroduced into the timeline.
+  public func healthWorkoutHistory() async throws -> HealthWorkoutHistorySnapshot {
+    let workouts = try await repository.loadHealthWorkouts()
+    let status = await coordinator.statusSnapshot(authorization: authorization)
+    let workoutStatus = status.streams.first(where: { $0.stream == .workouts })
+    let checkpoint = try? await repository.loadHealthSyncCheckpoint(for: .workouts)
+    let deleted = (try? await repository.loadHealthWorkoutDeletionUUIDs()) ?? []
+    let lastSuccessful = workoutStatus?.lastSuccessfulCheck ?? checkpoint?.committedAt
+    let context = checkpoint?.reconciliationContext
+
+    var workoutsByUUID: [String: HealthWorkout] = [:]
+    for workout in workouts { workoutsByUUID[workout.healthKitUUID] = workout }
+    let events = workoutsByUUID.values
+      .sorted {
+        if $0.startDate != $1.startDate { return $0.startDate > $1.startDate }
+        return $0.healthKitUUID > $1.healthKitUUID
+      }
+      .map { workout in
+        let provenance = HealthWorkoutProvenance(workout: workout)
+        let entryState: HealthWorkoutPresentationState =
+          provenance.isAvailable
+          ? .available
+          : .unavailableProvenance
+        return HealthWorkoutHistoryEntry(
+          event: TrainingEvent(
+            workout: workout,
+            reconciliationContext: context,
+            lastSuccessfulReconciliation: lastSuccessful
+          ),
+          provenance: provenance,
+          state: entryState
+        )
+      }
+
+    let state = Self.historyState(
+      events: events,
+      status: workoutStatus,
+      authorization: authorization,
+      deletedHealthKitUUIDs: deleted
+    )
+    return HealthWorkoutHistorySnapshot(
+      events: events,
+      state: state,
+      lastSuccessfulReconciliation: lastSuccessful,
+      reconciliationContext: context,
+      deletedHealthKitUUIDs: deleted
+    )
+  }
+
+  public func todayHealthWorkouts(on date: TrainingDate) async throws
+    -> [HealthWorkoutHistoryEntry]
+  {
+    let history = try await healthWorkoutHistory()
+    return history.events.filter { $0.event.localDate == date.iso8601String }
+  }
+
+  private static func historyState(
+    events: [HealthWorkoutHistoryEntry],
+    status: HealthStreamStatus?,
+    authorization: HealthAuthorizationSnapshot,
+    deletedHealthKitUUIDs: [String]
+  ) -> HealthWorkoutPresentationState {
+    if authorization.state == .unavailable { return .unavailable }
+    if let status {
+      if status.reconciliation == .updating {
+        return events.isEmpty ? .loading : .cached
+      }
+      if let failure = status.failure {
+        return status.lastSuccessfulCheck == nil
+          || failure.occurredAt <= status.lastSuccessfulCheck!
+          ? .firstFailure
+          : .delayedUpdate
+      }
+      if status.coverage == .limitedHistory { return .limitedHistory }
+      if status.mirroredContent == .empty && status.lastSuccessfulCheck != nil {
+        return deletedHealthKitUUIDs.isEmpty ? .successfulEmpty : .deleted
+      }
+    }
+    if !deletedHealthKitUUIDs.isEmpty { return .deleted }
+    if events.isEmpty {
+      return deletedHealthKitUUIDs.isEmpty ? .loading : .deleted
+    }
+    if events.allSatisfy({ $0.state == .unavailableProvenance }) {
+      return .unavailableProvenance
+    }
+    if authorization.state != .authorized { return .cached }
+    return .available
   }
 }
 

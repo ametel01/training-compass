@@ -10,7 +10,20 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
       .appending(path: "training-health-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
     let repository = GRDBTrainingRepository(root: root)
-    let first = workout(activity: "running", source: "Watch")
+    let first = HealthWorkout(
+      healthKitUUID: "health-uuid",
+      activityType: "running",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300),
+      duration: 300,
+      sourceName: "Watch",
+      sourceBundleIdentifier: "com.example.source",
+      sourceTimeZoneIdentifier: "UTC",
+      localDate: "2023-11-14",
+      timeZoneSource: .deviceAtFirstImport,
+      firstImportedAt: Date(timeIntervalSince1970: 1_700_000_500),
+      reconciliationContext: "initial"
+    )
     try await repository.upsertHealthWorkouts([first], reconciliationContext: "initial")
 
     let replacement = HealthWorkout(
@@ -45,7 +58,20 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
       .appending(path: "training-health-sync-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
     let repository = GRDBTrainingRepository(root: root)
-    let first = workout(activity: "running", source: "Watch")
+    let first = HealthWorkout(
+      healthKitUUID: "health-uuid",
+      activityType: "running",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300),
+      duration: 300,
+      sourceName: "Watch",
+      sourceBundleIdentifier: "com.example.source",
+      sourceTimeZoneIdentifier: "UTC",
+      localDate: "2023-11-14",
+      timeZoneSource: .deviceAtFirstImport,
+      firstImportedAt: Date(timeIntervalSince1970: 1_700_000_500),
+      reconciliationContext: "initial"
+    )
     try await repository.commitHealthWorkoutPage(
       HealthWorkoutPage(workouts: [first], nextPageToken: "anchor-1"),
       stream: .workouts,
@@ -67,6 +93,52 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     let finalCheckpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
     XCTAssertTrue(loaded.isEmpty)
     XCTAssertNil(finalCheckpoint?.anchor)
+  }
+
+  func testDeviceTimezoneDateRemainsStableAcrossFallbackReplacement() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-health-date-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let first = HealthWorkout(
+      healthKitUUID: "health-uuid",
+      activityType: "running",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300),
+      duration: 300,
+      sourceName: "Watch",
+      sourceBundleIdentifier: "com.example.source",
+      sourceTimeZoneIdentifier: "UTC",
+      localDate: "2023-11-14",
+      timeZoneSource: .deviceAtFirstImport,
+      firstImportedAt: Date(timeIntervalSince1970: 1_700_000_500),
+      reconciliationContext: "initial"
+    )
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [first]), stream: .workouts, limits: .default)
+
+    let fallbackReplacement = HealthWorkout(
+      healthKitUUID: first.healthKitUUID,
+      activityType: "cycling",
+      startDate: first.startDate,
+      endDate: first.endDate,
+      duration: first.duration,
+      sourceName: first.sourceName,
+      sourceBundleIdentifier: first.sourceBundleIdentifier,
+      sourceTimeZoneIdentifier: "America/Los_Angeles",
+      localDate: "2023-11-13",
+      timeZoneSource: .deviceAtFirstImport,
+      firstImportedAt: first.firstImportedAt,
+      reconciliationContext: "device-timezone-changed"
+    )
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [fallbackReplacement]), stream: .workouts, limits: .default)
+
+    let loaded = try await repository.loadHealthWorkouts()
+    XCTAssertEqual(loaded.first?.activityType, "cycling")
+    XCTAssertEqual(loaded.first?.localDate, first.localDate)
+    XCTAssertEqual(loaded.first?.sourceTimeZoneIdentifier, first.sourceTimeZoneIdentifier)
+    XCTAssertEqual(loaded.first?.timeZoneSource, .deviceAtFirstImport)
   }
 
   func testDeepRebuildClearsReconstructibleStateButRetainsAuthoritativeHealthLinkFacts()

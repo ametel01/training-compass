@@ -156,9 +156,24 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               source_os_version = excluded.source_os_version,
               device_name = excluded.device_name,
               device_model = excluded.device_model,
-              source_timezone_identifier = excluded.source_timezone_identifier,
-              local_date = excluded.local_date,
-              timezone_source = excluded.timezone_source,
+              source_timezone_identifier = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.source_timezone_identifier
+                ELSE excluded.source_timezone_identifier
+              END,
+              local_date = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.local_date
+                ELSE excluded.local_date
+              END,
+              timezone_source = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.timezone_source
+                ELSE excluded.timezone_source
+              END,
               reconciliation_context = excluded.reconciliation_context,
               updated_at = excluded.updated_at
             """,
@@ -266,9 +281,24 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               source_os_version = excluded.source_os_version,
               device_name = excluded.device_name,
               device_model = excluded.device_model,
-              source_timezone_identifier = excluded.source_timezone_identifier,
-              local_date = excluded.local_date,
-              timezone_source = excluded.timezone_source,
+              source_timezone_identifier = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.source_timezone_identifier
+                ELSE excluded.source_timezone_identifier
+              END,
+              local_date = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.local_date
+                ELSE excluded.local_date
+              END,
+              timezone_source = CASE
+                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
+                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                THEN health_workouts.timezone_source
+                ELSE excluded.timezone_source
+              END,
               reconciliation_context = excluded.reconciliation_context,
               updated_at = excluded.updated_at
             """,
@@ -425,6 +455,17 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0
     }
     return .init(stream: stream, recordCount: count < 0 ? nil : count)
+  }
+
+  public func loadHealthWorkoutDeletionUUIDs() async throws -> [String] {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      try String.fetchAll(
+        db,
+        sql:
+          "SELECT healthkit_uuid FROM health_workout_deletions ORDER BY deleted_at DESC, healthkit_uuid"
+      )
+    }
   }
 
   public func estimateHealthRebuildStorage(
