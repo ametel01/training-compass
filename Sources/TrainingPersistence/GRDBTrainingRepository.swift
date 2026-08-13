@@ -257,10 +257,248 @@ public actor GRDBTrainingRepository: TrainingRepository {
     }
   }
 
+  public func loadDraftTrainingCycle() async throws -> TrainingCycle? {
+    try await loadTrainingCycle(state: .draft)
+  }
+
+  public func loadActiveTrainingCycle() async throws -> TrainingCycle? {
+    try await loadTrainingCycle(state: .active)
+  }
+
+  public func completedTrainingCycleCount() async throws -> Int {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Int.fetchOne(
+        db,
+        sql: "SELECT COUNT(*) FROM training_cycles WHERE lifecycle_state = ?",
+        arguments: [TrainingCycleLifecycleState.completed.rawValue]
+      ) ?? 0
+    }
+  }
+
+  public func saveTrainingCycle(
+    _ cycle: TrainingCycle,
+    expectedBefore: TrainingCycleSnapshot?,
+    auditID: String,
+    occurredAt: Int64,
+    action: TrainingCycleAuditAction
+  ) async throws -> TrainingCycleAuditEntry {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      let existingDraft = try Self.trainingCycle(from: db, state: .draft)
+      let existingForID = try Self.trainingCycle(from: db, id: cycle.id)
+      if cycle.lifecycleState == .draft,
+        let existingDraft,
+        existingDraft.id != cycle.id
+      {
+        throw TrainingCycleRepositoryError.draftAlreadyExists
+      }
+      let before = existingForID?.snapshot ?? existingDraft?.snapshot
+      guard before == expectedBefore else {
+        throw TrainingCycleRepositoryError.staleCycle
+      }
+      let cycleJSON = try Self.encodeSnapshot(cycle.snapshot)
+      try db.execute(
+        sql: """
+          INSERT INTO training_cycles
+            (id, lifecycle_state, anchor_date, includes_provisional_deload, cycle_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            lifecycle_state = excluded.lifecycle_state,
+            anchor_date = excluded.anchor_date,
+            includes_provisional_deload = excluded.includes_provisional_deload,
+            cycle_json = excluded.cycle_json,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [
+          cycle.id,
+          cycle.lifecycleState.rawValue,
+          cycle.week1AnchorDate.iso8601String,
+          cycle.includesProvisionalDeload,
+          cycleJSON,
+          cycle.createdAt,
+          cycle.updatedAt,
+        ]
+      )
+      try db.execute(
+        sql: """
+          INSERT INTO training_cycle_audit
+            (id, cycle_id, action, occurred_at, before_json, after_json)
+          VALUES (?, ?, ?, ?, ?, ?)
+          """,
+        arguments: [
+          auditID,
+          cycle.id,
+          action.rawValue,
+          occurredAt,
+          try before.map(Self.encodeSnapshot),
+          cycleJSON,
+        ]
+      )
+      return TrainingCycleAuditEntry(
+        id: auditID,
+        cycleID: cycle.id,
+        action: action,
+        occurredAt: occurredAt,
+        before: before,
+        after: cycle.snapshot
+      )
+    }
+  }
+
+  public func discardDraftTrainingCycle(
+    expectedBefore: TrainingCycleSnapshot,
+    auditID: String,
+    occurredAt: Int64
+  ) async throws -> TrainingCycleAuditEntry {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let current = try Self.trainingCycle(from: db, id: expectedBefore.id),
+        current.lifecycleState == .draft
+      else {
+        throw TrainingCycleRepositoryError.noDraft
+      }
+      guard current.snapshot == expectedBefore else {
+        throw TrainingCycleRepositoryError.staleCycle
+      }
+      let beforeJSON = try Self.encodeSnapshot(expectedBefore)
+      try db.execute(
+        sql: "DELETE FROM training_cycles WHERE id = ?",
+        arguments: [expectedBefore.id]
+      )
+      try db.execute(
+        sql: """
+          INSERT INTO training_cycle_audit
+            (id, cycle_id, action, occurred_at, before_json, after_json)
+          VALUES (?, ?, ?, ?, ?, NULL)
+          """,
+        arguments: [
+          auditID,
+          expectedBefore.id,
+          TrainingCycleAuditAction.discarded.rawValue,
+          occurredAt,
+          beforeJSON,
+        ]
+      )
+      return TrainingCycleAuditEntry(
+        id: auditID,
+        cycleID: expectedBefore.id,
+        action: .discarded,
+        occurredAt: occurredAt,
+        before: expectedBefore,
+        after: nil
+      )
+    }
+  }
+
+  public func trainingCycleAuditHistory(for cycleID: String) async throws
+    -> [TrainingCycleAuditEntry]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, cycle_id, action, occurred_at, before_json, after_json
+          FROM training_cycle_audit
+          WHERE cycle_id = ?
+          ORDER BY occurred_at, rowid
+          """,
+        arguments: [cycleID]
+      ).map(Self.trainingCycleAuditEntry(from:))
+    }
+  }
+
   private func readyStores() async throws -> TrainingStores {
     try await prepareStores()
     guard let stores else { throw PersistenceError.storesUnavailable }
     return stores
+  }
+
+  private func loadTrainingCycle(state: TrainingCycleLifecycleState) async throws
+    -> TrainingCycle?
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Self.trainingCycle(from: db, state: state)
+    }
+  }
+
+  private static func encodeSnapshot(_ snapshot: TrainingCycleSnapshot) throws -> String {
+    let data = try JSONEncoder().encode(snapshot)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidTrainingCycle
+    }
+    return string
+  }
+
+  private static func trainingCycle(from db: Database, state: TrainingCycleLifecycleState)
+    throws -> TrainingCycle?
+  {
+    guard
+      let row = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT cycle_json FROM training_cycles
+          WHERE lifecycle_state = ?
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+          """,
+        arguments: [state.rawValue]
+      )
+    else { return nil }
+    return try trainingCycle(from: row)
+  }
+
+  private static func trainingCycle(from db: Database, id: String) throws -> TrainingCycle? {
+    guard
+      let row = try Row.fetchOne(
+        db,
+        sql: "SELECT cycle_json FROM training_cycles WHERE id = ?",
+        arguments: [id]
+      )
+    else { return nil }
+    return try trainingCycle(from: row)
+  }
+
+  private static func trainingCycle(from row: Row) throws -> TrainingCycle {
+    guard let data = (row["cycle_json"] as String).data(using: .utf8) else {
+      throw PersistenceError.invalidTrainingCycle
+    }
+    let snapshot = try JSONDecoder().decode(TrainingCycleSnapshot.self, from: data)
+    return TrainingCycle(
+      id: snapshot.id,
+      week1AnchorDate: snapshot.week1AnchorDate,
+      weeks: snapshot.weeks,
+      sourceTemplate: snapshot.sourceTemplate,
+      includesProvisionalDeload: snapshot.includesProvisionalDeload,
+      lifecycleState: snapshot.lifecycleState,
+      createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt
+    )
+  }
+
+  private static func trainingCycleAuditEntry(from row: Row) throws -> TrainingCycleAuditEntry {
+    guard let action = TrainingCycleAuditAction(rawValue: row["action"]) else {
+      throw PersistenceError.invalidTrainingCycleAudit
+    }
+    let before = try decodeSnapshot(row["before_json"] as String?)
+    let after = try decodeSnapshot(row["after_json"] as String?)
+    return TrainingCycleAuditEntry(
+      id: row["id"],
+      cycleID: row["cycle_id"],
+      action: action,
+      occurredAt: row["occurred_at"],
+      before: before,
+      after: after
+    )
+  }
+
+  private static func decodeSnapshot(_ value: String?) throws -> TrainingCycleSnapshot? {
+    guard let value else { return nil }
+    guard let data = value.data(using: .utf8) else {
+      throw PersistenceError.invalidTrainingCycleAudit
+    }
+    return try JSONDecoder().decode(TrainingCycleSnapshot.self, from: data)
   }
 
   private static func scheduleTemplate(from db: Database) throws -> ScheduleTemplate? {
@@ -439,6 +677,8 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidAuditBefore
   case invalidScheduleAudit
   case invalidScheduleTemplate
+  case invalidTrainingCycle
+  case invalidTrainingCycleAudit
   case storesUnavailable
 }
 

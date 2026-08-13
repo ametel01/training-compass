@@ -50,7 +50,8 @@ let authoritativeTables = try stores.authoritative.read { db in
         SELECT name FROM sqlite_master
         WHERE type = 'table' AND name IN (
           'lifts', 'lift_configuration_audit', 'schedule_templates',
-          'schedule_template_sessions', 'schedule_template_audit'
+          'schedule_template_sessions', 'schedule_template_audit', 'training_cycles',
+          'training_cycle_audit'
         )
         """
     ))
@@ -58,7 +59,7 @@ let authoritativeTables = try stores.authoritative.read { db in
 guard
   authoritativeTables == [
     "lifts", "lift_configuration_audit", "schedule_templates", "schedule_template_sessions",
-    "schedule_template_audit",
+    "schedule_template_audit", "training_cycles", "training_cycle_audit",
   ]
 else {
   throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v3")
@@ -75,7 +76,7 @@ guard authoritativeRowCount == 1, reconstructibleRowCount == 1 else {
 }
 
 print(
-  "Authoritative v3 and reconstructible v1 migration interruption, retry, and idempotence passed.")
+  "Authoritative v4 and reconstructible v1 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

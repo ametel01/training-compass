@@ -157,6 +157,40 @@ public struct ProtectedStoreBootstrapper: Sendable {
         index: "schedule_template_audit_time", on: "schedule_template_audit",
         columns: ["template_id", "occurred_at"])
     }
+    migrator.registerMigration("authoritative_v4_training_cycle") { db in
+      try db.create(table: "training_cycles") { table in
+        table.column("id", .text).primaryKey()
+        table.column("lifecycle_state", .text).notNull()
+          .check { $0 == "draft" || $0 == "active" || $0 == "completed" || $0 == "abandoned" }
+        table.column("anchor_date", .text).notNull()
+        table.column("includes_provisional_deload", .boolean).notNull()
+        table.column("cycle_json", .text).notNull()
+        table.column("created_at", .integer).notNull()
+        table.column("updated_at", .integer).notNull()
+      }
+      try db.create(
+        index: "training_cycles_state", on: "training_cycles",
+        columns: ["lifecycle_state", "updated_at"])
+      try db.execute(
+        sql:
+          "CREATE UNIQUE INDEX training_cycles_single_draft ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'draft'"
+      )
+      try db.execute(
+        sql:
+          "CREATE UNIQUE INDEX training_cycles_single_active ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'active'"
+      )
+      try db.create(table: "training_cycle_audit") { table in
+        table.column("id", .text).primaryKey()
+        table.column("cycle_id", .text).notNull()
+        table.column("action", .text).notNull()
+        table.column("occurred_at", .integer).notNull()
+        table.column("before_json", .text)
+        table.column("after_json", .text)
+      }
+      try db.create(
+        index: "training_cycle_audit_time", on: "training_cycle_audit",
+        columns: ["cycle_id", "occurred_at"])
+    }
     return migrator
   }
 

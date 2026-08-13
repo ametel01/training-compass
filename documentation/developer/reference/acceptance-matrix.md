@@ -1,6 +1,6 @@
 # Gate 0 acceptance matrix
 
-This matrix covers the Gate 0 shell and the implemented local training slices from GitHub issues #2 and #3.
+This matrix covers the Gate 0 shell and the implemented local training slices from GitHub issues #2 through #4.
 
 | Source | Scenario variant | Preconditions | Seed | Expected external result | Evidence layer | Device check | Latest evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -15,5 +15,7 @@ This matrix covers the Gate 0 shell and the implemented local training slices fr
 | Issue #2: lift configuration | Corrective edit | Owner marks an existing lift edit as corrective and confirms the preview | 21571 | Before/after snapshots, action, and timestamp are retained without automatic aliasing | Domain, application, persistence, UI | No | `LiftConfigurationBoundaryTests`; `LiftConfigurationRepositoryTests` |
 | Issue #3: schedule template | Default and confirmed edit | All default schedule lifts are configured; owner edits the reusable normal-week layout | 21571 | Cycle previews the Default Schedule, supports ordered sessions and shared weekdays, and changes persist only after confirmation | Domain, application, persistence, UI | No | `ScheduleTemplateBoundaryTests`; `ScheduleTemplateRepositoryTests` |
 | Issue #3: schedule template | Reset and safety | A saved template exists and the owner requests reset | 21571 | Reset previews the Default Schedule, requires confirmation, records a replacement audit fact, and leaves future cycle snapshots independent | Application, persistence, UI | No | `ScheduleTemplateBoundaryTests`; `ScheduleTemplateRepositoryTests` |
+| Issue #4: Draft Training Cycle | Create and restart | Configured Schedule Template; optional Active Training Cycle | 21571 | One draft is created from an immutable template snapshot with three ordered Training Weeks, provisional Deload cadence, intended dates, and restart-safe persistence | Domain, application, persistence, UI | No | `TrainingCycleBoundaryTests`; `TrainingCycleRepositoryTests` |
+| Issue #4: Draft Training Cycle | Edit and destructive safety | A Draft Training Cycle exists | 21571 | Planned dates and lift roles can change without reordering weeks or changing the template; replace/regenerate and discard require explicit confirmation | Application, persistence, UI | No | `TrainingCycleBoundaryTests`; Cycle UI controls |
 
 Health authorization, exports, and recovery remain outside these slices. Today and Progress owner-data workflows are still not exposed.

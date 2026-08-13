@@ -108,13 +108,21 @@ private struct CycleView: View {
   let model: AppModel
 
   @State private var template: ScheduleTemplate?
+  @State private var draftCycle: TrainingCycle?
+  @State private var activeCycle: TrainingCycle?
   @State private var workingSessions: [ScheduleSession] = []
   @State private var lifts: [LiftConfiguration] = []
   @State private var draft: ScheduleSessionDraft?
+  @State private var cycleSessionDraft: CycleSessionDraft?
   @State private var pendingSave: ScheduleTemplateChangePreview?
   @State private var pendingReset: ScheduleTemplateChangePreview?
+  @State private var pendingCycleChange: TrainingCycleChangePreview?
+  @State private var pendingCycleDiscard: TrainingCycleChangePreview?
+  @State private var anchorDate = TrainingDate.monday(containing: Date()).date()
   @State private var showingSaveConfirmation = false
   @State private var showingResetConfirmation = false
+  @State private var showingCycleConfirmation = false
+  @State private var showingCycleDiscardConfirmation = false
   @State private var errorMessage: String?
 
   var body: some View {
@@ -134,6 +142,56 @@ private struct CycleView: View {
             )
             .font(.footnote)
             .foregroundStyle(.secondary)
+          }
+
+          Section("Draft Training Cycle") {
+            if let draftCycle {
+              DraftCycleSummary(
+                cycle: draftCycle,
+                liftName: liftName,
+                onEdit: { cycleSessionDraft = CycleSessionDraft(session: $0, week: $1) }
+              )
+              Button("Replace schedule from current template") {
+                Task { await reviewCycleReplacement() }
+              }
+              .accessibilityIdentifier("cycle.replace-schedule")
+              Button("Regenerate Draft") {
+                Task { await reviewCycleRegeneration() }
+              }
+              .accessibilityIdentifier("cycle.regenerate")
+              Button("Discard Draft", role: .destructive) {
+                Task { await reviewCycleDiscard() }
+              }
+              .accessibilityIdentifier("cycle.discard")
+            } else {
+              DatePicker(
+                "Week 1 Anchor Date",
+                selection: $anchorDate,
+                displayedComponents: [.date]
+              )
+              Button("Prepare Draft Training Cycle") {
+                Task { await reviewCycleCreation() }
+              }
+              .accessibilityIdentifier("cycle.create-draft")
+              Text("The date is stored without a time zone. It defaults to Monday.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            if let activeCycle {
+              VStack(alignment: .leading, spacing: 4) {
+                Label("Active Training Cycle", systemImage: "play.circle")
+                  .font(.headline)
+                Text(
+                  "\(activeCycle.week1AnchorDate.iso8601String) · "
+                    + "\(activeCycle.weeks.count) Training Weeks"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                Text("An Active Training Cycle remains independent while you prepare this draft.")
+                  .font(.footnote)
+                  .foregroundStyle(.secondary)
+              }
+            }
           }
 
           Section("Schedule Template") {
@@ -204,6 +262,12 @@ private struct CycleView: View {
         apply(reviewedDraft)
       }
     }
+    .sheet(item: $cycleSessionDraft) { draft in
+      CycleSessionEditor(draft: draft, lifts: lifts) { reviewedDraft in
+        self.cycleSessionDraft = nil
+        Task { await reviewCycleEdit(reviewedDraft) }
+      }
+    }
     .alert("Confirm schedule save", isPresented: $showingSaveConfirmation) {
       Button("Cancel", role: .cancel) {
         pendingSave = nil
@@ -237,6 +301,26 @@ private struct CycleView: View {
     } message: {
       Text(errorMessage ?? "Try again.")
     }
+    .alert("Confirm Draft Training Cycle", isPresented: $showingCycleConfirmation) {
+      Button("Cancel", role: .cancel) { pendingCycleChange = nil }
+      Button(cycleConfirmationActionTitle) {
+        guard let pendingCycleChange else { return }
+        Task { await confirmCycleChange(pendingCycleChange) }
+      }
+    } message: {
+      Text(cyclePreviewText)
+    }
+    .alert("Discard Draft Training Cycle", isPresented: $showingCycleDiscardConfirmation) {
+      Button("Cancel", role: .cancel) { pendingCycleDiscard = nil }
+      Button("Discard", role: .destructive) {
+        guard let pendingCycleDiscard else { return }
+        Task { await confirmCycleDiscard(pendingCycleDiscard) }
+      }
+    } message: {
+      Text(
+        "This permanently removes the editable draft. The Schedule Template and any Active Training Cycle remain unchanged."
+      )
+    }
   }
 
   private var defaultPreviewText: String {
@@ -253,8 +337,11 @@ private struct CycleView: View {
       lifts = loadedLifts
       template = loadedTemplate
       workingSessions = loadedTemplate.sessions
+      draftCycle = try await model.trainingCycleBoundary.draft()
+      activeCycle = try await model.trainingCycleBoundary.active()
     } catch {
       template = nil
+      draftCycle = nil
       errorMessage = nil
     }
   }
@@ -326,6 +413,114 @@ private struct CycleView: View {
       await reload()
     } catch {
       pendingReset = nil
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private var cyclePreviewText: String {
+    guard let cycle = pendingCycleChange?.after else { return "" }
+    let deload: String
+    if cycle.includesProvisionalDeload {
+      deload = "A provisional Deload Week is included."
+    } else {
+      deload = "No Deload Week is due yet."
+    }
+    return "Week 1 begins \(cycle.week1AnchorDate.iso8601String). The draft contains "
+      + "\(cycle.weeks.count) fixed Training Weeks. \(deload)"
+  }
+
+  private var cycleConfirmationActionTitle: String {
+    switch pendingCycleChange?.action {
+    case .created: "Create"
+    case .edited: "Save Edits"
+    case .replacedSchedule: "Replace Schedule"
+    case .regenerated: "Regenerate"
+    case .discarded, .none: "Confirm"
+    }
+  }
+
+  private func reviewCycleCreation() async {
+    do {
+      pendingCycleChange = try await model.trainingCycleBoundary.previewCreate(
+        anchorDate: anchorDate
+      )
+      showingCycleConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reviewCycleReplacement() async {
+    do {
+      pendingCycleChange = try await model.trainingCycleBoundary.previewReplaceSchedule()
+      showingCycleConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reviewCycleRegeneration() async {
+    do {
+      pendingCycleChange = try await model.trainingCycleBoundary.previewRegenerate()
+      showingCycleConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reviewCycleDiscard() async {
+    do {
+      pendingCycleDiscard = try await model.trainingCycleBoundary.previewDiscard()
+      showingCycleDiscardConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func reviewCycleEdit(_ draft: CycleSessionDraft) async {
+    guard let cycle = draftCycle,
+      let weekIndex = cycle.weeks.firstIndex(where: { $0.id == draft.weekID }),
+      let sessionIndex = cycle.weeks[weekIndex].sessions.firstIndex(where: { $0.id == draft.id })
+    else { return }
+    let old = cycle.weeks[weekIndex].sessions[sessionIndex]
+    let replacement = TrainingCycleSession(
+      id: old.id,
+      intendedDate: TrainingDate(date: draft.intendedDate),
+      sourceTemplateSessionID: old.sourceTemplateSessionID,
+      primaryLiftID: draft.primaryLiftID,
+      assistanceLiftID: draft.assistanceLiftID
+    )
+    var weeks = cycle.weeks
+    var sessions = weeks[weekIndex].sessions
+    sessions[sessionIndex] = replacement
+    weeks[weekIndex] = TrainingWeek(
+      id: weeks[weekIndex].id,
+      position: weeks[weekIndex].position,
+      kind: weeks[weekIndex].kind,
+      startDate: weeks[weekIndex].startDate,
+      sessions: sessions
+    )
+    let request = TrainingCycleEditRequest(
+      id: cycle.id,
+      week1AnchorDate: cycle.week1AnchorDate,
+      weeks: weeks.map { TrainingWeekRequest(cycleWeek: $0) }
+    )
+    do {
+      pendingCycleChange = try await model.trainingCycleBoundary.previewEdit(request)
+      showingCycleConfirmation = true
+    } catch { errorMessage = String(describing: error) }
+  }
+
+  private func confirmCycleChange(_ preview: TrainingCycleChangePreview) async {
+    do {
+      _ = try await model.trainingCycleBoundary.confirm(preview)
+      pendingCycleChange = nil
+      await reload()
+    } catch {
+      pendingCycleChange = nil
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func confirmCycleDiscard(_ preview: TrainingCycleChangePreview) async {
+    do {
+      _ = try await model.trainingCycleBoundary.discard()
+      pendingCycleDiscard = nil
+      await reload()
+    } catch {
+      pendingCycleDiscard = nil
       errorMessage = String(describing: error)
     }
   }
@@ -429,6 +624,130 @@ private struct ScheduleSessionEditor: View {
         }
       }
     }
+  }
+}
+
+private struct DraftCycleSummary: View {
+  let cycle: TrainingCycle
+  let liftName: (String) -> String
+  let onEdit: (TrainingCycleSession, TrainingWeek) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      LabeledContent("Lifecycle", value: cycle.lifecycleState.displayName)
+      LabeledContent("Week 1 Anchor", value: cycle.week1AnchorDate.iso8601String)
+      LabeledContent("Deload", value: cycle.includesProvisionalDeload ? "Provisional" : "Not due")
+      ForEach(cycle.weeks) { week in
+        VStack(alignment: .leading, spacing: 5) {
+          Text("\(week.position). \(week.kind.displayName)")
+            .font(.headline)
+          Text("\(week.startDate.iso8601String) · \(week.sessions.count) Sessions")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          ForEach(week.sessions) { session in
+            Button {
+              onEdit(session, week)
+            } label: {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(session.intendedDate.iso8601String)
+                  .font(.subheadline)
+                Text(
+                  "Primary: \(liftName(session.primaryLiftID)) · "
+                    + "Assistance: \(liftName(session.assistanceLiftID))"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              }
+            }
+            .accessibilityIdentifier("cycle.edit.\(session.id)")
+          }
+        }
+        .padding(.vertical, 4)
+      }
+    }
+  }
+}
+
+private struct CycleSessionDraft: Identifiable, Sendable {
+  let id: String
+  let weekID: String
+  var intendedDate: Date
+  var primaryLiftID: String
+  var assistanceLiftID: String
+
+  init(session: TrainingCycleSession, week: TrainingWeek) {
+    id = session.id
+    weekID = week.id
+    intendedDate = session.intendedDate.date()
+    primaryLiftID = session.primaryLiftID
+    assistanceLiftID = session.assistanceLiftID
+  }
+}
+
+private struct CycleSessionEditor: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var draft: CycleSessionDraft
+  let lifts: [LiftConfiguration]
+  let onReview: (CycleSessionDraft) -> Void
+
+  init(
+    draft: CycleSessionDraft,
+    lifts: [LiftConfiguration],
+    onReview: @escaping (CycleSessionDraft) -> Void
+  ) {
+    _draft = State(initialValue: draft)
+    self.lifts = lifts
+    self.onReview = onReview
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        DatePicker("Intended date", selection: $draft.intendedDate, displayedComponents: [.date])
+        Picker("Primary Lift", selection: $draft.primaryLiftID) {
+          ForEach(lifts) { lift in
+            Text(lift.identity.displayName).tag(lift.id)
+          }
+        }
+        Picker("Assistance Lift", selection: $draft.assistanceLiftID) {
+          ForEach(lifts) { lift in
+            Text(lift.identity.displayName).tag(lift.id)
+          }
+        }
+        Text("This changes only this Draft Training Cycle, not the Schedule Template.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+      }
+      .navigationTitle("Edit Draft Session")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Review") { onReview(draft) }
+            .accessibilityIdentifier("cycle.session.review")
+        }
+      }
+    }
+  }
+}
+
+extension TrainingWeekRequest {
+  init(cycleWeek: TrainingWeek) {
+    self.init(
+      id: cycleWeek.id,
+      position: cycleWeek.position,
+      kind: cycleWeek.kind,
+      startDate: cycleWeek.startDate,
+      sessions: cycleWeek.sessions.map {
+        TrainingCycleSessionRequest(
+          id: $0.id,
+          intendedDate: TrainingDate(date: $0.intendedDate.date()),
+          primaryLiftID: $0.primaryLiftID,
+          assistanceLiftID: $0.assistanceLiftID
+        )
+      }
+    )
   }
 }
 
