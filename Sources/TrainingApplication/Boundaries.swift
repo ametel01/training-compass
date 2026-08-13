@@ -1,6 +1,6 @@
 import Foundation
 @_exported import TrainingDomain
-import TrainingInsights
+@_exported import TrainingInsights
 
 public protocol Clock: Sendable {
   func now() -> Date

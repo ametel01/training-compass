@@ -2,6 +2,6 @@
 
 Training Compass is a private, local-first iPhone training app. The current executable contains the protected Gate 0 shell and local training workflows: TMs manages kilogram Training Maxes and per-lift Loading Increments, Cycle maintains the reusable Schedule Template, prepares Draft Training Cycles, and activates one durable cycle with immutable 5/3/1 prescriptions. Today exposes prescribed, failed, omitted, and Additional Set work, requires explicit confirmation to complete and display a planned-versus-actual Session, and supports correction-backed reopening of completed work. Health data remains unavailable.
 
-The app targets stable iOS 26 with Swift 6 strict concurrency. Today becomes available after an Active Training Cycle has a Session scheduled for the current date, while Cycle becomes available after the default schedule's lifts are configured in TMs. Progress remains a pre-data destination.
+The app targets stable iOS 26 with Swift 6 strict concurrency. Today becomes available after an Active Training Cycle has a Session scheduled for the current date, while Cycle becomes available after the default schedule's lifts are configured in TMs. Progress shows transparent per-lift e1RM history derived from eligible normal-week Primary Plus Set Results and remains explainable when no eligible data exists.
 
 See the [developer documentation](documentation/developer/README.md) for architecture, verification, privacy, migrations, and Acceptance Device evidence.

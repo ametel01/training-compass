@@ -21,11 +21,7 @@ struct RootView: View {
         .accessibilityIdentifier("tab.cycle")
 
         NavigationStack {
-          UnavailableDestinationView(
-            title: "Progress",
-            systemImage: "chart.xyaxis.line",
-            detail: "Insights remain unavailable until their verified milestones ship."
-          )
+          StrengthProgressView(model: model)
         }
         .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
         .accessibilityIdentifier("tab.progress")
@@ -44,6 +40,188 @@ struct RootView: View {
           .transition(.opacity)
           .zIndex(1)
       }
+    }
+  }
+}
+
+private struct StrengthProgressView: View {
+  let model: AppModel
+
+  @State private var progress: E1RMProgress?
+  @State private var selectedLiftID: String?
+  @State private var showingLongerHistory = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    Group {
+      if model.phase != .ready {
+        ContentUnavailableView(
+          "Progress unavailable",
+          systemImage: "chart.line.uptrend.xyaxis",
+          description: Text("Preparing protected local stores.")
+        )
+      } else if let progress {
+        List {
+          if !progress.availableLifts.isEmpty {
+            Section("Lift") {
+              Picker("Selected Lift", selection: selectedLiftBinding) {
+                ForEach(progress.availableLifts) { lift in
+                  Text(lift.name).tag(Optional(lift.id))
+                }
+              }
+              .accessibilityIdentifier("progress.lift-picker")
+            }
+          }
+
+          Section("e1RM Summary") {
+            ProgressMetric(label: "Latest", observation: progress.latest)
+            ProgressMetric(label: "Previous", observation: progress.previous)
+            ProgressMetric(label: "Cycle best", observation: progress.cycleBest)
+            LabeledContent(
+              "Trailing 90-day direction", value: progress.trailing90DayDirection.displayName)
+          }
+
+          if let context = progress.currentTrainingMaxContext {
+            Section("Current Training Max") {
+              LabeledContent(
+                "Current", value: String(format: "%.1f kg", context.currentTrainingMaxKg))
+              if let active = context.activeCycleTrainingMaxKg {
+                LabeledContent(
+                  "Active Cycle Snapshot", value: String(format: "%.1f kg", active))
+              }
+              LabeledContent(
+                "Loading Increment", value: String(format: "%.1f kg", context.loadingIncrementKg))
+            }
+          }
+
+          Section("History") {
+            let visible =
+              showingLongerHistory ? progress.observations : Array(progress.observations.suffix(3))
+            if visible.isEmpty {
+              Text("No eligible Plus Set Results yet.").foregroundStyle(.secondary)
+            } else {
+              ForEach(visible) { observation in
+                NavigationLink {
+                  ProgressSourceDetailView(observation: observation)
+                } label: {
+                  VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                      Text(observation.displayValue).font(.headline)
+                      Spacer()
+                      Text(observation.date.iso8601String).font(.caption).foregroundStyle(
+                        .secondary)
+                    }
+                    Text(
+                      "\(observation.repetitions) reps at \(observation.weightKg, specifier: "%.2f") kg · \(observation.weekKind.displayName)"
+                    )
+                    .font(.caption)
+                    Text(
+                      "Plus Set Result \(observation.sourceLink.resultID) · Cycle \(observation.sourceLink.cycleID) · \(observation.correctionState.displayName)"
+                    )
+                    .font(.caption2).foregroundStyle(.secondary)
+                  }
+                }
+                .accessibilityIdentifier("progress.observation.\(observation.id)")
+              }
+            }
+            if progress.hasLongerHistory && !showingLongerHistory {
+              Button("Show Longer History") { showingLongerHistory = true }
+                .accessibilityIdentifier("progress.show-history")
+            }
+          }
+
+          Section("Insight Explanation") {
+            Text(progress.explanation.text)
+              .font(.caption)
+            if !progress.excludedRecords.isEmpty {
+              DisclosureGroup("Excluded Records (\(progress.excludedRecords.count))") {
+                ForEach(progress.excludedRecords) { excluded in
+                  Text("\(excluded.label) · \(excluded.reason.displayName)")
+                    .font(.caption)
+                }
+              }
+            }
+          }
+        }
+        .refreshable { await reload() }
+      } else {
+        ContentUnavailableView(
+          "No Progress Yet",
+          systemImage: "chart.line.uptrend.xyaxis",
+          description: Text(
+            "Complete an eligible normal-week Primary Plus Set to see e1RM progress.")
+        )
+      }
+    }
+    .navigationTitle("Progress")
+    .accessibilityIdentifier("progress.destination")
+    .task(id: model.phase) {
+      if model.phase == .ready { await reload() }
+    }
+    .alert(
+      "Could not load Progress",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again.")
+    }
+  }
+
+  private var selectedLiftBinding: Binding<String?> {
+    Binding(
+      get: { selectedLiftID ?? progress?.selectedLiftID },
+      set: {
+        selectedLiftID = $0
+        Task { await reload() }
+      }
+    )
+  }
+
+  private func reload() async {
+    do {
+      progress = try await model.progressBoundary.progress(selectedLiftID: selectedLiftID)
+      if selectedLiftID == nil { selectedLiftID = progress?.selectedLiftID }
+    } catch {
+      progress = nil
+      errorMessage = String(describing: error)
+    }
+  }
+}
+
+private struct ProgressSourceDetailView: View {
+  let observation: E1RMObservation
+
+  var body: some View {
+    List {
+      Section("Plus Set Result") {
+        LabeledContent("Result ID", value: observation.sourceLink.resultID)
+        LabeledContent("Prescription", value: observation.sourceLink.prescriptionID)
+        LabeledContent("Session", value: observation.sourceLink.sessionID)
+      }
+      Section("Cycle Context") {
+        LabeledContent("Cycle", value: observation.sourceLink.cycleID)
+        LabeledContent("Week", value: observation.sourceLink.weekID)
+        LabeledContent("Date", value: observation.date.iso8601String)
+        LabeledContent("Correction", value: observation.sourceLink.correctionState.displayName)
+      }
+    }
+    .navigationTitle("Progress Source")
+  }
+}
+
+private struct ProgressMetric: View {
+  let label: String
+  let observation: E1RMObservation?
+
+  var body: some View {
+    if let observation {
+      LabeledContent(label, value: observation.displayValue)
+    } else {
+      LabeledContent(label, value: "—")
     }
   }
 }
