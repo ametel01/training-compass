@@ -19,17 +19,20 @@ final class AppModel {
   let liftConfigurationBoundary: LiftConfigurationBoundary
   let scheduleTemplateBoundary: ScheduleTemplateBoundary
   let trainingCycleBoundary: TrainingCycleBoundary
+  let sessionLoggingBoundary: SessionLoggingBoundary
 
   init(
     preparePreDataShell: PreparePreDataShell,
     liftConfigurationBoundary: LiftConfigurationBoundary,
     scheduleTemplateBoundary: ScheduleTemplateBoundary,
-    trainingCycleBoundary: TrainingCycleBoundary
+    trainingCycleBoundary: TrainingCycleBoundary,
+    sessionLoggingBoundary: SessionLoggingBoundary
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
     self.scheduleTemplateBoundary = scheduleTemplateBoundary
     self.trainingCycleBoundary = trainingCycleBoundary
+    self.sessionLoggingBoundary = sessionLoggingBoundary
   }
 
   func prepare() async {
@@ -74,6 +77,12 @@ final class AppModel {
         uuidGenerator: dependencies.uuidGenerator
       ),
       trainingCycleBoundary: TrainingCycleBoundary(
+        repository: repository,
+        clock: dependencies.clock,
+        calendar: dependencies.calendar,
+        uuidGenerator: dependencies.uuidGenerator
+      ),
+      sessionLoggingBoundary: SessionLoggingBoundary(
         repository: repository,
         clock: dependencies.clock,
         calendar: dependencies.calendar,

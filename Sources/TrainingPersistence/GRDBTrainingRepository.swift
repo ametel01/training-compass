@@ -415,6 +415,115 @@ public actor GRDBTrainingRepository: TrainingRepository {
     }
   }
 
+  public func loadSetResults(for sessionID: String) async throws -> [RecordedSetResult] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT result_json FROM set_results
+          WHERE session_id = ?
+          ORDER BY rowid
+          """,
+        arguments: [sessionID]
+      ).map(Self.recordedSetResult(from:))
+    }
+  }
+
+  public func saveSetResult(
+    _ result: RecordedSetResult,
+    expectedBefore: RecordedSetResult?,
+    auditID: String,
+    occurredAt: Int64,
+    action: SetResultAuditAction
+  ) async throws -> SetResultAuditEntry {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == result.sessionID })
+      else {
+        throw SetResultRepositoryError.unknownSession
+      }
+      guard session.prescriptions.contains(where: { $0.id == result.prescriptionID }) else {
+        throw SetResultRepositoryError.unknownPrescription
+      }
+
+      let current = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT result_json FROM set_results
+          WHERE session_id = ? AND prescription_id = ?
+          """,
+        arguments: [result.sessionID, result.prescriptionID]
+      ).map(Self.recordedSetResult(from:))
+      guard current == expectedBefore else {
+        throw SetResultRepositoryError.staleResult
+      }
+
+      let afterJSON = try Self.encodeRecordedSetResult(result)
+      try db.execute(
+        sql: """
+          INSERT INTO set_results (id, session_id, prescription_id, result_json, recorded_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(session_id, prescription_id) DO UPDATE SET
+            id = excluded.id,
+            result_json = excluded.result_json,
+            recorded_at = excluded.recorded_at
+          """,
+        arguments: [
+          result.id,
+          result.sessionID,
+          result.prescriptionID,
+          afterJSON,
+          result.recordedAt,
+        ]
+      )
+      try db.execute(
+        sql: """
+          INSERT INTO set_result_audit
+            (id, session_id, prescription_id, action, occurred_at, before_json, after_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          """,
+        arguments: [
+          auditID,
+          result.sessionID,
+          result.prescriptionID,
+          action.rawValue,
+          occurredAt,
+          try current.map(Self.encodeRecordedSetResult),
+          afterJSON,
+        ]
+      )
+      return SetResultAuditEntry(
+        id: auditID,
+        sessionID: result.sessionID,
+        prescriptionID: result.prescriptionID,
+        action: action,
+        occurredAt: occurredAt,
+        before: current,
+        after: result
+      )
+    }
+  }
+
+  public func setResultAuditHistory(for sessionID: String) async throws
+    -> [SetResultAuditEntry]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, session_id, prescription_id, action, occurred_at, before_json, after_json
+          FROM set_result_audit
+          WHERE session_id = ?
+          ORDER BY occurred_at, rowid
+          """,
+        arguments: [sessionID]
+      ).map(Self.setResultAuditEntry(from:))
+    }
+  }
+
   private func readyStores() async throws -> TrainingStores {
     try await prepareStores()
     guard let stores else { throw PersistenceError.storesUnavailable }
@@ -506,6 +615,56 @@ public actor GRDBTrainingRepository: TrainingRepository {
       throw PersistenceError.invalidTrainingCycleAudit
     }
     return try JSONDecoder().decode(TrainingCycleSnapshot.self, from: data)
+  }
+
+  private static func encodeRecordedSetResult(_ result: RecordedSetResult) throws -> String {
+    let data = try JSONEncoder().encode(result)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidSetResult
+    }
+    return string
+  }
+
+  private static func recordedSetResult(from row: Row) throws -> RecordedSetResult {
+    guard let data = (row["result_json"] as String).data(using: .utf8) else {
+      throw PersistenceError.invalidSetResult
+    }
+    do {
+      return try JSONDecoder().decode(RecordedSetResult.self, from: data)
+    } catch {
+      throw PersistenceError.invalidSetResult
+    }
+  }
+
+  private static func setResultAuditEntry(from row: Row) throws -> SetResultAuditEntry {
+    guard let action = SetResultAuditAction(rawValue: row["action"] as String) else {
+      throw PersistenceError.invalidSetResultAudit
+    }
+    let before = try decodeRecordedSetResult(row["before_json"] as String?)
+    guard let after = try decodeRecordedSetResult(row["after_json"] as String?) else {
+      throw PersistenceError.invalidSetResultAudit
+    }
+    return SetResultAuditEntry(
+      id: row["id"],
+      sessionID: row["session_id"],
+      prescriptionID: row["prescription_id"],
+      action: action,
+      occurredAt: row["occurred_at"],
+      before: before,
+      after: after
+    )
+  }
+
+  private static func decodeRecordedSetResult(_ value: String?) throws -> RecordedSetResult? {
+    guard let value else { return nil }
+    guard let data = value.data(using: .utf8) else {
+      throw PersistenceError.invalidSetResultAudit
+    }
+    do {
+      return try JSONDecoder().decode(RecordedSetResult.self, from: data)
+    } catch {
+      throw PersistenceError.invalidSetResultAudit
+    }
   }
 
   private static func scheduleTemplate(from db: Database) throws -> ScheduleTemplate? {
@@ -686,6 +845,8 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidScheduleTemplate
   case invalidTrainingCycle
   case invalidTrainingCycleAudit
+  case invalidSetResult
+  case invalidSetResultAudit
   case storesUnavailable
 }
 

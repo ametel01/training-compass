@@ -9,7 +9,7 @@ struct RootView: View {
     ZStack {
       TabView {
         NavigationStack {
-          TodayPreDataView(phase: model.phase)
+          TodayView(model: model)
         }
         .tabItem { Label("Today", systemImage: "sun.max") }
         .accessibilityIdentifier("tab.today")
@@ -48,31 +48,105 @@ struct RootView: View {
   }
 }
 
-private struct TodayPreDataView: View {
-  let phase: AppModel.Phase
+private struct TodayView: View {
+  let model: AppModel
+
+  @State private var today: TodaySessionSnapshot?
+  @State private var weightText: [String: String] = [:]
+  @State private var repetitionsText: [String: String] = [:]
+  @State private var errorMessage: String?
 
   var body: some View {
-    ContentUnavailableView {
-      Label("Training Compass", systemImage: "location.north.circle.fill")
-    } description: {
-      VStack(spacing: 12) {
-        Text("PRE-DATA BUILD")
-          .font(.caption.weight(.bold))
-          .foregroundStyle(.orange)
-          .accessibilityIdentifier("pre-data.badge")
-        Text(
-          "Training workflows and Health data remain unavailable. TMs configuration is the only supported owner-data surface in this build."
-        )
-        .multilineTextAlignment(.center)
-        status
+    Group {
+      if model.phase != .ready {
+        ContentUnavailableView {
+          Label("Training Compass", systemImage: "location.north.circle.fill")
+        } description: {
+          VStack(spacing: 12) {
+            Text("PRE-DATA BUILD")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(.orange)
+              .accessibilityIdentifier("today.preparing")
+            status
+          }
+        }
+      } else if let today {
+        List {
+          Section("Scheduled Session") {
+            LabeledContent("Date", value: today.intendedDate.iso8601String)
+            LabeledContent("Training Week", value: today.weekKind.displayName)
+            LabeledContent("State", value: today.state.displayName)
+            Text(
+              "Primary: \(today.primaryLift.identity.displayName) · Assistance: \(today.assistanceLift.identity.displayName)"
+            )
+            .font(.subheadline)
+          }
+
+          Section("Training Max Snapshots") {
+            LabeledContent(
+              today.primaryLift.identity.displayName,
+              value: "\(today.primaryLift.trainingMaxKg) kg"
+            )
+            LabeledContent(
+              today.assistanceLift.identity.displayName,
+              value: "\(today.assistanceLift.trainingMaxKg) kg"
+            )
+          }
+
+          Section("Prescribed Sets") {
+            ForEach(today.sets) { set in
+              TodaySetRow(
+                set: set,
+                weight: Binding(
+                  get: { weightText[set.id] ?? set.result.map { String($0.weightKg) } ?? "" },
+                  set: { weightText[set.id] = $0 }
+                ),
+                repetitions: Binding(
+                  get: {
+                    repetitionsText[set.id]
+                      ?? set.result.map { String($0.repetitions) }
+                      ?? String(set.prescription.repetitions)
+                  },
+                  set: { repetitionsText[set.id] = $0 }
+                ),
+                onConfirm: { Task { await confirm(set) } }
+              )
+            }
+          }
+        }
+        .refreshable { await reload() }
+      } else {
+        ContentUnavailableView {
+          Label("Nothing scheduled today", systemImage: "checkmark.circle")
+        } description: {
+          Text(
+            "Activate a Training Cycle with a Session intended for today to log prescribed work here."
+          )
+          .multilineTextAlignment(.center)
+        }
       }
     }
     .navigationTitle("Today")
+    .accessibilityIdentifier("today.destination")
+    .task(id: model.phase) {
+      if model.phase == .ready { await reload() }
+    }
+    .alert(
+      "Could not record Set Result",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again.")
+    }
   }
 
   @ViewBuilder
   private var status: some View {
-    switch phase {
+    switch model.phase {
     case .preparing:
       ProgressView("Preparing protected local stores")
         .accessibilityIdentifier("pre-data.preparing")
@@ -83,8 +157,91 @@ private struct TodayPreDataView: View {
     case .failed:
       Label("Protected stores could not be prepared", systemImage: "exclamationmark.shield")
         .foregroundStyle(.red)
-        .accessibilityIdentifier("pre-data.failed")
+        .accessibilityIdentifier("today.failed")
     }
+  }
+
+  private func reload() async {
+    do {
+      today = try await model.sessionLoggingBoundary.today()
+    } catch {
+      today = nil
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func confirm(_ set: TodaySetSnapshot) async {
+    guard let weight = Double(weightText[set.id] ?? set.result.map { String($0.weightKg) } ?? ""),
+      let repetitions = Int(
+        repetitionsText[set.id]
+          ?? set.result.map { String($0.repetitions) }
+          ?? String(set.prescription.repetitions)
+      )
+    else {
+      errorMessage = "Enter a positive kilogram weight and whole-number repetitions."
+      return
+    }
+    do {
+      _ = try await model.sessionLoggingBoundary.recordSetResult(
+        sessionID: today?.session.id ?? "",
+        prescriptionID: set.prescription.id,
+        weightKg: weight,
+        repetitions: repetitions,
+        expectedBefore: set.result
+      )
+      await reload()
+    } catch {
+      errorMessage = String(describing: error)
+    }
+  }
+}
+
+private struct TodaySetRow: View {
+  let set: TodaySetSnapshot
+  @Binding var weight: String
+  @Binding var repetitions: String
+  let onConfirm: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text("Set \(set.prescription.setNumber) · \(set.prescription.role.rawValue.capitalized)")
+          .font(.headline)
+        Spacer()
+        Text(
+          "Target \(set.prescription.repetitions) reps at \(set.prescription.weightKg, specifier: "%.2f") kg"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      HStack {
+        TextField("kg", text: $weight)
+          .keyboardType(.decimalPad)
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier("today.weight.\(set.id)")
+        TextField("reps", text: $repetitions)
+          .keyboardType(.numberPad)
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier("today.repetitions.\(set.id)")
+        Button(set.result == nil ? "Confirm" : "Update") { onConfirm() }
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("today.confirm.\(set.id)")
+      }
+      if set.hasLoadingIncrementWarning {
+        Label(
+          "Actual weight is outside this lift's Loading Increment; it will still be recorded.",
+          systemImage: "exclamationmark.triangle"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
+      }
+      if set.completionState == .recorded {
+        Label("Confirmed actual result", systemImage: "checkmark.circle.fill")
+          .font(.caption)
+          .foregroundStyle(.green)
+      }
+    }
+    .padding(.vertical, 4)
   }
 }
 

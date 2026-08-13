@@ -17,6 +17,9 @@ raise SystemExit("No available iOS Simulator found")
 
 xcrun simctl boot "${device_id}" 2>/dev/null || true
 xcrun simctl bootstatus "${device_id}" -b
+# The UI flow intentionally edits seeded state. Remove the app first so reruns
+# do not append to a prior test value and make the assertions order-dependent.
+xcrun simctl uninstall "${device_id}" com.ametel01.trainingcompass 2>/dev/null || true
 
 xcodebuild \
   -project TrainingCompass.xcodeproj \

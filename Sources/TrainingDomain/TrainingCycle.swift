@@ -138,6 +138,32 @@ public struct TrainingSetPrescription: Codable, Equatable, Hashable, Identifiabl
   public var isPlusSet: Bool { isPlusSetEligible }
 }
 
+/// A confirmed actual result for one immutable Set Prescription.
+public struct RecordedSetResult: Codable, Equatable, Identifiable, Sendable {
+  public let id: String
+  public let sessionID: String
+  public let prescriptionID: String
+  public let result: SetResult
+  public let recordedAt: Int64
+
+  public init(
+    id: String,
+    sessionID: String,
+    prescriptionID: String,
+    result: SetResult,
+    recordedAt: Int64
+  ) {
+    self.id = id
+    self.sessionID = sessionID
+    self.prescriptionID = prescriptionID
+    self.result = result
+    self.recordedAt = recordedAt
+  }
+
+  public var weightKg: Double { result.weight.kg }
+  public var repetitions: Int { result.repetitions }
+}
+
 /// Short aliases keep the domain vocabulary convenient at call sites.
 public enum FiveThreeOnePrescription {
   public struct Specification: Equatable, Sendable {

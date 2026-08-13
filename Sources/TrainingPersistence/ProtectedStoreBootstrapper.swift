@@ -191,6 +191,35 @@ public struct ProtectedStoreBootstrapper: Sendable {
         index: "training_cycle_audit_time", on: "training_cycle_audit",
         columns: ["cycle_id", "occurred_at"])
     }
+    migrator.registerMigration("authoritative_v5_set_results") { db in
+      try db.create(table: "set_results") { table in
+        table.column("id", .text).primaryKey()
+        table.column("session_id", .text).notNull()
+        table.column("prescription_id", .text).notNull()
+        table.column("result_json", .text).notNull()
+        table.column("recorded_at", .integer).notNull()
+      }
+      try db.create(
+        index: "set_results_session_prescription",
+        on: "set_results",
+        columns: ["session_id", "prescription_id"],
+        unique: true
+      )
+      try db.create(table: "set_result_audit") { table in
+        table.column("id", .text).primaryKey()
+        table.column("session_id", .text).notNull()
+        table.column("prescription_id", .text).notNull()
+        table.column("action", .text).notNull().check { $0 == "recorded" }
+        table.column("occurred_at", .integer).notNull()
+        table.column("before_json", .text)
+        table.column("after_json", .text).notNull()
+      }
+      try db.create(
+        index: "set_result_audit_session_time",
+        on: "set_result_audit",
+        columns: ["session_id", "occurred_at"]
+      )
+    }
     return migrator
   }
 
