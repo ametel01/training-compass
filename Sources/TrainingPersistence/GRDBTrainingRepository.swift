@@ -326,6 +326,31 @@ public actor GRDBTrainingRepository: TrainingRepository {
           cycle.updatedAt,
         ]
       )
+      // Planned calendar and role edits are projected separately from the
+      // cycle JSON so set results, omissions, additional work, and completion
+      // facts remain untouched. Refresh only planned session fields in this
+      // transaction, and remove projections for sessions safely removed while
+      // Scheduled.
+      let oldSessionIDs = Set(existingForID?.weeks.flatMap(\.sessions).map(\.id) ?? [])
+      let newSessionIDs = Set(cycle.weeks.flatMap(\.sessions).map(\.id))
+      for removedID in oldSessionIDs.subtracting(newSessionIDs) {
+        try db.execute(
+          sql: "DELETE FROM session_projections WHERE session_id = ? AND cycle_id = ?",
+          arguments: [removedID, cycle.id]
+        )
+      }
+      for session in cycle.weeks.flatMap(\.sessions) {
+        try Self.upsertSessionProjection(
+          db,
+          cycleID: cycle.id,
+          session: session,
+          status: session.status,
+          intendedDate: session.intendedDate,
+          primaryLiftID: session.primaryLiftID,
+          assistanceLiftID: session.assistanceLiftID,
+          updatedAt: cycle.updatedAt
+        )
+      }
       try db.execute(
         sql: """
           INSERT INTO training_cycle_audit

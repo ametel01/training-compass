@@ -71,6 +71,10 @@ public enum ScheduleTemplateAuditAction: String, Codable, Equatable, Sendable {
   case created
   case edited
   case reset
+  /// A normal Training Week was explicitly used as the source for this template.
+  /// The week’s dates, prescriptions, statuses, and logged work are not part of
+  /// the resulting template snapshot.
+  case savedFromTrainingWeek
 }
 
 public struct ScheduleTemplateAuditEntry: Codable, Equatable, Sendable, Identifiable {

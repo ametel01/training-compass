@@ -455,6 +455,7 @@ private struct CycleView: View {
   @State private var template: ScheduleTemplate?
   @State private var draftCycle: TrainingCycle?
   @State private var activeCycle: TrainingCycle?
+  @State private var cycleAudits: [TrainingCycleAuditEntry] = []
   @State private var workingSessions: [ScheduleSession] = []
   @State private var lifts: [LiftConfiguration] = []
   @State private var draft: ScheduleSessionDraft?
@@ -475,145 +476,161 @@ private struct CycleView: View {
   var body: some View {
     Group {
       if template == nil {
-        UnavailableDestinationView(
-          title: "Cycle",
-          systemImage: "calendar",
-          detail:
-            "Configure Squat, Deadlift, Bench Press, Overhead Press, and Romanian Deadlift in TMs to initialize the Schedule Template."
-        )
+        AnyView(
+          UnavailableDestinationView(
+            title: "Cycle",
+            systemImage: "calendar",
+            detail:
+              "Configure Squat, Deadlift, Bench Press, Overhead Press, and Romanian Deadlift in TMs to initialize the Schedule Template."
+          ))
       } else {
-        List {
-          Section {
-            Text(
-              "This reusable normal-week layout is copied into future Training Cycles. Changes stay local until you explicitly save them."
-            )
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-          }
-
-          Section("Draft Training Cycle") {
-            if let draftCycle {
-              DraftCycleSummary(
-                cycle: draftCycle,
-                liftName: liftName,
-                onEdit: { cycleSessionDraft = CycleSessionDraft(session: $0, week: $1) }
+        AnyView(
+          List {
+            Section {
+              Text(
+                "This reusable normal-week layout is copied into future Training Cycles. Changes stay local until you explicitly save them."
               )
-              Button("Replace schedule from current template") {
-                Task { await reviewCycleReplacement() }
-              }
-              .accessibilityIdentifier("cycle.replace-schedule")
-              Button("Regenerate Draft") {
-                Task { await reviewCycleRegeneration() }
-              }
-              .accessibilityIdentifier("cycle.regenerate")
-              Button("Discard Draft", role: .destructive) {
-                Task { await reviewCycleDiscard() }
-              }
-              .accessibilityIdentifier("cycle.discard")
-              if activeCycle == nil {
-                Button("Activate (retain anchor)") {
-                  Task { await reviewCycleActivation(anchorChoice: .retain) }
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+            }
+
+            Section("Draft Training Cycle") {
+              if let draftCycle {
+                DraftCycleSummary(
+                  cycle: draftCycle,
+                  liftName: liftName,
+                  onEdit: {
+                    cycleSessionDraft = CycleSessionDraft(
+                      session: $0, week: $1, cycleID: draftCycle.id
+                    )
+                  }
+                )
+                Button("Replace schedule from current template") {
+                  Task { await reviewCycleReplacement() }
                 }
-                .accessibilityIdentifier("cycle.activate")
+                .accessibilityIdentifier("cycle.replace-schedule")
+                Button("Regenerate Draft") {
+                  Task { await reviewCycleRegeneration() }
+                }
+                .accessibilityIdentifier("cycle.regenerate")
+                Button("Discard Draft", role: .destructive) {
+                  Task { await reviewCycleDiscard() }
+                }
+                .accessibilityIdentifier("cycle.discard")
+                if activeCycle == nil {
+                  Button("Activate (retain anchor)") {
+                    Task { await reviewCycleActivation(anchorChoice: .retain) }
+                  }
+                  .accessibilityIdentifier("cycle.activate")
+                  DatePicker(
+                    "Replacement Week 1 Anchor",
+                    selection: $anchorDate,
+                    displayedComponents: [.date]
+                  )
+                  Button("Activate using replacement date") {
+                    Task {
+                      await reviewCycleActivation(
+                        anchorChoice: .replace(
+                          TrainingDate(date: anchorDate)
+                        ))
+                    }
+                  }
+                  .accessibilityIdentifier("cycle.activate-replace-anchor")
+                }
+              } else {
                 DatePicker(
-                  "Replacement Week 1 Anchor",
+                  "Week 1 Anchor Date",
                   selection: $anchorDate,
                   displayedComponents: [.date]
                 )
-                Button("Activate using replacement date") {
-                  Task {
-                    await reviewCycleActivation(
-                      anchorChoice: .replace(
-                        TrainingDate(date: anchorDate)
-                      ))
-                  }
+                Button("Prepare Draft Training Cycle") {
+                  Task { await reviewCycleCreation() }
                 }
-                .accessibilityIdentifier("cycle.activate-replace-anchor")
-              }
-            } else {
-              DatePicker(
-                "Week 1 Anchor Date",
-                selection: $anchorDate,
-                displayedComponents: [.date]
-              )
-              Button("Prepare Draft Training Cycle") {
-                Task { await reviewCycleCreation() }
-              }
-              .accessibilityIdentifier("cycle.create-draft")
-              Text("The date is stored without a time zone. It defaults to Monday.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            }
-            if let activeCycle {
-              VStack(alignment: .leading, spacing: 4) {
-                Label("Active Training Cycle", systemImage: "play.circle")
-                  .font(.headline)
-                Text(
-                  "\(activeCycle.week1AnchorDate.iso8601String) · "
-                    + "\(activeCycle.weeks.count) Training Weeks"
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                Text("An Active Training Cycle remains independent while you prepare this draft.")
+                .accessibilityIdentifier("cycle.create-draft")
+                Text("The date is stored without a time zone. It defaults to Monday.")
                   .font(.footnote)
                   .foregroundStyle(.secondary)
               }
+              if let activeCycle {
+                ActiveCycleSection(
+                  cycle: activeCycle,
+                  liftName: liftName,
+                  onEdit: {
+                    cycleSessionDraft = CycleSessionDraft(
+                      session: $0, week: $1, cycleID: activeCycle.id
+                    )
+                  }
+                )
+              }
             }
-          }
 
-          Section("Schedule Template") {
-            ForEach(workingSessions) { session in
-              Button {
-                draft = ScheduleSessionDraft(session: session)
-              } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(session.intendedWeekday.displayName)
-                    .font(.headline)
-                  Text(
-                    "Primary: \(liftName(session.primaryLiftID)) · Assistance: \(liftName(session.assistanceLiftID))"
-                  )
-                  .font(.subheadline)
+            Section("Change History") {
+              if cycleAudits.isEmpty {
+                Text("No Calendar Changes or Program Edits yet.")
                   .foregroundStyle(.secondary)
+              } else {
+                ForEach(cycleAudits) { audit in
+                  Text(
+                    audit.changeKind == .calendarChange
+                      ? "Calendar Change"
+                      : audit.changeKind == .programEdit ? "Program Edit" : audit.action.rawValue)
                 }
               }
-              .accessibilityIdentifier("schedule.edit.\(session.id)")
-              .swipeActions {
-                Button(role: .destructive) {
-                  remove(session)
-                } label: {
-                  Label("Remove", systemImage: "trash")
-                }
-                .accessibilityIdentifier("schedule.remove.\(session.id)")
-              }
-            }
-            .onMove { offsets, destination in
-              workingSessions.move(fromOffsets: offsets, toOffset: destination)
             }
 
-            Button {
-              draft = ScheduleSessionDraft.new(liftID: lifts[0].id)
-            } label: {
-              Label("Add session", systemImage: "plus")
+            Section("Schedule Template") {
+              ForEach(workingSessions) { session in
+                Button {
+                  draft = ScheduleSessionDraft(session: session)
+                } label: {
+                  VStack(alignment: .leading, spacing: 4) {
+                    Text(session.intendedWeekday.displayName)
+                      .font(.headline)
+                    Text(
+                      "Primary: \(liftName(session.primaryLiftID)) · Assistance: \(liftName(session.assistanceLiftID))"
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                  }
+                }
+                .accessibilityIdentifier("schedule.edit.\(session.id)")
+                .swipeActions {
+                  Button(role: .destructive) {
+                    remove(session)
+                  } label: {
+                    Label("Remove", systemImage: "trash")
+                  }
+                  .accessibilityIdentifier("schedule.remove.\(session.id)")
+                }
+              }
+              .onMove { offsets, destination in
+                workingSessions.move(fromOffsets: offsets, toOffset: destination)
+              }
+
+              Button {
+                draft = ScheduleSessionDraft.new(liftID: lifts[0].id)
+              } label: {
+                Label("Add session", systemImage: "plus")
+              }
+              .accessibilityIdentifier("schedule.add")
             }
-            .accessibilityIdentifier("schedule.add")
           }
-        }
-        .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            EditButton()
-          }
-          ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Reset") {
-              Task { await reviewReset() }
+          .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+              EditButton()
             }
-            .accessibilityIdentifier("schedule.reset")
-            Button("Save") {
-              Task { await reviewSave() }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+              Button("Reset") {
+                Task { await reviewReset() }
+              }
+              .accessibilityIdentifier("schedule.reset")
+              Button("Save") {
+                Task { await reviewSave() }
+              }
+              .disabled(workingSessions.isEmpty)
+              .accessibilityIdentifier("schedule.save")
             }
-            .disabled(workingSessions.isEmpty)
-            .accessibilityIdentifier("schedule.save")
-          }
-        }
+          })
       }
     }
     .navigationTitle("Cycle")
@@ -715,6 +732,11 @@ private struct CycleView: View {
       workingSessions = loadedTemplate.sessions
       draftCycle = try await model.trainingCycleBoundary.draft()
       activeCycle = try await model.trainingCycleBoundary.active()
+      if let cycle = activeCycle ?? draftCycle {
+        cycleAudits = try await model.trainingCycleBoundary.auditHistory(for: cycle.id)
+      } else {
+        cycleAudits = []
+      }
     } catch {
       template = nil
       draftCycle = nil
@@ -794,21 +816,25 @@ private struct CycleView: View {
   }
 
   private var cyclePreviewText: String {
-    guard let cycle = pendingCycleChange?.after else { return "" }
+    guard let preview = pendingCycleChange, let cycle = preview.after else { return "" }
     let deload: String
     if cycle.includesProvisionalDeload {
       deload = "A provisional Deload Week is included."
     } else {
       deload = "No Deload Week is due yet."
     }
+    let warning = preview.warning.map { " \($0)" } ?? ""
     return "Week 1 begins \(cycle.week1AnchorDate.iso8601String). The draft contains "
-      + "\(cycle.weeks.count) fixed Training Weeks. \(deload)"
+      + "\(cycle.weeks.count) fixed Training Weeks. \(deload)" + warning
   }
 
   private var cycleConfirmationActionTitle: String {
     switch pendingCycleChange?.action {
     case .created: "Create"
     case .edited: "Save Edits"
+    case .calendarChanged: "Apply Calendar Change"
+    case .programEdited: "Save Program Edit"
+    case .savedWeekToTemplate: "Save to Template"
     case .replacedSchedule: "Replace Schedule"
     case .regenerated: "Regenerate"
     case .activated: "Activate"
@@ -884,17 +910,42 @@ private struct CycleView: View {
   }
 
   private func reviewCycleEdit(_ draft: CycleSessionDraft) async {
-    guard let cycle = draftCycle,
+    guard
+      let cycle = [activeCycle, draftCycle].compactMap({ $0 }).first(where: {
+        $0.id == draft.cycleID
+      }),
       let weekIndex = cycle.weeks.firstIndex(where: { $0.id == draft.weekID }),
       let sessionIndex = cycle.weeks[weekIndex].sessions.firstIndex(where: { $0.id == draft.id })
     else { return }
     let old = cycle.weeks[weekIndex].sessions[sessionIndex]
+    let dateChanged = TrainingDate(date: draft.intendedDate, calendar: .current) != old.intendedDate
+    let rolesChanged =
+      draft.primaryLiftID != old.primaryLiftID
+      || draft.assistanceLiftID != old.assistanceLiftID
+    guard dateChanged || rolesChanged else { return }
+    if dateChanged && rolesChanged {
+      errorMessage =
+        "Choose Calendar Change for a date move or Program Edit for lift roles. Save them separately."
+      return
+    }
+    if dateChanged {
+      do {
+        pendingCycleChange = try await model.trainingCycleBoundary.previewCalendarChange(
+          sessionID: old.id,
+          intendedDate: TrainingDate(date: draft.intendedDate, calendar: .current)
+        )
+        showingCycleConfirmation = true
+      } catch { errorMessage = String(describing: error) }
+      return
+    }
     let replacement = TrainingCycleSession(
       id: old.id,
-      intendedDate: TrainingDate(date: draft.intendedDate),
+      intendedDate: old.intendedDate,
       sourceTemplateSessionID: old.sourceTemplateSessionID,
       primaryLiftID: draft.primaryLiftID,
-      assistanceLiftID: draft.assistanceLiftID
+      assistanceLiftID: draft.assistanceLiftID,
+      prescriptions: old.prescriptions,
+      status: old.status
     )
     var weeks = cycle.weeks
     var sessions = weeks[weekIndex].sessions
@@ -912,14 +963,23 @@ private struct CycleView: View {
       weeks: weeks.map { TrainingWeekRequest(cycleWeek: $0) }
     )
     do {
-      pendingCycleChange = try await model.trainingCycleBoundary.previewEdit(request)
+      pendingCycleChange = try await model.trainingCycleBoundary.previewProgramEdit(request)
       showingCycleConfirmation = true
     } catch { errorMessage = String(describing: error) }
   }
 
   private func confirmCycleChange(_ preview: TrainingCycleChangePreview) async {
     do {
-      _ = try await model.trainingCycleBoundary.confirm(preview)
+      switch preview.action {
+      case .calendarChanged:
+        _ = try await model.trainingCycleBoundary.confirmCalendarChange(
+          preview, acknowledgeOutsideWeek: true
+        )
+      case .programEdited:
+        _ = try await model.trainingCycleBoundary.confirmProgramEdit(preview)
+      default:
+        _ = try await model.trainingCycleBoundary.confirm(preview)
+      }
       pendingCycleChange = nil
       await reload()
     } catch {
@@ -938,6 +998,7 @@ private struct CycleView: View {
       errorMessage = String(describing: error)
     }
   }
+
 }
 
 private struct ScheduleSessionDraft: Identifiable, Sendable {
@@ -1082,17 +1143,78 @@ private struct DraftCycleSummary: View {
   }
 }
 
+private struct ActiveCycleSection: View {
+  let cycle: TrainingCycle
+  let liftName: (String) -> String
+  let onEdit: (TrainingCycleSession, TrainingWeek) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Active Training Cycle", systemImage: "play.circle")
+        .font(.headline)
+      Text("\(cycle.week1AnchorDate.iso8601String) · \(cycle.weeks.count) Training Weeks")
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      Text("Calendar Changes and Program Edits affect Scheduled Sessions only.")
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      ForEach(cycle.weeks) { week in
+        VStack(alignment: .leading, spacing: 5) {
+          Text("\(week.position). \(week.kind.displayName)").font(.headline)
+          ForEach(week.sessions) { session in
+            Button {
+              onEdit(session, week)
+            } label: {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(session.intendedDate.iso8601String)
+                Text(
+                  "\(session.status.rawValue.capitalized) · Primary: \(liftName(session.primaryLiftID)) · Assistance: \(liftName(session.assistanceLiftID))"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+private struct CycleHistorySection: View {
+  let audits: [TrainingCycleAuditEntry]
+  let title: (TrainingCycleAuditEntry) -> String
+
+  var body: some View {
+    Section("Change History") {
+      if audits.isEmpty {
+        Text("No Calendar Changes or Program Edits yet.")
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(audits) { audit in
+          VStack(alignment: .leading, spacing: 3) {
+            Text(title(audit)).font(.headline)
+            Text(String(audit.occurredAt)).font(.caption).foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+  }
+}
+
 private struct CycleSessionDraft: Identifiable, Sendable {
   let id: String
   let weekID: String
+  let cycleID: String
   var intendedDate: Date
   var primaryLiftID: String
   var assistanceLiftID: String
 
-  init(session: TrainingCycleSession, week: TrainingWeek) {
+  init(session: TrainingCycleSession, week: TrainingWeek, cycleID: String = "") {
     id = session.id
     weekID = week.id
-    intendedDate = session.intendedDate.date()
+    self.cycleID = cycleID
+    intendedDate = session.intendedDate.date(in: .current)
     primaryLiftID = session.primaryLiftID
     assistanceLiftID = session.assistanceLiftID
   }
@@ -1156,7 +1278,7 @@ extension TrainingWeekRequest {
       sessions: cycleWeek.sessions.map {
         TrainingCycleSessionRequest(
           id: $0.id,
-          intendedDate: TrainingDate(date: $0.intendedDate.date()),
+          intendedDate: TrainingDate(date: $0.intendedDate.date(in: .current), calendar: .current),
           primaryLiftID: $0.primaryLiftID,
           assistanceLiftID: $0.assistanceLiftID
         )

@@ -44,5 +44,9 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["TM 100.00 kg · Increment 2.50 kg"].waitForExistence(timeout: 15)
     )
+
+    app.tabBars.buttons["Cycle"].tap()
+    XCTAssertTrue(app.staticTexts["Cycle unavailable"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["Calendar Change"].exists)
   }
 }

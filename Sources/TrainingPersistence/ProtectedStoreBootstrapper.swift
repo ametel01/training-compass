@@ -148,7 +148,10 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("id", .text).primaryKey()
         table.column("template_id", .text).notNull()
         table.column("action", .text).notNull()
-          .check { $0 == "created" || $0 == "edited" || $0 == "reset" }
+          .check {
+            $0 == "created" || $0 == "edited" || $0 == "reset"
+              || $0 == "savedFromTrainingWeek"
+          }
         table.column("occurred_at", .integer).notNull()
         table.column("before_json", .text)
         table.column("after_json", .text).notNull()
@@ -282,6 +285,32 @@ public struct ProtectedStoreBootstrapper: Sendable {
       try db.create(
         index: "session_correction_audit_session_time", on: "session_correction_audit",
         columns: ["session_id", "occurred_at"])
+    }
+    migrator.registerMigration("authoritative_v8_training_week_template_source") { db in
+      try db.create(table: "schedule_template_audit_v8") { table in
+        table.column("id", .text).primaryKey()
+        table.column("template_id", .text).notNull()
+        table.column("action", .text).notNull()
+          .check {
+            $0 == "created" || $0 == "edited" || $0 == "reset"
+              || $0 == "savedFromTrainingWeek"
+          }
+        table.column("occurred_at", .integer).notNull()
+        table.column("before_json", .text)
+        table.column("after_json", .text).notNull()
+      }
+      try db.execute(
+        sql: """
+          INSERT INTO schedule_template_audit_v8
+            (id, template_id, action, occurred_at, before_json, after_json)
+          SELECT id, template_id, action, occurred_at, before_json, after_json
+          FROM schedule_template_audit
+          """)
+      try db.drop(table: "schedule_template_audit")
+      try db.rename(table: "schedule_template_audit_v8", to: "schedule_template_audit")
+      try db.create(
+        index: "schedule_template_audit_time", on: "schedule_template_audit",
+        columns: ["template_id", "occurred_at"])
     }
     return migrator
   }

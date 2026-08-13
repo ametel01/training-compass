@@ -527,4 +527,6 @@ public enum TrainingCycleValidationError: Error, Equatable, Sendable {
   case pastAnchorRequiresChoice
   case deloadConfirmationRequired
   case missingTrainingMax(String)
+  case calendarChangeWarningRequired
+  case scheduledSessionRequired
 }

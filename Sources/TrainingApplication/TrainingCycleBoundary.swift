@@ -20,6 +20,23 @@ public struct TrainingCycleSessionRequest: Equatable, Sendable {
   }
 }
 
+extension TrainingCycle {
+  fileprivate func location(ofSession sessionID: String) -> (weekIndex: Int, sessionIndex: Int)? {
+    for (weekIndex, week) in weeks.enumerated() {
+      if let sessionIndex = week.sessions.firstIndex(where: { $0.id == sessionID }) {
+        return (weekIndex, sessionIndex)
+      }
+    }
+    return nil
+  }
+}
+
+extension TrainingWeek {
+  fileprivate func contains(_ date: TrainingDate) -> Bool {
+    date >= startDate && date <= startDate.adding(days: 6)
+  }
+}
+
 public struct TrainingWeekRequest: Equatable, Sendable {
   public let id: String
   public let position: Int
@@ -80,10 +97,27 @@ public struct TrainingCycleEditRequest: Equatable, Sendable {
 public enum TrainingCycleAuditAction: String, Codable, Equatable, Sendable {
   case created
   case edited
+  case calendarChanged
+  case programEdited
+  case savedWeekToTemplate
   case replacedSchedule
   case regenerated
   case discarded
   case activated
+
+  public var changeKind: TrainingCycleChangeKind {
+    switch self {
+    case .calendarChanged: .calendarChange
+    case .programEdited: .programEdit
+    default: .other
+    }
+  }
+}
+
+public enum TrainingCycleChangeKind: String, Codable, Equatable, Sendable {
+  case calendarChange
+  case programEdit
+  case other
 }
 
 public enum TrainingCycleActivationAnchorChoice: Equatable, Sendable {
@@ -147,23 +181,55 @@ public struct TrainingCycleAuditEntry: Codable, Equatable, Sendable, Identifiabl
     self.before = before
     self.after = after
   }
+
+  public var changeKind: TrainingCycleChangeKind {
+    action.changeKind
+  }
 }
 
 public struct TrainingCycleChangePreview: Equatable, Sendable {
   public let before: TrainingCycleSnapshot?
   public let after: TrainingCycle?
   public let action: TrainingCycleAuditAction
+  public let warnings: [String]
+  public let changeKind: TrainingCycleChangeKind
 
   public init(
     before: TrainingCycleSnapshot?,
     after: TrainingCycle?,
-    action: TrainingCycleAuditAction
+    action: TrainingCycleAuditAction,
+    warnings: [String] = [],
+    changeKind: TrainingCycleChangeKind? = nil
   ) {
     self.before = before
     self.after = after
     self.action = action
+    self.warnings = warnings
+    self.changeKind = changeKind ?? action.changeKind
+  }
+
+  public var requiresWarningAcknowledgement: Bool { !warnings.isEmpty }
+  public var warning: String? { warnings.first }
+}
+
+public struct TrainingCycleCalendarChangeRequest: Equatable, Sendable {
+  public let cycleID: String
+  public let sessionID: String
+  public let intendedDate: TrainingDate
+
+  public init(cycleID: String, sessionID: String, intendedDate: TrainingDate) {
+    self.cycleID = cycleID
+    self.sessionID = sessionID
+    self.intendedDate = intendedDate
+  }
+
+  public init(sessionID: String, intendedDate: TrainingDate) {
+    self.init(cycleID: "", sessionID: sessionID, intendedDate: intendedDate)
   }
 }
+
+public typealias CalendarChangeRequest = TrainingCycleCalendarChangeRequest
+public typealias ProgramEditRequest = TrainingCycleEditRequest
 
 public protocol TrainingCycleRepository: Sendable {
   func loadDraftTrainingCycle() async throws -> TrainingCycle?
@@ -346,6 +412,203 @@ public struct TrainingCycleBoundary: Sendable {
     )
   }
 
+  /// Previews a Calendar Change against the Active Training Cycle, or the Draft
+  /// when no Active Training Cycle exists. A Calendar Change is intentionally
+  /// narrow: it can only move a Scheduled Session's date.
+  public func previewCalendarChange(
+    sessionID: String,
+    intendedDate: TrainingDate
+  ) async throws -> TrainingCycleChangePreview {
+    try await previewCalendarChange(
+      TrainingCycleCalendarChangeRequest(sessionID: sessionID, intendedDate: intendedDate)
+    )
+  }
+
+  public func previewCalendarChange(
+    sessionID: String,
+    to intendedDate: TrainingDate
+  ) async throws -> TrainingCycleChangePreview {
+    try await previewCalendarChange(sessionID: sessionID, intendedDate: intendedDate)
+  }
+
+  public func previewCalendarChange(
+    cycleID: String,
+    sessionID: String,
+    to intendedDate: TrainingDate
+  ) async throws -> TrainingCycleChangePreview {
+    try await previewCalendarChange(
+      TrainingCycleCalendarChangeRequest(
+        cycleID: cycleID, sessionID: sessionID, intendedDate: intendedDate
+      )
+    )
+  }
+
+  public func previewCalendarChange(
+    _ request: TrainingCycleCalendarChangeRequest
+  ) async throws -> TrainingCycleChangePreview {
+    let cycle = try await editableCycle(id: request.cycleID)
+    guard let (weekIndex, sessionIndex) = cycle.location(ofSession: request.sessionID) else {
+      throw TrainingCycleValidationError.staleDraft
+    }
+    let week = cycle.weeks[weekIndex]
+    let current = week.sessions[sessionIndex]
+    guard current.status == .scheduled else {
+      throw TrainingCycleValidationError.scheduledSessionRequired
+    }
+    let replacement = TrainingCycleSession(
+      id: current.id,
+      intendedDate: request.intendedDate,
+      sourceTemplateSessionID: current.sourceTemplateSessionID,
+      primaryLiftID: current.primaryLiftID,
+      assistanceLiftID: current.assistanceLiftID,
+      prescriptions: current.prescriptions,
+      status: current.status
+    )
+    var weeks = cycle.weeks
+    var sessions = week.sessions
+    sessions[sessionIndex] = replacement
+    weeks[weekIndex] = TrainingWeek(
+      id: week.id,
+      position: week.position,
+      kind: week.kind,
+      startDate: week.startDate,
+      sessions: sessions
+    )
+    let warnings: [String] =
+      week.contains(request.intendedDate)
+      ? []
+      : [
+        "This Calendar Change moves the Session outside its Training Week's intended date range. Review and confirm to continue."
+      ]
+    let after = TrainingCycle(
+      id: cycle.id,
+      week1AnchorDate: cycle.week1AnchorDate,
+      weeks: weeks,
+      sourceTemplate: cycle.sourceTemplate,
+      includesProvisionalDeload: cycle.includesProvisionalDeload,
+      lifecycleState: cycle.lifecycleState,
+      createdAt: cycle.createdAt,
+      updatedAt: timestamp(),
+      liftSnapshots: cycle.liftSnapshots
+    )
+    return TrainingCycleChangePreview(
+      before: cycle.snapshot,
+      after: after,
+      action: .calendarChanged,
+      warnings: warnings,
+      changeKind: .calendarChange
+    )
+  }
+
+  @discardableResult
+  public func confirmCalendarChange(
+    _ preview: TrainingCycleChangePreview,
+    acknowledgeOutsideWeek: Bool = false
+  ) async throws -> TrainingCycleAuditEntry {
+    guard preview.action == .calendarChanged else {
+      throw TrainingCycleValidationError.staleDraft
+    }
+    guard !preview.requiresWarningAcknowledgement || acknowledgeOutsideWeek else {
+      throw TrainingCycleValidationError.calendarChangeWarningRequired
+    }
+    guard let after = preview.after else { throw TrainingCycleValidationError.noDraft }
+    return try await repository.saveTrainingCycle(
+      after,
+      expectedBefore: preview.before,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: timestamp(),
+      action: preview.action
+    )
+  }
+
+  /// Previews a Program Edit. The Training Week sequence and its start dates are
+  /// fixed; only Scheduled Sessions may be added, removed, or have lift roles
+  /// changed. Date changes remain the responsibility of Calendar Changes.
+  public func previewProgramEdit(
+    _ request: TrainingCycleEditRequest
+  ) async throws -> TrainingCycleChangePreview {
+    let cycle = try await editableCycle(id: request.id)
+    guard request.id == cycle.id else { throw TrainingCycleValidationError.staleDraft }
+    let edited = try await makeProgramEditedCycle(request, existing: cycle)
+    return TrainingCycleChangePreview(
+      before: cycle.snapshot,
+      after: edited,
+      action: .programEdited,
+      changeKind: .programEdit
+    )
+  }
+
+  @discardableResult
+  public func confirmProgramEdit(
+    _ preview: TrainingCycleChangePreview
+  ) async throws -> TrainingCycleAuditEntry {
+    guard preview.action == .programEdited else {
+      throw TrainingCycleValidationError.staleDraft
+    }
+    return try await confirm(preview)
+  }
+
+  /// Saves one normal Training Week as the reusable Schedule Template. The
+  /// resulting template contains only ordered lift roles and intended weekdays;
+  /// dates, prescriptions, statuses, and logged work are not copied.
+  public func previewSaveWeekToTemplate(
+    cycleID: String? = nil,
+    weekPosition: Int
+  ) async throws -> ScheduleTemplateChangePreview {
+    let cycle = try await editableCycle(id: cycleID ?? "")
+    guard let week = cycle.weeks.first(where: { $0.position == weekPosition }) else {
+      throw TrainingCycleValidationError.invalidWeekOrder
+    }
+    guard !week.kind.isDeload else { throw TrainingCycleValidationError.invalidWeekOrder }
+    let sourceByID = Dictionary(
+      uniqueKeysWithValues: cycle.sourceTemplate.sessions.map {
+        ($0.id, $0)
+      })
+    let requests = try week.sessions.map { session -> ScheduleSessionRequest in
+      let weekday: ScheduleWeekday
+      if let source = sourceByID[session.sourceTemplateSessionID] {
+        weekday = source.intendedWeekday
+      } else {
+        let offset = daysBetween(week.startDate, session.intendedDate)
+        guard (0...6).contains(offset), let value = ScheduleWeekday(rawValue: offset + 1) else {
+          throw TrainingCycleValidationError.invalidSessionDate
+        }
+        weekday = value
+      }
+      return ScheduleSessionRequest(
+        id: sourceByID[session.sourceTemplateSessionID]?.id,
+        intendedWeekday: weekday,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID
+      )
+    }
+    let preview = try await scheduleTemplateBoundary.preview(
+      ScheduleTemplateRequest(sessions: requests)
+    )
+    return ScheduleTemplateChangePreview(
+      before: preview.before,
+      after: preview.after,
+      action: .savedFromTrainingWeek
+    )
+  }
+
+  public func previewSaveTrainingWeekToTemplate(
+    cycleID: String? = nil,
+    weekPosition: Int
+  ) async throws -> ScheduleTemplateChangePreview {
+    try await previewSaveWeekToTemplate(cycleID: cycleID, weekPosition: weekPosition)
+  }
+
+  @discardableResult
+  public func confirmSaveWeekToTemplate(
+    _ preview: ScheduleTemplateChangePreview
+  ) async throws -> ScheduleTemplateAuditEntry {
+    guard preview.action == .savedFromTrainingWeek else {
+      throw ScheduleTemplateRepositoryError.staleTemplate
+    }
+    return try await scheduleTemplateBoundary.confirm(preview)
+  }
+
   public func previewReplaceSchedule() async throws -> TrainingCycleChangePreview {
     guard let existing = try await repository.loadDraftTrainingCycle() else {
       throw TrainingCycleValidationError.noDraft
@@ -390,6 +653,9 @@ public struct TrainingCycleBoundary: Sendable {
   public func confirm(_ preview: TrainingCycleChangePreview) async throws
     -> TrainingCycleAuditEntry
   {
+    guard !preview.requiresWarningAcknowledgement else {
+      throw TrainingCycleValidationError.calendarChangeWarningRequired
+    }
     guard let after = preview.after else { throw TrainingCycleValidationError.noDraft }
     return try await repository.saveTrainingCycle(
       after,
@@ -529,6 +795,151 @@ public struct TrainingCycleBoundary: Sendable {
 
   public func auditHistory(for cycleID: String) async throws -> [TrainingCycleAuditEntry] {
     try await repository.trainingCycleAuditHistory(for: cycleID)
+  }
+
+  private func editableCycle(id: String) async throws -> TrainingCycle {
+    let active = try await repository.loadActiveTrainingCycle()
+    let draft = try await repository.loadDraftTrainingCycle()
+    let cycle: TrainingCycle?
+    if !id.isEmpty {
+      cycle = [active, draft].compactMap { $0 }.first(where: { $0.id == id })
+    } else {
+      cycle = active ?? draft
+    }
+    guard let cycle else { throw TrainingCycleValidationError.noDraft }
+    return cycle
+  }
+
+  private func makeProgramEditedCycle(
+    _ request: TrainingCycleEditRequest,
+    existing: TrainingCycle
+  ) async throws -> TrainingCycle {
+    guard request.week1AnchorDate == existing.week1AnchorDate else {
+      throw TrainingCycleValidationError.invalidWeekOrder
+    }
+    guard request.weeks.count == existing.weeks.count,
+      request.weeks.map(\.position) == existing.weeks.map(\.position),
+      request.weeks.map(\.kind) == existing.weeks.map(\.kind),
+      request.weeks.map(\.id) == existing.weeks.map(\.id)
+    else { throw TrainingCycleValidationError.invalidWeekOrder }
+
+    let configuredIDs = Set(try await liftRepository.loadLiftConfigurations().map(\.id))
+    var requestedIDs = Set<String>()
+    let weeks = try request.weeks.map { requestWeek in
+      let existingWeek = existing.weeks[requestWeek.position - 1]
+      guard requestWeek.startDate == existingWeek.startDate else {
+        throw TrainingCycleValidationError.invalidWeekOrder
+      }
+      var sessions: [TrainingCycleSession] = []
+      for requestSession in requestWeek.sessions {
+        let id = requestSession.id.isEmpty ? uuidGenerator.makeUUID().uuidString : requestSession.id
+        guard requestedIDs.insert(id).inserted else {
+          throw TrainingCycleValidationError.invalidWeekOrder
+        }
+        guard configuredIDs.contains(requestSession.primaryLiftID) else {
+          throw TrainingCycleValidationError.unconfiguredLift(requestSession.primaryLiftID)
+        }
+        guard configuredIDs.contains(requestSession.assistanceLiftID) else {
+          throw TrainingCycleValidationError.unconfiguredLift(requestSession.assistanceLiftID)
+        }
+        let original = existingWeek.sessions.first(where: { $0.id == id })
+        if let original {
+          let rolesChanged =
+            original.primaryLiftID != requestSession.primaryLiftID
+            || original.assistanceLiftID != requestSession.assistanceLiftID
+          guard
+            original.status == .scheduled
+              || (!rolesChanged
+                && requestSession.intendedDate == original.intendedDate)
+          else {
+            throw TrainingCycleValidationError.scheduledSessionRequired
+          }
+          guard requestSession.intendedDate == original.intendedDate else {
+            throw TrainingCycleValidationError.invalidSessionDate
+          }
+          if !rolesChanged {
+            sessions.append(original)
+          } else {
+            let prescriptions: [TrainingSetPrescription]
+            if existing.isActive {
+              let primary = try makePrescriptions(
+                role: .primary, liftID: requestSession.primaryLiftID,
+                kind: existingWeek.kind, snapshots: existing.liftSnapshots
+              )
+              let assistance = try makePrescriptions(
+                role: .assistance, liftID: requestSession.assistanceLiftID,
+                kind: existingWeek.kind, snapshots: existing.liftSnapshots
+              )
+              prescriptions = primary + assistance
+            } else {
+              prescriptions = []
+            }
+            sessions.append(
+              TrainingCycleSession(
+                id: original.id,
+                intendedDate: original.intendedDate,
+                sourceTemplateSessionID: original.sourceTemplateSessionID,
+                primaryLiftID: requestSession.primaryLiftID,
+                assistanceLiftID: requestSession.assistanceLiftID,
+                prescriptions: prescriptions,
+                status: .scheduled
+              ))
+          }
+        } else {
+          guard requestSession.intendedDate >= requestWeek.startDate,
+            requestSession.intendedDate <= requestWeek.startDate.adding(days: 6)
+          else { throw TrainingCycleValidationError.invalidSessionDate }
+          let prescriptions: [TrainingSetPrescription]
+          if existing.isActive {
+            prescriptions =
+              try makePrescriptions(
+                role: .primary, liftID: requestSession.primaryLiftID,
+                kind: requestWeek.kind, snapshots: existing.liftSnapshots
+              )
+              + makePrescriptions(
+                role: .assistance, liftID: requestSession.assistanceLiftID,
+                kind: requestWeek.kind, snapshots: existing.liftSnapshots
+              )
+          } else {
+            prescriptions = []
+          }
+          sessions.append(
+            TrainingCycleSession(
+              id: id,
+              intendedDate: requestSession.intendedDate,
+              sourceTemplateSessionID: id,
+              primaryLiftID: requestSession.primaryLiftID,
+              assistanceLiftID: requestSession.assistanceLiftID,
+              prescriptions: prescriptions
+            ))
+        }
+      }
+      guard !sessions.isEmpty else { throw TrainingCycleValidationError.emptyTemplate }
+      return TrainingWeek(
+        id: existingWeek.id,
+        position: existingWeek.position,
+        kind: existingWeek.kind,
+        startDate: existingWeek.startDate,
+        sessions: sessions
+      )
+    }
+
+    let existingSessions = existing.weeks.flatMap(\.sessions)
+    let removed = existingSessions.filter { !requestedIDs.contains($0.id) }
+    guard removed.allSatisfy({ $0.status == .scheduled }) else {
+      throw TrainingCycleValidationError.scheduledSessionRequired
+    }
+    return TrainingCycle(
+      id: existing.id,
+      week1AnchorDate: existing.week1AnchorDate,
+      weeks: weeks,
+      sourceTemplate: existing.sourceTemplate,
+      includesProvisionalDeload: existing.includesProvisionalDeload,
+      lifecycleState: existing.lifecycleState,
+      createdAt: existing.createdAt,
+      updatedAt: timestamp(),
+      liftSnapshots: existing.liftSnapshots
+    )
   }
 
   private func timestamp() -> Int64 {
