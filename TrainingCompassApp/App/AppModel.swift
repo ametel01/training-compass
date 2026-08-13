@@ -26,6 +26,7 @@ final class AppModel {
   let trainingExportBoundary: TrainingExportBoundary
   let trainingImportBoundary: TrainingImportBoundary?
   let trainingErasureBoundary: TrainingErasureBoundary?
+  let healthWorkoutImportBoundary: HealthWorkoutImportBoundary?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -37,7 +38,8 @@ final class AppModel {
     trainingMaxProposalBoundary: TrainingMaxProposalBoundary,
     trainingExportBoundary: TrainingExportBoundary,
     trainingImportBoundary: TrainingImportBoundary? = nil,
-    trainingErasureBoundary: TrainingErasureBoundary? = nil
+    trainingErasureBoundary: TrainingErasureBoundary? = nil,
+    healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -49,6 +51,7 @@ final class AppModel {
     self.trainingExportBoundary = trainingExportBoundary
     self.trainingImportBoundary = trainingImportBoundary
     self.trainingErasureBoundary = trainingErasureBoundary
+    self.healthWorkoutImportBoundary = healthWorkoutImportBoundary
   }
 
   func prepare() async {
@@ -135,7 +138,13 @@ final class AppModel {
       },
       trainingErasureBoundary: (repository as? any TrainingErasureRepository).map {
         TrainingErasureBoundary(repository: $0)
-      }
+      },
+      healthWorkoutImportBoundary: {
+        guard let healthClient = dependencies.healthKit as? any HealthWorkoutClient,
+          let healthRepository = repository as? any HealthWorkoutRepository
+        else { return nil }
+        return HealthWorkoutImportBoundary(client: healthClient, repository: healthRepository)
+      }()
     )
   }
 }

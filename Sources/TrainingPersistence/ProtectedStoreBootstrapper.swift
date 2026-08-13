@@ -418,7 +418,33 @@ public struct ProtectedStoreBootstrapper: Sendable {
   }
 
   public static var reconstructibleMigrator: DatabaseMigrator {
-    gateZeroMigrator(named: "reconstructible_v1_gate_zero")
+    var migrator = gateZeroMigrator(named: "reconstructible_v1_gate_zero")
+    migrator.registerMigration("reconstructible_v2_health_workouts") { db in
+      try db.create(table: "health_workouts") { table in
+        table.column("healthkit_uuid", .text).primaryKey()
+        table.column("activity_type", .text).notNull()
+        table.column("start_date", .double).notNull()
+        table.column("end_date", .double).notNull()
+        table.column("duration", .double).notNull()
+        table.column("source_name", .text)
+        table.column("source_bundle_identifier", .text)
+        table.column("source_product_type", .text)
+        table.column("source_os_version", .text)
+        table.column("device_name", .text)
+        table.column("device_model", .text)
+        table.column("source_timezone_identifier", .text)
+        table.column("local_date", .text).notNull()
+        table.column("timezone_source", .text).notNull()
+        table.column("first_imported_at", .double).notNull()
+        table.column("reconciliation_context", .text)
+        table.column("updated_at", .double).notNull()
+      }
+      try db.create(
+        index: "health_workouts_start_date", on: "health_workouts", columns: ["start_date"])
+      try db.create(
+        index: "health_workouts_local_date", on: "health_workouts", columns: ["local_date"])
+    }
+    return migrator
   }
 
   private static func gateZeroMigrator(named migrationName: String) -> DatabaseMigrator {

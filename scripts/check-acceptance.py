@@ -112,7 +112,7 @@ def main() -> int:
         if budget not in budgets:
             errors.append(f"release-candidate checklist omits resolved budget {budget}")
 
-    if "Health authorization remains outside these slices." not in matrix:
+    if "Health authorization remains outside these slices" not in matrix:
         errors.append("acceptance matrix must state that unfinished Health capabilities remain outside the Local Training Core")
 
     if errors:

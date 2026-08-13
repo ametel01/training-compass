@@ -3,7 +3,7 @@ import GRDB
 import TrainingApplication
 
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
-  TrainingErasureRepository
+  TrainingErasureRepository, HealthWorkoutRepository
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -127,6 +127,102 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   public func loadAuthoritativeExportData() async throws -> TrainingAuthoritativeExportData {
     let stores = try await readyStores()
     return try await stores.authoritative.read(Self.authoritativeExportData(from:))
+  }
+
+  public func upsertHealthWorkouts(
+    _ workouts: [HealthWorkout],
+    reconciliationContext: String
+  ) async throws {
+    guard !workouts.isEmpty else { return }
+    let stores = try await readyStores()
+    try await stores.reconstructible.write { db in
+      for workout in workouts {
+        try db.execute(
+          sql: """
+            INSERT INTO health_workouts
+              (healthkit_uuid, activity_type, start_date, end_date, duration,
+               source_name, source_bundle_identifier, source_product_type, source_os_version,
+               device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+               first_imported_at, reconciliation_context, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(healthkit_uuid) DO UPDATE SET
+              activity_type = excluded.activity_type,
+              start_date = excluded.start_date,
+              end_date = excluded.end_date,
+              duration = excluded.duration,
+              source_name = excluded.source_name,
+              source_bundle_identifier = excluded.source_bundle_identifier,
+              source_product_type = excluded.source_product_type,
+              source_os_version = excluded.source_os_version,
+              device_name = excluded.device_name,
+              device_model = excluded.device_model,
+              source_timezone_identifier = excluded.source_timezone_identifier,
+              local_date = excluded.local_date,
+              timezone_source = excluded.timezone_source,
+              reconciliation_context = excluded.reconciliation_context,
+              updated_at = excluded.updated_at
+            """,
+          arguments: [
+            workout.healthKitUUID,
+            workout.activityType,
+            workout.startDate.timeIntervalSince1970,
+            workout.endDate.timeIntervalSince1970,
+            workout.duration,
+            workout.sourceName,
+            workout.sourceBundleIdentifier,
+            workout.sourceProductType,
+            workout.sourceOSVersion,
+            workout.deviceName,
+            workout.deviceModel,
+            workout.sourceTimeZoneIdentifier,
+            workout.localDate,
+            workout.timeZoneSource.rawValue,
+            workout.firstImportedAt.timeIntervalSince1970,
+            workout.reconciliationContext ?? reconciliationContext,
+            Date().timeIntervalSince1970,
+          ]
+        )
+      }
+    }
+  }
+
+  public func loadHealthWorkouts() async throws -> [HealthWorkout] {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT healthkit_uuid, activity_type, start_date, end_date, duration,
+                 source_name, source_bundle_identifier, source_product_type, source_os_version,
+                 device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+                 first_imported_at, reconciliation_context
+          FROM health_workouts ORDER BY start_date, healthkit_uuid
+          """
+      ).map { row in
+        guard let timezoneSource = HealthWorkoutTimeZoneSource(rawValue: row["timezone_source"])
+        else {
+          throw PersistenceError.invalidHealthWorkout
+        }
+        return HealthWorkout(
+          healthKitUUID: row["healthkit_uuid"],
+          activityType: row["activity_type"],
+          startDate: Date(timeIntervalSince1970: row["start_date"]),
+          endDate: Date(timeIntervalSince1970: row["end_date"]),
+          duration: row["duration"],
+          sourceName: row["source_name"] as String?,
+          sourceBundleIdentifier: row["source_bundle_identifier"] as String?,
+          sourceProductType: row["source_product_type"] as String?,
+          sourceOSVersion: row["source_os_version"] as String?,
+          deviceName: row["device_name"] as String?,
+          deviceModel: row["device_model"] as String?,
+          sourceTimeZoneIdentifier: row["source_timezone_identifier"] as String?,
+          localDate: row["local_date"],
+          timeZoneSource: timezoneSource,
+          firstImportedAt: Date(timeIntervalSince1970: row["first_imported_at"]),
+          reconciliationContext: row["reconciliation_context"] as String?
+        )
+      }
+    }
   }
 
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
@@ -2561,6 +2657,7 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidTrainingMaxProposal
   case invalidTrainingMaxHistory
   case storesUnavailable
+  case invalidHealthWorkout
 }
 
 public enum TrainingPersistenceModule {}

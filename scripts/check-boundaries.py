@@ -15,7 +15,7 @@ ALLOWED_IMPORTS = {
     "TrainingInsights": {"TrainingDomain"},
     "TrainingApplication": {"CryptoKit", "Foundation", "TrainingDomain", "TrainingInsights"},
     "TrainingPersistence": {"Foundation", "GRDB", "TrainingApplication"},
-    "HealthKitAdapter": {"HealthKit", "TrainingApplication"},
+    "HealthKitAdapter": {"Foundation", "HealthKit", "TrainingApplication"},
 }
 
 EXPECTED_TARGET_DEPENDENCIES = {

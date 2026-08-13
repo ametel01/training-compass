@@ -37,10 +37,13 @@ if search_recursive '(^|[^A-Za-z])(URLSession|Network|CloudKit|Firebase|Sentry|C
   exit 1
 fi
 
-if find . -path './.build' -prune -o -name '*.entitlements' -print | grep -q .; then
-  echo "Gate 0 must not ship capabilities or entitlements." >&2
-  exit 1
-fi
+while IFS= read -r entitlement; do
+  [[ -z "$entitlement" ]] && continue
+  if ! plutil -convert json -o - "$entitlement" 2>/dev/null | rg -q '"com\.apple\.developer\.healthkit"\s*:\s*true'; then
+    echo "Only the reviewed HealthKit entitlement may be shipped: $entitlement" >&2
+    exit 1
+  fi
+done < <(find . -path './.build' -prune -o -name '*.entitlements' -print)
 
 if find . -path './.build' -prune -o \( -name '*.xcframework' -o -name '*.framework' -o -name '*.a' -o -name '*.dylib' \) -print | grep -q .; then
   echo "Unreviewed local binary or framework detected." >&2
@@ -59,7 +62,7 @@ require_pattern 'isExcludedFromBackup' Sources/TrainingPersistence/StoreProtecti
 require_pattern 'privacySensitive\(\)' TrainingCompassApp/UI/RootView.swift
 require_pattern 'scenePhase != \.active' TrainingCompassApp/App/TrainingCompassApp.swift
 
-if search_recursive 'healthkitUUID|latitude|longitude|freeTextNote|rawMeasurement' fixtures Sources Tests; then
+if search_recursive 'latitude|longitude|freeTextNote|rawMeasurement' fixtures Sources Tests; then
   echo "Fixture or source contains prohibited sensitive payload fields." >&2
   exit 1
 fi

@@ -32,6 +32,12 @@ struct RootView: View {
         }
         .tabItem { Label("TMs", systemImage: "scalemass") }
         .accessibilityIdentifier("tab.tms")
+
+        NavigationStack {
+          HealthView(model: model)
+        }
+        .tabItem { Label("Health", systemImage: "heart.text.square") }
+        .accessibilityIdentifier("tab.health")
       }
       .privacySensitive()
       .task { await model.prepare() }
@@ -40,6 +46,162 @@ struct RootView: View {
         PrivacyShield()
           .transition(.opacity)
           .zIndex(1)
+      }
+    }
+  }
+}
+
+private struct HealthView: View {
+  let model: AppModel
+
+  @State private var authorization = HealthAuthorizationSnapshot(state: .notRequested)
+  @State private var importedWorkouts: [HealthWorkout] = []
+  @State private var isConnecting = false
+  @State private var isImporting = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    List {
+      Section("Connect Health") {
+        Text(
+          "Training Compass can read Health Workouts and selected recovery evidence from Apple Health. Local planning, logging, history, export, import, and restoration remain available without access."
+        )
+        .font(.subheadline)
+        if authorization.state == .notRequested || authorization.state == .postponed {
+          Text(
+            "Requested read types: \(HealthAuthorizationRequest.core.readTypes.map(\.displayName).joined(separator: ", ")). Write-back is off."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          Button(isConnecting ? "Connecting…" : "Connect Health") {
+            Task { await connect() }
+          }
+          .disabled(isConnecting || model.healthWorkoutImportBoundary == nil)
+          .accessibilityIdentifier("health.connect")
+          Button("Not now") {
+            Task { await model.healthWorkoutImportBoundary?.postponeHealth() }
+            authorization = .init(state: .postponed)
+          }
+          .disabled(isConnecting)
+          .accessibilityIdentifier("health.postpone")
+        } else if authorization.state == .authorized {
+          Label("Health access connected", systemImage: "checkmark.circle.fill")
+            .foregroundStyle(.green)
+          if authorization.hasLimitedHistory {
+            Text(
+              "Health reports that only limited recent history is available. Training Compass will show that coverage context and keep local training usable."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+          Button(isImporting ? "Importing Health Workouts…" : "Refresh Health Workouts") {
+            Task { await importWorkouts() }
+          }
+          .disabled(isImporting || model.healthWorkoutImportBoundary == nil)
+          .accessibilityIdentifier("health.refresh")
+        } else {
+          Text("Health data is unavailable on this device. Local training remains fully available.")
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      Section("Health Workouts") {
+        if isImporting {
+          ProgressView("Importing the first durable batch…")
+          Button("Continue in background") {
+            isImporting = false
+          }
+          .accessibilityIdentifier("health.dismiss-progress")
+        } else if importedWorkouts.isEmpty {
+          ContentUnavailableView(
+            "No Health data is currently available",
+            systemImage: "heart.slash",
+            description: Text(
+              "This successful empty result does not reveal whether a read type is denied. Check access in Health settings, then refresh."
+            )
+          )
+          Button("Check Health access") {
+            Task { await connect() }
+          }
+          .accessibilityIdentifier("health.check-access")
+          Button("Refresh Health Workouts") {
+            Task { await importWorkouts() }
+          }
+          .disabled(isImporting)
+          .accessibilityIdentifier("health.refresh-empty")
+        } else {
+          ForEach(importedWorkouts) { workout in
+            VStack(alignment: .leading, spacing: 3) {
+              Text(workout.activityType).font(.headline)
+              Text(
+                "\(workout.startDate.formatted(date: .abbreviated, time: .shortened)) · \(Int(workout.duration / 60)) min"
+              )
+              .font(.subheadline)
+              Text("Health Workout · \(workout.sourceName ?? "Source unavailable")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
+    }
+    .navigationTitle("Health")
+    .accessibilityIdentifier("health.destination")
+    .task(id: model.phase) {
+      guard model.phase == .ready, let boundary = model.healthWorkoutImportBoundary else { return }
+      authorization = await boundary.authorizationSnapshot()
+      importedWorkouts = (try? await boundary.cachedWorkouts()) ?? []
+    }
+    .alert(
+      "Health connection unavailable",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again later.")
+    }
+  }
+
+  private func connect() async {
+    guard let boundary = model.healthWorkoutImportBoundary else { return }
+    isConnecting = true
+    defer { isConnecting = false }
+    do {
+      authorization = try await boundary.connectHealth()
+      if authorization.state == .authorized { await importWorkouts() }
+    } catch {
+      errorMessage =
+        "Health did not complete the connection request. Local training is still available."
+    }
+  }
+
+  private func importWorkouts() async {
+    guard let boundary = model.healthWorkoutImportBoundary else { return }
+    guard !isImporting else { return }
+    isImporting = true
+    Task {
+      do {
+        let result = try await boundary.importWorkouts { update in
+          let cached = (try? await boundary.cachedWorkouts()) ?? []
+          await MainActor.run {
+            importedWorkouts = cached
+            if update.state == .limitedHistory {
+              authorization = HealthAuthorizationSnapshot(
+                state: .authorized, requested: .core, hasLimitedHistory: true)
+            }
+          }
+        }
+        authorization = await boundary.authorizationSnapshot()
+        importedWorkouts = try await boundary.cachedWorkouts()
+        if result.state == .successfulEmpty { importedWorkouts = [] }
+        isImporting = false
+      } catch {
+        isImporting = false
+        errorMessage =
+          "Health data could not be refreshed. Cached local training remains available."
       }
     }
   }
