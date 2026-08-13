@@ -15,6 +15,7 @@ final class AppModel {
   }
 
   private(set) var phase: Phase = .preparing
+  private(set) var isErasing = false
   private let preparePreDataShell: PreparePreDataShell
   let liftConfigurationBoundary: LiftConfigurationBoundary
   let scheduleTemplateBoundary: ScheduleTemplateBoundary
@@ -24,6 +25,7 @@ final class AppModel {
   let trainingMaxProposalBoundary: TrainingMaxProposalBoundary
   let trainingExportBoundary: TrainingExportBoundary
   let trainingImportBoundary: TrainingImportBoundary?
+  let trainingErasureBoundary: TrainingErasureBoundary?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -34,7 +36,8 @@ final class AppModel {
     progressBoundary: ProgressBoundary,
     trainingMaxProposalBoundary: TrainingMaxProposalBoundary,
     trainingExportBoundary: TrainingExportBoundary,
-    trainingImportBoundary: TrainingImportBoundary? = nil
+    trainingImportBoundary: TrainingImportBoundary? = nil,
+    trainingErasureBoundary: TrainingErasureBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -45,6 +48,7 @@ final class AppModel {
     self.trainingMaxProposalBoundary = trainingMaxProposalBoundary
     self.trainingExportBoundary = trainingExportBoundary
     self.trainingImportBoundary = trainingImportBoundary
+    self.trainingErasureBoundary = trainingErasureBoundary
   }
 
   func prepare() async {
@@ -55,6 +59,17 @@ final class AppModel {
     } catch {
       phase = .failed
     }
+  }
+
+  func eraseAllData() async throws {
+    guard let trainingErasureBoundary else {
+      throw TrainingErasureError.unavailable
+    }
+    isErasing = true
+    defer { isErasing = false }
+    try await trainingErasureBoundary.erase(confirmation: .confirmed)
+    phase = .preparing
+    await prepare()
   }
 
   static func live() -> AppModel {
@@ -117,6 +132,9 @@ final class AppModel {
       ),
       trainingImportBoundary: (repository as? any TrainingReplacementImportRepository).map {
         TrainingImportBoundary(repository: $0, fileSystem: dependencies.importFileSystem)
+      },
+      trainingErasureBoundary: (repository as? any TrainingErasureRepository).map {
+        TrainingErasureBoundary(repository: $0)
       }
     )
   }

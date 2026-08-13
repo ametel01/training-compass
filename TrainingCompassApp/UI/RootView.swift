@@ -1644,6 +1644,7 @@ private struct TMsView: View {
   @State private var errorMessage: String?
   @State private var showingExport = false
   @State private var showingImport = false
+  @State private var showingErasure = false
   @State private var importURL: ImportURL?
 
   var body: some View {
@@ -1757,6 +1758,13 @@ private struct TMsView: View {
             }
             .accessibilityIdentifier("tm.import")
           }
+          if model.trainingErasureBoundary != nil {
+            Divider()
+            Button(TrainingErasureCopy.title, systemImage: "trash", role: .destructive) {
+              showingErasure = true
+            }
+            .accessibilityIdentifier("tm.erase-all")
+          }
         } label: {
           Label("Data Recovery", systemImage: "externaldrive")
         }
@@ -1799,6 +1807,9 @@ private struct TMsView: View {
     }
     .sheet(isPresented: $showingExport) {
       TrainingExportView(boundary: model.trainingExportBoundary)
+    }
+    .sheet(isPresented: $showingErasure) {
+      TrainingErasureView(model: model)
     }
     .fileImporter(
       isPresented: $showingImport,
@@ -2077,6 +2088,79 @@ private struct TrainingImportView: View {
       errorMessage =
         (error as? TrainingImportError)?.privacySafeDescription
         ?? "The import could not be completed."
+    }
+  }
+}
+
+private struct TrainingErasureView: View {
+  @Environment(\.dismiss) private var dismiss
+  let model: AppModel
+
+  @State private var showingConfirmation = false
+  @State private var isErasing = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Section("Erase this installation") {
+          Text(TrainingErasureCopy.confirmationMessage)
+            .font(.callout)
+          Text(TrainingErasureCopy.externalCopiesMessage)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        Section {
+          Button(TrainingErasureCopy.title, role: .destructive) {
+            showingConfirmation = true
+          }
+          .disabled(isErasing)
+          .accessibilityIdentifier("erase.confirm")
+        }
+      }
+      .privacySensitive()
+      .navigationTitle(TrainingErasureCopy.title)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+      }
+      .alert(TrainingErasureCopy.title, isPresented: $showingConfirmation) {
+        Button("Cancel", role: .cancel) {}
+        Button("Erase Everything", role: .destructive) {
+          Task { await erase() }
+        }
+        .accessibilityIdentifier("erase.confirmation")
+      } message: {
+        Text(
+          TrainingErasureCopy.confirmationMessage + "\n\n"
+            + TrainingErasureCopy.externalCopiesMessage
+        )
+      }
+      .alert(
+        "Could not erase app data",
+        isPresented: Binding(
+          get: { errorMessage != nil },
+          set: { if !$0 { errorMessage = nil } }
+        )
+      ) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(errorMessage ?? TrainingErasureError.cleanupFailed.privacySafeDescription)
+      }
+    }
+  }
+
+  private func erase() async {
+    isErasing = true
+    defer { isErasing = false }
+    do {
+      try await model.eraseAllData()
+      dismiss()
+    } catch let error as TrainingErasureError {
+      errorMessage = error.privacySafeDescription
+    } catch {
+      errorMessage = TrainingErasureError.cleanupFailed.privacySafeDescription
     }
   }
 }

@@ -49,4 +49,31 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Cycle unavailable"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Calendar Change"].exists)
   }
+
+  func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() throws {
+    let app = XCUIApplication()
+    app.launch()
+
+    app.tabBars.buttons["TMs"].tap()
+    XCTAssertTrue(app.navigationBars["TMs"].waitForExistence(timeout: 15))
+    app.buttons["tm.data-recovery"].tap()
+    XCTAssertTrue(app.buttons["tm.erase-all"].waitForExistence(timeout: 5))
+    app.buttons["tm.erase-all"].tap()
+
+    XCTAssertTrue(app.navigationBars["Erase All App Data"].waitForExistence(timeout: 5))
+    let localScope = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS %@", "Locally Authoritative Data")
+    ).firstMatch
+    let externalCopies = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS %@", "previously shared exports")
+    ).firstMatch
+    XCTAssertTrue(localScope.exists)
+    XCTAssertTrue(externalCopies.exists)
+
+    app.buttons["erase.confirm"].tap()
+    XCTAssertTrue(app.alerts["Erase All App Data"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Cancel"].tap()
+    XCTAssertTrue(app.navigationBars["Erase All App Data"].exists)
+  }
+
 }

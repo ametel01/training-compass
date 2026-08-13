@@ -2,25 +2,95 @@ import Foundation
 import GRDB
 import TrainingApplication
 
-public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository {
+public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
+  TrainingErasureRepository
+{
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
   private let phaseObserver: any TrainingImportPhaseObserver
+  private let erasurePhaseObserver: any TrainingErasurePhaseObserver
+  private let erasurePreferences: any TrainingErasurePreferences
+  private let temporaryExportDirectory: URL
   private var stores: TrainingStores?
 
   public init(
     root: URL,
     bootstrapper: ProtectedStoreBootstrapper = .init(),
-    phaseObserver: any TrainingImportPhaseObserver = NoOpTrainingImportPhaseObserver()
+    phaseObserver: any TrainingImportPhaseObserver = NoOpTrainingImportPhaseObserver(),
+    erasurePhaseObserver: any TrainingErasurePhaseObserver = NoOpTrainingErasurePhaseObserver(),
+    erasurePreferences: any TrainingErasurePreferences = FoundationTrainingErasurePreferences(),
+    temporaryExportDirectory: URL = FileManager.default.temporaryDirectory
+      .appending(path: "TrainingCompassExports", directoryHint: .isDirectory)
   ) {
     self.root = root
     self.bootstrapper = bootstrapper
     self.phaseObserver = phaseObserver
+    self.erasurePhaseObserver = erasurePhaseObserver
+    self.erasurePreferences = erasurePreferences
+    self.temporaryExportDirectory = temporaryExportDirectory
   }
 
   public func prepareStores() async throws {
     guard stores == nil else { return }
+    try recoverPendingErasure()
     stores = try bootstrapper.open(in: root)
+  }
+
+  /// Removes every copy owned by this installation. A marker is written before
+  /// closing the first database and removed only after all cleanup succeeds;
+  /// launch recovery therefore completes an interrupted erase before opening a
+  /// new store and can never expose a partial mixture as current state.
+  public func eraseAllData(progress: TrainingErasureProgressHandler?) async throws {
+    let locations = actualLocations()
+    let marker = erasureMarker(for: locations)
+    let fileManager = FileManager.default
+    do {
+      try fileManager.createDirectory(at: locations.root, withIntermediateDirectories: true)
+      if !fileManager.fileExists(atPath: marker.path()) {
+        guard fileManager.createFile(atPath: marker.path(), contents: Data("pending".utf8)) else {
+          throw TrainingErasureError.cleanupFailed
+        }
+      }
+
+      try reachErasurePhase(
+        .closingStores, fraction: 0.15, message: "Closing protected stores.", progress: progress)
+      if let stores {
+        try stores.authoritative.close()
+        try stores.reconstructible.close()
+        self.stores = nil
+      }
+
+      try reachErasurePhase(
+        .removingProtectedStores,
+        fraction: 0.45,
+        message: "Removing Locally Authoritative Data and Derived Projections.",
+        progress: progress
+      )
+      try removeIfPresent(locations.authoritativeDirectory)
+      try removeIfPresent(locations.reconstructibleDirectory)
+
+      try reachErasurePhase(
+        .removingTemporaryExports,
+        fraction: 0.7,
+        message: "Removing temporary exports.",
+        progress: progress
+      )
+      try removeIfPresent(temporaryExportDirectory)
+
+      try reachErasurePhase(
+        .clearingPreferences,
+        fraction: 0.9,
+        message: "Clearing preferences and sync state.",
+        progress: progress
+      )
+      try erasurePreferences.removeAll()
+      try removeIfPresent(marker)
+      progress?(.init(phase: .completed, fraction: 1, message: "App data erased."))
+    } catch let error as TrainingErasureError {
+      throw error
+    } catch {
+      throw TrainingErasureError.cleanupFailed
+    }
   }
 
   public func authoritativeStoreIsEmpty() async throws -> Bool {
@@ -1505,6 +1575,41 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     #else
       return StoreLocations(root: root)
     #endif
+  }
+
+  private func erasureMarker(for locations: StoreLocations) -> URL {
+    locations.root.appending(path: "training-compass-erasure.pending", directoryHint: .notDirectory)
+  }
+
+  private func recoverPendingErasure() throws {
+    let locations = actualLocations()
+    let marker = erasureMarker(for: locations)
+    guard FileManager.default.fileExists(atPath: marker.path()) else { return }
+    do {
+      try removeIfPresent(locations.authoritativeDirectory)
+      try removeIfPresent(locations.reconstructibleDirectory)
+      try removeIfPresent(temporaryExportDirectory)
+      try erasurePreferences.removeAll()
+      try removeIfPresent(marker)
+    } catch {
+      throw TrainingErasureError.cleanupFailed
+    }
+  }
+
+  private func removeIfPresent(_ url: URL) throws {
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: url.path()) else { return }
+    try fileManager.removeItem(at: url)
+  }
+
+  private func reachErasurePhase(
+    _ phase: TrainingErasurePhase,
+    fraction: Double,
+    message: String,
+    progress: TrainingErasureProgressHandler?
+  ) throws {
+    try erasurePhaseObserver.didReach(phase)
+    progress?(.init(phase: phase, fraction: fraction, message: message))
   }
 
   private static func insert(_ data: TrainingAuthoritativeExportData, into db: Database) throws {

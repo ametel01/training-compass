@@ -9,7 +9,7 @@ struct TrainingCompassApp: App {
     WindowGroup {
       RootView(
         model: model,
-        concealsSensitiveContent: scenePhase != .active
+        concealsSensitiveContent: scenePhase != .active || model.isErasing
       )
     }
   }
