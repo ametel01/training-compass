@@ -48,8 +48,6 @@ public struct NoOpTrainingImportPhaseObserver: TrainingImportPhaseObserver {
   public func didReach(_ phase: TrainingImportPhase) throws {}
 }
 
-public typealias TrainingImportFailureInjector = any TrainingImportPhaseObserver
-
 public struct TrainingImportPreview: Equatable, Sendable {
   public let archive: TrainingCompassExport
   public let summary: TrainingExportSummary
@@ -239,7 +237,8 @@ public struct TrainingImportBoundary: Sendable {
     }
     guard !archive.manifest.generatorVersion.isEmpty,
       archive.manifest.createdAt >= 0,
-      !archive.manifest.creationContext.timeZoneIdentifier.isEmpty
+      !archive.manifest.creationContext.timeZoneIdentifier.isEmpty,
+      !archive.manifest.creationContext.localeIdentifier.isEmpty
     else {
       throw TrainingImportError.invalidManifest
     }
@@ -282,10 +281,11 @@ public struct TrainingImportBoundary: Sendable {
         guard !record.id.isEmpty else {
           throw TrainingImportError.incompleteArchive("duplicate identity in \(table.name)")
         }
+        guard ids.insert(record.id).inserted else {
+          throw TrainingImportError.incompleteArchive("duplicate identity in \(table.name)")
+        }
         if let value = record.fields["id"] {
-          guard case .string(let id) = value, !id.isEmpty, id == record.id,
-            ids.insert(record.id).inserted
-          else {
+          guard case .string(let id) = value, !id.isEmpty, id == record.id else {
             throw TrainingImportError.invalidRelationship("stable identity for \(table.name)")
           }
         }

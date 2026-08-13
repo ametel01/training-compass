@@ -1,6 +1,7 @@
 import SwiftUI
 import TrainingApplication
 import UIKit
+import UniformTypeIdentifiers
 
 struct RootView: View {
   let model: AppModel
@@ -1625,6 +1626,11 @@ extension Array {
 }
 
 private struct TMsView: View {
+  private struct ImportURL: Identifiable {
+    let url: URL
+    var id: URL { url }
+  }
+
   let model: AppModel
 
   @State private var rows: [LiftConfigurationListItem] = LiftCatalog.progressionIdentities.map {
@@ -1638,6 +1644,8 @@ private struct TMsView: View {
   @State private var showingConfirmation = false
   @State private var errorMessage: String?
   @State private var showingExport = false
+  @State private var showingImport = false
+  @State private var importURL: ImportURL?
 
   var body: some View {
     List {
@@ -1680,7 +1688,9 @@ private struct TMsView: View {
               .font(.caption).foregroundStyle(.secondary)
               DisclosureGroup("Review evidence") {
                 ForEach(proposal.evidence.eligibleE1RM) { observation in
-                  Text("e1RM \(observation.displayValue) · \(observation.date.iso8601String)")
+                  let displayValue = observation.displayValue
+                  let date = observation.date.iso8601String
+                  Text("e1RM \(displayValue) · \(date)")
                     .font(.caption)
                 }
                 ForEach(proposal.evidence.excludedWork) { work in
@@ -1738,10 +1748,20 @@ private struct TMsView: View {
         .accessibilityIdentifier("tm.add-variant")
       }
       ToolbarItem(placement: .topBarTrailing) {
-        Button("Export", systemImage: "square.and.arrow.up") {
-          showingExport = true
+        Menu {
+          Button("Export", systemImage: "square.and.arrow.up") {
+            showingExport = true
+          }
+          if model.trainingImportBoundary != nil {
+            Button("Restore Export", systemImage: "arrow.down.doc") {
+              showingImport = true
+            }
+            .accessibilityIdentifier("tm.import")
+          }
+        } label: {
+          Label("Data Recovery", systemImage: "externaldrive")
         }
-        .accessibilityIdentifier("tm.export")
+        .accessibilityIdentifier("tm.data-recovery")
       }
     }
     .task(id: model.phase) {
@@ -1780,6 +1800,20 @@ private struct TMsView: View {
     }
     .sheet(isPresented: $showingExport) {
       TrainingExportView(boundary: model.trainingExportBoundary)
+    }
+    .fileImporter(
+      isPresented: $showingImport,
+      allowedContentTypes: [.data],
+      allowsMultipleSelection: false
+    ) { result in
+      if case .success(let urls) = result {
+        importURL = urls.first.map(ImportURL.init(url:))
+      }
+    }
+    .sheet(item: $importURL) { importURL in
+      if let boundary = model.trainingImportBoundary {
+        TrainingImportView(boundary: boundary, url: importURL.url)
+      }
     }
     .alert("Confirm lift change", isPresented: $showingConfirmation) {
       Button("Cancel", role: .cancel) {
@@ -1969,6 +2003,81 @@ private struct TrainingExportView: View {
       errorMessage =
         (error as? TrainingExportError)?.privacySafeDescription
         ?? "The export preview could not be prepared."
+    }
+  }
+}
+
+private struct TrainingImportView: View {
+  @Environment(\.dismiss) private var dismiss
+  let boundary: TrainingImportBoundary
+  let url: URL
+
+  @State private var preview: TrainingImportPreview?
+  @State private var errorMessage: String?
+  @State private var isImporting = false
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if let preview {
+          List {
+            Section("Validated Archive") {
+              Text(preview.summary.readableText).font(.caption)
+              Text(preview.warning).font(.callout)
+            }
+            Section("Replace Current Data") {
+              Text(preview.replacementWarning).font(.callout)
+              Button("Export Current Data First") { dismiss() }
+              Button("Replace Current Data", role: .destructive) {
+                Task { await importArchive() }
+              }
+              .disabled(isImporting)
+              .accessibilityIdentifier("import.replace")
+            }
+          }
+        } else {
+          ProgressView("Validating import…")
+        }
+      }
+      .navigationTitle("Restore Training Compass")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+      }
+      .task {
+        do {
+          preview = try boundary.preview(at: url)
+        } catch {
+          errorMessage =
+            (error as? TrainingImportError)?.privacySafeDescription
+            ?? "The import could not be validated."
+        }
+      }
+      .alert(
+        "Could not restore data",
+        isPresented: Binding(
+          get: { errorMessage != nil },
+          set: { if !$0 { errorMessage = nil } }
+        )
+      ) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(errorMessage ?? "Try again.")
+      }
+    }
+  }
+
+  private func importArchive() async {
+    isImporting = true
+    defer { isImporting = false }
+    do {
+      _ = try await boundary.importArchive(at: url, confirmation: .confirmedAfterExport)
+      dismiss()
+    } catch {
+      errorMessage =
+        (error as? TrainingImportError)?.privacySafeDescription
+        ?? "The import could not be completed."
     }
   }
 }

@@ -54,6 +54,7 @@ public struct ApplicationDependencies: Sendable {
   public let uuidGenerator: any UUIDGenerator
   public let fileSystem: any ApplicationFileSystem
   public let exportFileSystem: any TrainingExportFileSystem
+  public let importFileSystem: any TrainingImportFileSystem
   public let repository: any TrainingRepository
   public let healthKit: any HealthKitClient
   public let logger: any PrivacyLogger
@@ -65,6 +66,7 @@ public struct ApplicationDependencies: Sendable {
     uuidGenerator: any UUIDGenerator,
     fileSystem: any ApplicationFileSystem,
     exportFileSystem: any TrainingExportFileSystem,
+    importFileSystem: any TrainingImportFileSystem = FoundationTrainingImportFileSystem(),
     repository: any TrainingRepository,
     healthKit: any HealthKitClient,
     logger: any PrivacyLogger
@@ -75,6 +77,7 @@ public struct ApplicationDependencies: Sendable {
     self.uuidGenerator = uuidGenerator
     self.fileSystem = fileSystem
     self.exportFileSystem = exportFileSystem
+    self.importFileSystem = importFileSystem
     self.repository = repository
     self.healthKit = healthKit
     self.logger = logger

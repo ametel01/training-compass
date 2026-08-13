@@ -73,6 +73,7 @@ final class AppModel {
       uuidGenerator: RandomUUIDGenerator(),
       fileSystem: fileSystem,
       exportFileSystem: FoundationTrainingExportFileSystem(),
+      importFileSystem: FoundationTrainingImportFileSystem(),
       repository: repository,
       healthKit: PreDataHealthKitAdapter(),
       logger: UnifiedPrivacyLogger()
@@ -115,7 +116,7 @@ final class AppModel {
         fileSystem: dependencies.exportFileSystem
       ),
       trainingImportBoundary: (repository as? any TrainingReplacementImportRepository).map {
-        TrainingImportBoundary(repository: $0, fileSystem: FoundationTrainingImportFileSystem())
+        TrainingImportBoundary(repository: $0, fileSystem: dependencies.importFileSystem)
       }
     )
   }

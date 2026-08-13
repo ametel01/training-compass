@@ -95,7 +95,12 @@ public struct ProtectedStoreBootstrapper: Sendable {
     let markerExists = fileManager.fileExists(atPath: locations.authoritativeSwapMarker.path())
     let currentExists = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
     let backupExists = fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path())
-    guard markerExists || backupExists else { return }
+    if !markerExists, !backupExists {
+      if fileManager.fileExists(atPath: locations.authoritativeStagingDatabase.path()) {
+        try fileManager.removeItem(at: locations.authoritativeStagingDatabase)
+      }
+      return
+    }
 
     if !currentExists, backupExists {
       try fileManager.moveItem(
@@ -107,6 +112,9 @@ public struct ProtectedStoreBootstrapper: Sendable {
     }
     if markerExists {
       try fileManager.removeItem(at: locations.authoritativeSwapMarker)
+    }
+    if fileManager.fileExists(atPath: locations.authoritativeStagingDatabase.path()) {
+      try fileManager.removeItem(at: locations.authoritativeStagingDatabase)
     }
   }
 

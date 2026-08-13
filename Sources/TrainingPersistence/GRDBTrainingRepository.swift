@@ -1395,6 +1395,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     progress: TrainingImportProgressHandler?
   ) async throws {
     let locations = actualLocations()
+    var replacementCompleted = false
+    defer {
+      if !replacementCompleted {
+        try? FileManager.default.removeItem(at: locations.authoritativeStagingDatabase)
+      }
+    }
     let fileManager = FileManager.default
     try fileManager.createDirectory(
       at: locations.authoritativeDirectory, withIntermediateDirectories: true)
@@ -1484,6 +1490,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
       }
       try? fileManager.removeItem(at: locations.authoritativeSwapMarker)
+      replacementCompleted = true
     } catch {
       try? fileManager.removeItem(at: locations.authoritativeStagingDatabase)
       throw TrainingImportError.replacementFailed(String(describing: error))
@@ -1513,6 +1520,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         throw TrainingImportError.incompleteArchive("table \(table.name)")
       }
       let quotedTable = quoteIdentifier(table.name)
+      if table.name == "gate_zero_metadata" {
+        try db.execute(sql: "DELETE FROM \(quotedTable)")
+      }
       let schemaColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(\(quotedTable))")
         .map { $0["name"] as String }
       let expected = Set(schemaColumns)
@@ -1542,10 +1552,48 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     var sessionIDs = Set<String>()
     var prescriptionIDs = Set<String>()
     let liftIDs = Set(try String.fetchAll(db, sql: "SELECT id FROM lifts"))
+    let liftRows = try Row.fetchAll(
+      db,
+      sql:
+        "SELECT id, identity_kind, identity_value, training_max_kg, loading_increment_kg FROM lifts"
+    )
+    for row in liftRows {
+      let kind = row["identity_kind"] as String
+      let value = row["identity_value"] as String
+      let identity: LiftIdentity?
+      switch kind {
+      case "progression": identity = ProgressionLift(rawValue: value).map(LiftIdentity.progression)
+      case "variant": identity = .variant(name: value)
+      case "custom": identity = .custom(name: value)
+      default: identity = nil
+      }
+      guard let identity,
+        (try? LiftConfiguration(
+          id: row["id"], identity: identity,
+          trainingMaxKg: row["training_max_kg"],
+          loadingIncrementKg: row["loading_increment_kg"]
+        )) != nil
+      else {
+        throw TrainingImportError.invariantViolation("lift configuration")
+      }
+    }
+    let metadataCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM gate_zero_metadata") ?? 0
+    let metadataValid =
+      try Int.fetchOne(
+        db,
+        sql:
+          "SELECT COUNT(*) FROM gate_zero_metadata WHERE schema_version = 1 AND owner_data_accepted = 0"
+      ) ?? 0
+    guard metadataCount == 1, metadataValid == 1 else {
+      throw TrainingImportError.invariantViolation("gate zero metadata")
+    }
     for row in cycles {
       let cycle = try trainingCycle(from: row)
       guard cycle.id == (row["id"] as String), cycleIDs.insert(cycle.id).inserted else {
         throw TrainingImportError.invariantViolation("training cycle identity")
+      }
+      guard cycle.lifecycleState.rawValue == (row["lifecycle_state"] as String) else {
+        throw TrainingImportError.invariantViolation("cycle lifecycle state")
       }
       guard cycle.liftSnapshots.keys.allSatisfy({ liftIDs.contains($0) }) else {
         throw TrainingImportError.invalidRelationship("cycle lift snapshot")
@@ -1564,6 +1612,31 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             throw TrainingImportError.invariantViolation("duplicate prescription identity")
           }
         }
+      }
+    }
+    let templateIDs = Set(try String.fetchAll(db, sql: "SELECT id FROM schedule_templates"))
+    for row in try Row.fetchAll(db, sql: "SELECT template_id FROM schedule_template_audit") {
+      guard templateIDs.contains(row["template_id"]) else {
+        throw TrainingImportError.invalidRelationship("schedule template audit")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT cycle_id FROM training_cycle_audit") {
+      guard cycleIDs.contains(row["cycle_id"]) else {
+        throw TrainingImportError.invalidRelationship("cycle audit")
+      }
+    }
+    for row in try Row.fetchAll(
+      db, sql: "SELECT session_id, cycle_id FROM session_correction_audit")
+    {
+      guard sessionIDs.contains(row["session_id"]), cycleIDs.contains(row["cycle_id"]) else {
+        throw TrainingImportError.invalidRelationship("session correction audit")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT session_id, prescription_id FROM set_result_audit")
+    {
+      guard sessionIDs.contains(row["session_id"]), prescriptionIDs.contains(row["prescription_id"])
+      else {
+        throw TrainingImportError.invalidRelationship("set result audit")
       }
     }
     for row in try Row.fetchAll(
