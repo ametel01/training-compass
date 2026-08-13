@@ -106,6 +106,18 @@ public enum TrainingPrescriptionRole: String, Codable, Equatable, Hashable, Send
   case assistance
 }
 
+/// The mutable disposition of a session within an otherwise immutable cycle.
+public enum TrainingSessionStatus: String, Codable, Equatable, Hashable, Sendable {
+  case scheduled
+  case inProgress
+  case completed
+  case skipped
+
+  public var isTerminal: Bool {
+    self == .completed || self == .skipped
+  }
+}
+
 /// A frozen, loadable prescription captured when a cycle is activated.
 public struct TrainingSetPrescription: Codable, Equatable, Hashable, Identifiable, Sendable {
   public let id: String
@@ -294,6 +306,7 @@ public struct TrainingCycleSession: Codable, Equatable, Hashable, Identifiable, 
   public let primaryLiftID: String
   public let assistanceLiftID: String
   public let prescriptions: [TrainingSetPrescription]
+  public let status: TrainingSessionStatus
 
   public init(
     id: String,
@@ -301,7 +314,8 @@ public struct TrainingCycleSession: Codable, Equatable, Hashable, Identifiable, 
     sourceTemplateSessionID: String,
     primaryLiftID: String,
     assistanceLiftID: String,
-    prescriptions: [TrainingSetPrescription] = []
+    prescriptions: [TrainingSetPrescription] = [],
+    status: TrainingSessionStatus = .scheduled
   ) {
     self.id = id
     self.intendedDate = intendedDate
@@ -309,10 +323,12 @@ public struct TrainingCycleSession: Codable, Equatable, Hashable, Identifiable, 
     self.primaryLiftID = primaryLiftID
     self.assistanceLiftID = assistanceLiftID
     self.prescriptions = prescriptions
+    self.status = status
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, intendedDate, sourceTemplateSessionID, primaryLiftID, assistanceLiftID, prescriptions
+    case id, intendedDate, sourceTemplateSessionID, primaryLiftID, assistanceLiftID, prescriptions,
+      status
   }
 
   public init(from decoder: Decoder) throws {
@@ -324,7 +340,9 @@ public struct TrainingCycleSession: Codable, Equatable, Hashable, Identifiable, 
       primaryLiftID: try container.decode(String.self, forKey: .primaryLiftID),
       assistanceLiftID: try container.decode(String.self, forKey: .assistanceLiftID),
       prescriptions: try container.decodeIfPresent(
-        [TrainingSetPrescription].self, forKey: .prescriptions) ?? []
+        [TrainingSetPrescription].self, forKey: .prescriptions) ?? [],
+      status: try container.decodeIfPresent(TrainingSessionStatus.self, forKey: .status)
+        ?? .scheduled
     )
   }
 
@@ -354,6 +372,11 @@ public struct TrainingWeek: Codable, Equatable, Hashable, Identifiable, Sendable
   }
 
   public var isDeload: Bool { kind.isDeload }
+
+  /// A week is finished only when every planned session has a terminal disposition.
+  public var isFinished: Bool {
+    !sessions.isEmpty && sessions.allSatisfy { $0.status.isTerminal }
+  }
 }
 
 public struct TrainingCycleSnapshot: Codable, Equatable, Sendable {

@@ -1,6 +1,6 @@
 # Gate 0 acceptance matrix
 
-This matrix covers the Gate 0 shell and the implemented local training slices from GitHub issues #2 through #7.
+This matrix covers the Gate 0 shell and the implemented local training slices from GitHub issues #2 through #8.
 
 | Source | Scenario variant | Preconditions | Seed | Expected external result | Evidence layer | Device check | Latest evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -20,5 +20,6 @@ This matrix covers the Gate 0 shell and the implemented local training slices fr
 | Issue #5: Activate Training Cycle | Activation and immutable prescriptions | A valid Draft Training Cycle exists; no Active Training Cycle exists | 21571 | Activation reconciles Deload cadence after preview confirmation, requires an explicit choice for a past anchor, snapshots each used lift, and persists exact Primary/Assistance prescriptions while replacing the independent draft | Domain, application, persistence, UI | No | `TrainingCycleBoundaryTests`; `TrainingCycleRepositoryTests`; Cycle UI controls |
 | Issue #6: Log prescribed Set Results from Today | Scheduled logging and recovery | An Active Training Cycle has a Session intended for today | 21571 | Today shows the Primary/Assistance lifts, Training Max snapshots, immutable prescriptions, targets, calculated weights, and current result state; confirmed positive kilogram and whole-repetition values persist with warning-only increment conflicts and survive restart | Domain, application, persistence, UI | No | `SessionLoggingBoundaryTests`; `SetResultRepositoryTests`; Today UI controls |
 | Issue #7: Complete Sessions with every set disposition | Performed, failed, omitted, additional, and completed logging | An Active Training Cycle has a Session intended for today | 21571 | Zero repetitions remain a failed Set Result; Omitted Sets replace any current result; ordered Additional Sets can be added, edited, reordered, and removed without changing prescriptions; completion is blocked until every prescription is resolved and explicitly confirmed; restart preserves dispositions and completion, and Today displays planned-versus-actual work | Domain, application, persistence, UI | No | `SessionLoggingBoundaryTests`; `SetResultRepositoryTests`; Today UI controls |
+| Issue #8: Correct and reopen Session work with audit history | Reopen, correct, rollback, and restart | An Active Training Cycle contains a Completed or Skipped Session | 21571 | Explicit confirmation reopens the Session and its finished week; an atomic correction replaces eligible mutable facts, records mandatory before/after values, timestamps, and an optional note, leaves superseded facts in audit history, and refuses terminal cycles | Domain, application, persistence | No | `SessionCorrectionRepositoryTests`; correction boundary |
 
 Health authorization, exports, and recovery remain outside these slices. Progress owner-data workflows are still not exposed.

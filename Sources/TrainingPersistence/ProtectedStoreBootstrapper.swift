@@ -254,6 +254,35 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("confirmed_at", .integer).notNull()
       }
     }
+    migrator.registerMigration("authoritative_v7_session_corrections") { db in
+      try db.create(table: "session_projections") { table in
+        table.column("session_id", .text).primaryKey()
+        table.column("cycle_id", .text).notNull()
+        table.column("status", .text).notNull()
+          .check {
+            $0 == "scheduled" || $0 == "inProgress" || $0 == "completed" || $0 == "skipped"
+          }
+        table.column("intended_date", .text).notNull()
+        table.column("primary_lift_id", .text).notNull().check { $0 != "" }
+        table.column("assistance_lift_id", .text).notNull().check { $0 != "" }
+        table.column("updated_at", .integer).notNull()
+      }
+      try db.create(
+        index: "session_projections_cycle", on: "session_projections",
+        columns: ["cycle_id", "updated_at"])
+      try db.create(table: "session_correction_audit") { table in
+        table.column("id", .text).primaryKey()
+        table.column("cycle_id", .text).notNull()
+        table.column("session_id", .text).notNull()
+        table.column("occurred_at", .integer).notNull()
+        table.column("note", .text)
+        table.column("before_json", .text).notNull()
+        table.column("after_json", .text).notNull()
+      }
+      try db.create(
+        index: "session_correction_audit_session_time", on: "session_correction_audit",
+        columns: ["session_id", "occurred_at"])
+    }
     return migrator
   }
 

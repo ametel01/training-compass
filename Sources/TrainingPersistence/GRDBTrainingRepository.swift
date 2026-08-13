@@ -444,6 +444,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
       else {
         throw SetResultRepositoryError.unknownSession
       }
+      guard !session.status.isTerminal else { throw SetResultRepositoryError.sessionLocked }
       guard session.prescriptions.contains(where: { $0.id == result.prescriptionID }) else {
         throw SetResultRepositoryError.unknownPrescription
       }
@@ -484,6 +485,16 @@ public actor GRDBTrainingRepository: TrainingRepository {
       try db.execute(
         sql: "DELETE FROM omitted_sets WHERE session_id = ? AND prescription_id = ?",
         arguments: [result.sessionID, result.prescriptionID]
+      )
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: session,
+        status: .inProgress,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        updatedAt: occurredAt
       )
       try db.execute(
         sql: """
@@ -566,6 +577,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
       guard let active = try Self.trainingCycle(from: db, state: .active),
         let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == omission.sessionID })
       else { throw SetResultRepositoryError.unknownSession }
+      guard !session.status.isTerminal else { throw SetResultRepositoryError.sessionLocked }
       guard session.prescriptions.contains(where: { $0.id == omission.prescriptionID }) else {
         throw SetResultRepositoryError.unknownPrescription
       }
@@ -593,6 +605,16 @@ public actor GRDBTrainingRepository: TrainingRepository {
       try db.execute(
         sql: "DELETE FROM set_results WHERE session_id = ? AND prescription_id = ?",
         arguments: [omission.sessionID, omission.prescriptionID]
+      )
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: session,
+        status: .inProgress,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        updatedAt: occurredAt
       )
       _ = auditID
       _ = occurredAt
@@ -633,6 +655,9 @@ public actor GRDBTrainingRepository: TrainingRepository {
       guard let active = try Self.trainingCycle(from: db, state: .active),
         active.weeks.flatMap(\.sessions).contains(where: { $0.id == set.sessionID })
       else { throw SetResultRepositoryError.unknownSession }
+      guard let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == set.sessionID }),
+        !session.status.isTerminal
+      else { throw SetResultRepositoryError.sessionLocked }
       let existing =
         try Row.fetchOne(
           db,
@@ -664,6 +689,16 @@ public actor GRDBTrainingRepository: TrainingRepository {
           ]
         )
       }
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: session,
+        status: .inProgress,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        updatedAt: set.recordedAt
+      )
       return set
     }
   }
@@ -671,6 +706,10 @@ public actor GRDBTrainingRepository: TrainingRepository {
   public func deleteAdditionalSet(sessionID: String, id: String) async throws {
     let stores = try await readyStores()
     try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == sessionID }),
+        !session.status.isTerminal
+      else { throw SetResultRepositoryError.sessionLocked }
       guard
         try Row.fetchOne(
           db,
@@ -689,6 +728,10 @@ public actor GRDBTrainingRepository: TrainingRepository {
   public func reorderAdditionalSets(sessionID: String, orderedIDs: [String]) async throws {
     let stores = try await readyStores()
     try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: { $0.id == sessionID }),
+        !session.status.isTerminal
+      else { throw SetResultRepositoryError.sessionLocked }
       let rows = try Row.fetchAll(
         db,
         sql: "SELECT id FROM additional_sets WHERE session_id = ? ORDER BY position, rowid",
@@ -736,6 +779,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
           $0.id == completion.sessionID
         })
       else { throw SetResultRepositoryError.unknownSession }
+      guard !session.status.isTerminal else { throw SessionLoggingError.alreadyCompleted }
       let resultIDs = try Set(
         String.fetchAll(
           db,
@@ -760,7 +804,207 @@ public actor GRDBTrainingRepository: TrainingRepository {
         sql: "INSERT INTO session_completions (session_id, confirmed_at) VALUES (?, ?)",
         arguments: [completion.sessionID, completion.confirmedAt]
       )
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: session,
+        status: .completed,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        updatedAt: completion.confirmedAt
+      )
       return completion
+    }
+  }
+
+  public func loadSessionCorrectionSnapshot(sessionID: String) async throws
+    -> SessionCorrectionSnapshot?
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      let rows = try Row.fetchAll(db, sql: "SELECT cycle_json FROM training_cycles")
+      for row in rows {
+        let cycle = try Self.projectedTrainingCycle(from: db, cycle: Self.trainingCycle(from: row))
+        if let session = cycle.weeks.flatMap(\.sessions).first(where: { $0.id == sessionID }) {
+          return try Self.correctionSnapshot(from: db, cycle: cycle, session: session)
+        }
+      }
+      return nil
+    }
+  }
+
+  public func sessionBelongsToTerminalCycle(sessionID: String) async throws -> Bool {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(db, sql: "SELECT lifecycle_state, cycle_json FROM training_cycles")
+        .contains { row in
+          guard let state = row["lifecycle_state"] as String?,
+            state == TrainingCycleLifecycleState.completed.rawValue
+              || state == TrainingCycleLifecycleState.abandoned.rawValue,
+            let cycle = try? Self.trainingCycle(from: row)
+          else { return false }
+          return cycle.weeks.flatMap(\.sessions).contains(where: { $0.id == sessionID })
+        }
+    }
+  }
+
+  public func applySessionCorrection(
+    _ request: SessionCorrectionRequest,
+    expectedBefore: SessionCorrectionSnapshot?,
+    confirmation: SessionReopenConfirmation,
+    auditID: String,
+    occurredAt: Int64
+  ) async throws -> SessionCorrectionAuditEntry {
+    guard confirmation == .confirmed else { throw SetResultRepositoryError.confirmationRequired }
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let original = active.weeks.flatMap(\.sessions).first(where: { $0.id == request.sessionID })
+      else {
+        let hasTerminalSession = try Row.fetchAll(db, sql: "SELECT cycle_json FROM training_cycles")
+          .contains { row in
+            guard let cycle = try? Self.trainingCycle(from: row) else { return false }
+            return cycle.lifecycleState != .active
+              && cycle.weeks.flatMap(\.sessions).contains(where: { $0.id == request.sessionID })
+          }
+        throw hasTerminalSession
+          ? SetResultRepositoryError.terminalCycle
+          : SetResultRepositoryError.unknownSession
+      }
+      let current = try Self.correctionSnapshot(from: db, cycle: active, session: original)
+      if let expectedBefore, expectedBefore != current {
+        throw SetResultRepositoryError.staleCorrection
+      }
+      guard request.sessionID == original.id,
+        !request.primaryLiftID.isEmpty,
+        !request.assistanceLiftID.isEmpty,
+        active.liftSnapshots[request.primaryLiftID] != nil,
+        active.liftSnapshots[request.assistanceLiftID] != nil
+      else { throw SetResultRepositoryError.invalidCorrection }
+      let prescriptionIDs = Set(original.prescriptions.map(\.id))
+      let resultIDs = request.results.map(\.prescriptionID)
+      let omissionIDs = request.omissions.map(\.prescriptionID)
+      guard Set(resultIDs).count == resultIDs.count,
+        Set(omissionIDs).count == omissionIDs.count,
+        Set(resultIDs).isDisjoint(with: omissionIDs),
+        resultIDs.allSatisfy({ prescriptionIDs.contains($0) }),
+        omissionIDs.allSatisfy({ prescriptionIDs.contains($0) }),
+        request.results.allSatisfy({ $0.sessionID == request.sessionID }),
+        request.omissions.allSatisfy({ $0.sessionID == request.sessionID }),
+        request.additionalSets.allSatisfy({ $0.sessionID == request.sessionID }),
+        Set(request.additionalSets.map(\.id)).count == request.additionalSets.count,
+        request.additionalSets.map(\.position) == Array(0..<request.additionalSets.count)
+      else { throw SetResultRepositoryError.invalidCorrection }
+      if request.status == .completed {
+        guard prescriptionIDs.isSubset(of: Set(resultIDs).union(omissionIDs)) else {
+          throw SessionLoggingError.incompleteSession
+        }
+      }
+      if request.status == .scheduled || request.status == .skipped {
+        guard resultIDs.isEmpty, omissionIDs.isEmpty, request.additionalSets.isEmpty else {
+          throw SetResultRepositoryError.invalidCorrection
+        }
+      }
+
+      try db.execute(
+        sql: "DELETE FROM set_results WHERE session_id = ?", arguments: [request.sessionID])
+      try db.execute(
+        sql: "DELETE FROM omitted_sets WHERE session_id = ?", arguments: [request.sessionID])
+      try db.execute(
+        sql: "DELETE FROM additional_sets WHERE session_id = ?", arguments: [request.sessionID])
+      try db.execute(
+        sql: "DELETE FROM session_completions WHERE session_id = ?", arguments: [request.sessionID])
+      for result in request.results {
+        try db.execute(
+          sql:
+            "INSERT INTO set_results (id, session_id, prescription_id, result_json, recorded_at) VALUES (?, ?, ?, ?, ?)",
+          arguments: [
+            result.id, result.sessionID, result.prescriptionID,
+            try Self.encodeRecordedSetResult(result), result.recordedAt,
+          ])
+      }
+      for omission in request.omissions {
+        try db.execute(
+          sql:
+            "INSERT INTO omitted_sets (session_id, prescription_id, reason, omitted_at) VALUES (?, ?, ?, ?)",
+          arguments: [
+            omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt,
+          ])
+      }
+      for set in request.additionalSets {
+        try db.execute(
+          sql:
+            "INSERT INTO additional_sets (id, session_id, position, lift_id, weight_kg, repetitions, note, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          arguments: [
+            set.id, set.sessionID, set.position, set.liftID, set.weightKg, set.repetitions,
+            set.note, set.recordedAt,
+          ])
+      }
+      let completion: CompletedSession?
+      if request.status == .completed {
+        completion = CompletedSession(
+          sessionID: request.sessionID,
+          confirmedAt: request.completedAt ?? occurredAt
+        )
+        try db.execute(
+          sql: "INSERT INTO session_completions (session_id, confirmed_at) VALUES (?, ?)",
+          arguments: [completion!.sessionID, completion!.confirmedAt])
+      } else {
+        completion = nil
+      }
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: original,
+        status: request.status,
+        intendedDate: request.intendedDate,
+        primaryLiftID: request.primaryLiftID,
+        assistanceLiftID: request.assistanceLiftID,
+        updatedAt: occurredAt
+      )
+      let after = SessionCorrectionSnapshot(
+        sessionID: request.sessionID,
+        status: request.status,
+        intendedDate: request.intendedDate,
+        primaryLiftID: request.primaryLiftID,
+        assistanceLiftID: request.assistanceLiftID,
+        results: request.results.sorted { $0.prescriptionID < $1.prescriptionID },
+        omissions: request.omissions.sorted { $0.prescriptionID < $1.prescriptionID },
+        additionalSets: request.additionalSets.sorted { $0.position < $1.position },
+        completion: completion,
+        updatedAt: occurredAt
+      )
+      try db.execute(
+        sql:
+          "INSERT INTO session_correction_audit (id, cycle_id, session_id, occurred_at, note, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        arguments: [
+          auditID, active.id, request.sessionID, occurredAt, request.note,
+          try Self.encodeCorrectionSnapshot(current), try Self.encodeCorrectionSnapshot(after),
+        ])
+      return SessionCorrectionAuditEntry(
+        id: auditID,
+        cycleID: active.id,
+        sessionID: request.sessionID,
+        occurredAt: occurredAt,
+        note: request.note,
+        before: current,
+        after: after
+      )
+    }
+  }
+
+  public func sessionCorrectionAuditHistory(for sessionID: String) async throws
+    -> [SessionCorrectionAuditEntry]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql:
+          "SELECT id, cycle_id, session_id, occurred_at, note, before_json, after_json FROM session_correction_audit WHERE session_id = ? ORDER BY occurred_at, rowid",
+        arguments: [sessionID]
+      ).map(Self.sessionCorrectionAuditEntry(from:))
     }
   }
 
@@ -768,6 +1012,148 @@ public actor GRDBTrainingRepository: TrainingRepository {
     try await prepareStores()
     guard let stores else { throw PersistenceError.storesUnavailable }
     return stores
+  }
+
+  private static func upsertSessionProjection(
+    _ db: Database,
+    cycleID: String,
+    session: TrainingCycleSession,
+    status: TrainingSessionStatus,
+    intendedDate: TrainingDate,
+    primaryLiftID: String,
+    assistanceLiftID: String,
+    updatedAt: Int64
+  ) throws {
+    try db.execute(
+      sql: """
+        INSERT INTO session_projections
+          (session_id, cycle_id, status, intended_date, primary_lift_id, assistance_lift_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+          cycle_id = excluded.cycle_id,
+          status = excluded.status,
+          intended_date = excluded.intended_date,
+          primary_lift_id = excluded.primary_lift_id,
+          assistance_lift_id = excluded.assistance_lift_id,
+          updated_at = excluded.updated_at
+        """,
+      arguments: [
+        session.id, cycleID, status.rawValue, intendedDate.iso8601String,
+        primaryLiftID, assistanceLiftID, updatedAt,
+      ]
+    )
+  }
+
+  private static func correctionSnapshot(
+    from db: Database,
+    cycle: TrainingCycle,
+    session: TrainingCycleSession
+  ) throws -> SessionCorrectionSnapshot {
+    let results = try Row.fetchAll(
+      db,
+      sql: "SELECT result_json FROM set_results WHERE session_id = ? ORDER BY prescription_id",
+      arguments: [session.id]
+    ).map(recordedSetResult(from:))
+    let omissions = try Row.fetchAll(
+      db,
+      sql:
+        "SELECT session_id, prescription_id, reason, omitted_at FROM omitted_sets WHERE session_id = ? ORDER BY prescription_id",
+      arguments: [session.id]
+    ).map {
+      OmittedSet(
+        sessionID: $0["session_id"], prescriptionID: $0["prescription_id"], reason: $0["reason"],
+        omittedAt: $0["omitted_at"]
+      )
+    }
+    let additional = try Row.fetchAll(
+      db,
+      sql:
+        "SELECT id, session_id, position, lift_id, weight_kg, repetitions, note, recorded_at FROM additional_sets WHERE session_id = ? ORDER BY position, rowid",
+      arguments: [session.id]
+    ).map { row in
+      try AdditionalSet(
+        id: row["id"], sessionID: row["session_id"], position: row["position"],
+        liftID: row["lift_id"], weightKg: row["weight_kg"], repetitions: row["repetitions"],
+        note: row["note"], recordedAt: row["recorded_at"]
+      )
+    }
+    let completion = try Row.fetchOne(
+      db,
+      sql: "SELECT session_id, confirmed_at FROM session_completions WHERE session_id = ?",
+      arguments: [session.id]
+    ).map { CompletedSession(sessionID: $0["session_id"], confirmedAt: $0["confirmed_at"]) }
+    let projectionUpdatedAt = try Int64.fetchOne(
+      db,
+      sql: "SELECT updated_at FROM session_projections WHERE session_id = ? AND cycle_id = ?",
+      arguments: [session.id, cycle.id]
+    )
+    let fallbackUpdatedAt =
+      [
+        completion?.confirmedAt,
+        results.map(\.recordedAt).max(),
+        omissions.map(\.omittedAt).max(),
+        additional.map(\.recordedAt).max(),
+        cycle.updatedAt,
+      ].compactMap { $0 }.max() ?? 0
+    let status: TrainingSessionStatus
+    if session.status == .completed || completion != nil {
+      status = .completed
+    } else if session.status == .skipped {
+      status = .skipped
+    } else if !results.isEmpty || !omissions.isEmpty || !additional.isEmpty {
+      status = .inProgress
+    } else {
+      status = session.status
+    }
+    return SessionCorrectionSnapshot(
+      sessionID: session.id,
+      status: status,
+      intendedDate: session.intendedDate,
+      primaryLiftID: session.primaryLiftID,
+      assistanceLiftID: session.assistanceLiftID,
+      results: results,
+      omissions: omissions,
+      additionalSets: additional,
+      completion: completion,
+      updatedAt: projectionUpdatedAt ?? fallbackUpdatedAt
+    )
+  }
+
+  private static func encodeCorrectionSnapshot(_ snapshot: SessionCorrectionSnapshot) throws
+    -> String
+  {
+    let data = try JSONEncoder().encode(snapshot)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidSessionCorrectionAudit
+    }
+    return string
+  }
+
+  private static func correctionSnapshot(fromJSON value: String?) throws
+    -> SessionCorrectionSnapshot
+  {
+    guard let value, let data = value.data(using: .utf8) else {
+      throw PersistenceError.invalidSessionCorrectionAudit
+    }
+    do {
+      return try JSONDecoder().decode(SessionCorrectionSnapshot.self, from: data)
+    } catch {
+      throw PersistenceError.invalidSessionCorrectionAudit
+    }
+  }
+
+  private static func sessionCorrectionAuditEntry(from row: Row) throws
+    -> SessionCorrectionAuditEntry
+  {
+    SessionCorrectionAuditEntry(
+      id: row["id"],
+      cycleID: row["cycle_id"],
+      sessionID: row["session_id"],
+      occurredAt: row["occurred_at"],
+      note: row["note"],
+      before: try correctionSnapshot(fromJSON: row["before_json"]),
+      after: try correctionSnapshot(fromJSON: row["after_json"])
+    )
   }
 
   private func loadTrainingCycle(state: TrainingCycleLifecycleState) async throws
@@ -801,7 +1187,7 @@ public actor GRDBTrainingRepository: TrainingRepository {
         arguments: [state.rawValue]
       )
     else { return nil }
-    return try trainingCycle(from: row)
+    return try projectedTrainingCycle(from: db, cycle: trainingCycle(from: row))
   }
 
   private static func trainingCycle(from db: Database, id: String) throws -> TrainingCycle? {
@@ -812,7 +1198,104 @@ public actor GRDBTrainingRepository: TrainingRepository {
         arguments: [id]
       )
     else { return nil }
-    return try trainingCycle(from: row)
+    return try projectedTrainingCycle(from: db, cycle: trainingCycle(from: row))
+  }
+
+  private static func projectedTrainingCycle(from db: Database, cycle: TrainingCycle)
+    throws -> TrainingCycle
+  {
+    let weeks = try cycle.weeks.map { week in
+      let sessions = try week.sessions.map { session in
+        try projectedSession(from: db, cycleID: cycle.id, session: session)
+      }
+      return TrainingWeek(
+        id: week.id,
+        position: week.position,
+        kind: week.kind,
+        startDate: week.startDate,
+        sessions: sessions
+      )
+    }
+    return TrainingCycle(
+      id: cycle.id,
+      week1AnchorDate: cycle.week1AnchorDate,
+      weeks: weeks,
+      sourceTemplate: cycle.sourceTemplate,
+      includesProvisionalDeload: cycle.includesProvisionalDeload,
+      lifecycleState: cycle.lifecycleState,
+      createdAt: cycle.createdAt,
+      updatedAt: cycle.updatedAt,
+      liftSnapshots: cycle.liftSnapshots
+    )
+  }
+
+  private static func projectedSession(
+    from db: Database,
+    cycleID: String,
+    session: TrainingCycleSession
+  ) throws -> TrainingCycleSession {
+    guard
+      let row = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT status, intended_date, primary_lift_id, assistance_lift_id
+          FROM session_projections WHERE session_id = ? AND cycle_id = ?
+          """,
+        arguments: [session.id, cycleID]
+      )
+    else {
+      let hasCompletion =
+        try Row.fetchOne(
+          db,
+          sql: "SELECT 1 FROM session_completions WHERE session_id = ?",
+          arguments: [session.id]
+        ) != nil
+      let workCount =
+        try Int.fetchOne(
+          db,
+          sql: """
+            SELECT (
+              (SELECT COUNT(*) FROM set_results WHERE session_id = ?) +
+              (SELECT COUNT(*) FROM omitted_sets WHERE session_id = ?) +
+              (SELECT COUNT(*) FROM additional_sets WHERE session_id = ?)
+            )
+            """,
+          arguments: [session.id, session.id, session.id]
+        ) ?? 0
+      let hasWork = workCount > 0
+      let status =
+        hasCompletion
+        ? TrainingSessionStatus.completed
+        : (hasWork ? .inProgress : session.status)
+      return TrainingCycleSession(
+        id: session.id,
+        intendedDate: session.intendedDate,
+        sourceTemplateSessionID: session.sourceTemplateSessionID,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        prescriptions: session.prescriptions,
+        status: status
+      )
+    }
+    guard let status = TrainingSessionStatus(rawValue: row["status"] as String) else {
+      throw PersistenceError.invalidSessionProjection
+    }
+    let intendedDate = try parseTrainingDate(row["intended_date"] as String)
+    return TrainingCycleSession(
+      id: session.id,
+      intendedDate: intendedDate,
+      sourceTemplateSessionID: session.sourceTemplateSessionID,
+      primaryLiftID: row["primary_lift_id"],
+      assistanceLiftID: row["assistance_lift_id"],
+      prescriptions: session.prescriptions,
+      status: status
+    )
+  }
+
+  private static func parseTrainingDate(_ value: String) throws -> TrainingDate {
+    let parts = value.split(separator: "-").compactMap { Int($0) }
+    guard parts.count == 3 else { throw PersistenceError.invalidSessionProjection }
+    return TrainingDate(year: parts[0], month: parts[1], day: parts[2])
   }
 
   private static func trainingCycle(from row: Row) throws -> TrainingCycle {
@@ -1107,6 +1590,8 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidTrainingCycleAudit
   case invalidSetResult
   case invalidSetResultAudit
+  case invalidSessionProjection
+  case invalidSessionCorrectionAudit
   case storesUnavailable
 }
 

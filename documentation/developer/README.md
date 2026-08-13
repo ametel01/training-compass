@@ -1,6 +1,6 @@
 # Developer documentation
 
-Training Compass contains the protected Gate 0 shell plus the Local Training Core slices from issues #2 through #7: TMs configures kilogram Training Maxes and per-lift Loading Increments, Cycle maintains the reusable Schedule Template, prepares one confirmed, audited Draft Training Cycle with independent dated weeks, and activates one durable cycle with immutable Training Max snapshots and 5/3/1 Set Prescriptions. Today loads the current scheduled Session, records performed or failed Set Results, preserves explicit Omitted dispositions and ordered Additional Sets, and requires explicit confirmation before displaying a completed planned-versus-actual Session; Progress remains an unfinished destination.
+Training Compass contains the protected Gate 0 shell plus the Local Training Core slices from issues #2 through #8: TMs configures kilogram Training Maxes and per-lift Loading Increments, Cycle maintains the reusable Schedule Template, prepares one confirmed, audited Draft Training Cycle with independent dated weeks, and activates one durable cycle with immutable Training Max snapshots and 5/3/1 Set Prescriptions. Today loads the current Session, records performed or failed Set Results, preserves explicit Omitted dispositions and ordered Additional Sets, requires explicit confirmation before displaying a completed planned-versus-actual Session, and supports correction-backed reopening of terminal sessions; Progress remains an unfinished destination.
 
 ## How-to guides
 

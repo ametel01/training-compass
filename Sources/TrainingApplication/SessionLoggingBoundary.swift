@@ -13,6 +13,13 @@ public enum SessionCompletionConfirmation: Codable, Equatable, Sendable {
   case confirmed
 }
 
+public enum SessionReopenConfirmation: Codable, Equatable, Sendable {
+  case confirmed
+  case cancelled
+}
+
+public typealias SessionStatus = TrainingSessionStatus
+
 public struct CompletedSession: Codable, Equatable, Identifiable, Sendable {
   public let sessionID: String
   public let confirmedAt: Int64
@@ -24,6 +31,131 @@ public struct CompletedSession: Codable, Equatable, Identifiable, Sendable {
 
   public var id: String { sessionID }
 }
+
+/// The complete current projection of one session. It is the optimistic-concurrency
+/// token for a correction and the before/after payload retained in correction history.
+public struct SessionCorrectionSnapshot: Codable, Equatable, Identifiable, Sendable {
+  public let sessionID: String
+  public let status: TrainingSessionStatus
+  public let intendedDate: TrainingDate
+  public let primaryLiftID: String
+  public let assistanceLiftID: String
+  public let results: [RecordedSetResult]
+  public let omissions: [OmittedSet]
+  public let additionalSets: [AdditionalSet]
+  public let completion: CompletedSession?
+  public let updatedAt: Int64
+
+  public init(
+    sessionID: String,
+    status: TrainingSessionStatus,
+    intendedDate: TrainingDate,
+    primaryLiftID: String,
+    assistanceLiftID: String,
+    results: [RecordedSetResult] = [],
+    omissions: [OmittedSet] = [],
+    additionalSets: [AdditionalSet] = [],
+    completion: CompletedSession? = nil,
+    updatedAt: Int64 = 0
+  ) {
+    self.sessionID = sessionID
+    self.status = status
+    self.intendedDate = intendedDate
+    self.primaryLiftID = primaryLiftID
+    self.assistanceLiftID = assistanceLiftID
+    self.results = results
+    self.omissions = omissions
+    self.additionalSets = additionalSets
+    self.completion = completion
+    self.updatedAt = updatedAt
+  }
+
+  public var id: String { sessionID }
+}
+
+/// A complete replacement for the mutable facts of a session. Prescriptions remain
+/// owned by the activated cycle and therefore cannot be supplied here.
+public struct SessionCorrectionRequest: Codable, Equatable, Sendable {
+  public let sessionID: String
+  public let status: TrainingSessionStatus
+  public let intendedDate: TrainingDate
+  public let primaryLiftID: String
+  public let assistanceLiftID: String
+  public let results: [RecordedSetResult]
+  public let omissions: [OmittedSet]
+  public let additionalSets: [AdditionalSet]
+  public let completedAt: Int64?
+  public let note: String?
+
+  public init(
+    sessionID: String,
+    status: TrainingSessionStatus,
+    intendedDate: TrainingDate,
+    primaryLiftID: String,
+    assistanceLiftID: String,
+    results: [RecordedSetResult] = [],
+    omissions: [OmittedSet] = [],
+    additionalSets: [AdditionalSet] = [],
+    completedAt: Int64? = nil,
+    note: String? = nil
+  ) {
+    self.sessionID = sessionID
+    self.status = status
+    self.intendedDate = intendedDate
+    self.primaryLiftID = primaryLiftID
+    self.assistanceLiftID = assistanceLiftID
+    self.results = results
+    self.omissions = omissions
+    self.additionalSets = additionalSets
+    self.completedAt = completedAt
+    self.note = note?.isEmpty == true ? nil : note
+  }
+
+  public init(snapshot: SessionCorrectionSnapshot, note: String? = nil) {
+    self.init(
+      sessionID: snapshot.sessionID,
+      status: snapshot.status,
+      intendedDate: snapshot.intendedDate,
+      primaryLiftID: snapshot.primaryLiftID,
+      assistanceLiftID: snapshot.assistanceLiftID,
+      results: snapshot.results,
+      omissions: snapshot.omissions,
+      additionalSets: snapshot.additionalSets,
+      completedAt: snapshot.completion?.confirmedAt,
+      note: note
+    )
+  }
+}
+
+public struct SessionCorrectionAuditEntry: Codable, Equatable, Identifiable, Sendable {
+  public let id: String
+  public let cycleID: String
+  public let sessionID: String
+  public let occurredAt: Int64
+  public let note: String?
+  public let before: SessionCorrectionSnapshot
+  public let after: SessionCorrectionSnapshot
+
+  public init(
+    id: String,
+    cycleID: String,
+    sessionID: String,
+    occurredAt: Int64,
+    note: String?,
+    before: SessionCorrectionSnapshot,
+    after: SessionCorrectionSnapshot
+  ) {
+    self.id = id
+    self.cycleID = cycleID
+    self.sessionID = sessionID
+    self.occurredAt = occurredAt
+    self.note = note
+    self.before = before
+    self.after = after
+  }
+}
+
+public typealias SessionCorrection = SessionCorrectionRequest
 
 public struct SetResultAuditEntry: Codable, Equatable, Sendable, Identifiable {
   public let id: String
@@ -96,6 +228,7 @@ public enum TodaySessionState: String, Codable, Equatable, Sendable {
   case inProgress
   case readyToComplete
   case completed
+  case skipped
 
   public var displayName: String {
     switch self {
@@ -103,6 +236,7 @@ public enum TodaySessionState: String, Codable, Equatable, Sendable {
     case .inProgress: "In Progress"
     case .readyToComplete: "Ready to Complete"
     case .completed: "Completed"
+    case .skipped: "Skipped"
     }
   }
 }
@@ -145,7 +279,8 @@ public struct TodaySessionSnapshot: Codable, Equatable, Sendable, Identifiable {
 
   public var id: String { session.id }
   public var state: TodaySessionState {
-    if completion != nil { return .completed }
+    if session.status == .skipped { return .skipped }
+    if completion != nil || session.status == .completed { return .completed }
     if sets.allSatisfy(\.isResolved) { return .readyToComplete }
     if sets.contains(where: { $0.isResolved }) { return .inProgress }
     return .scheduled
@@ -215,6 +350,17 @@ public protocol SetResultRepository: Sendable {
     _ completion: CompletedSession,
     confirmation: SessionCompletionConfirmation
   ) async throws -> CompletedSession
+  func loadSessionCorrectionSnapshot(sessionID: String) async throws -> SessionCorrectionSnapshot?
+  func sessionBelongsToTerminalCycle(sessionID: String) async throws -> Bool
+  func applySessionCorrection(
+    _ request: SessionCorrectionRequest,
+    expectedBefore: SessionCorrectionSnapshot?,
+    confirmation: SessionReopenConfirmation,
+    auditID: String,
+    occurredAt: Int64
+  ) async throws -> SessionCorrectionAuditEntry
+  func sessionCorrectionAuditHistory(for sessionID: String) async throws
+    -> [SessionCorrectionAuditEntry]
 }
 
 public enum SetResultRepositoryError: Error, Equatable, Sendable {
@@ -222,6 +368,11 @@ public enum SetResultRepositoryError: Error, Equatable, Sendable {
   case unknownSession
   case unknownPrescription
   case staleResult
+  case staleCorrection
+  case sessionLocked
+  case invalidCorrection
+  case terminalCycle
+  case confirmationRequired
 }
 
 extension SetResultRepository {
@@ -275,6 +426,26 @@ extension SetResultRepository {
   ) async throws -> CompletedSession {
     throw SetResultRepositoryError.unavailable
   }
+
+  public func loadSessionCorrectionSnapshot(sessionID: String) async throws
+    -> SessionCorrectionSnapshot?
+  { nil }
+
+  public func sessionBelongsToTerminalCycle(sessionID: String) async throws -> Bool { false }
+
+  public func applySessionCorrection(
+    _ request: SessionCorrectionRequest,
+    expectedBefore: SessionCorrectionSnapshot?,
+    confirmation: SessionReopenConfirmation,
+    auditID: String,
+    occurredAt: Int64
+  ) async throws -> SessionCorrectionAuditEntry {
+    throw SetResultRepositoryError.unavailable
+  }
+
+  public func sessionCorrectionAuditHistory(for sessionID: String) async throws
+    -> [SessionCorrectionAuditEntry]
+  { [] }
 }
 
 public struct SessionLoggingBoundary: Sendable {
@@ -525,6 +696,178 @@ public struct SessionLoggingBoundary: Sendable {
     try await completeSession(sessionID: sessionID, confirmation: .confirmed)
   }
 
+  /// Reopens a terminal session after an explicit confirmation. The current
+  /// records are retained, while the completion/skipped disposition is removed.
+  @discardableResult
+  public func reopenSession(
+    sessionID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> TodaySessionSnapshot {
+    guard confirmation == .confirmed else {
+      throw SessionLoggingError.confirmationRequired
+    }
+    guard try await !resultRepository.sessionBelongsToTerminalCycle(sessionID: sessionID) else {
+      throw SetResultRepositoryError.terminalCycle
+    }
+    guard let current = try await correctionSnapshot(sessionID: sessionID) else {
+      throw SessionLoggingError.unknownSession
+    }
+    guard current.status.isTerminal else {
+      throw SessionLoggingError.sessionNotTerminal
+    }
+    let request = SessionCorrectionRequest(
+      sessionID: current.sessionID,
+      status: .inProgress,
+      intendedDate: current.intendedDate,
+      primaryLiftID: current.primaryLiftID,
+      assistanceLiftID: current.assistanceLiftID,
+      results: current.results,
+      omissions: current.omissions,
+      additionalSets: current.additionalSets,
+      note: note
+    )
+    _ = try await resultRepository.applySessionCorrection(
+      request,
+      expectedBefore: current,
+      confirmation: confirmation,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: timestamp()
+    )
+    guard let reopened = try await session(on: request.intendedDate) else {
+      throw SessionLoggingError.unknownSession
+    }
+    return reopened
+  }
+
+  public func reopen(
+    sessionID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> TodaySessionSnapshot {
+    try await reopenSession(sessionID: sessionID, confirmation: confirmation, note: note)
+  }
+
+  /// Atomically replaces the mutable facts of a session and records one
+  /// before/after correction audit entry. The activated prescriptions remain
+  /// outside the request and cannot be structurally rewritten.
+  @discardableResult
+  public func correctSession(
+    _ request: SessionCorrectionRequest,
+    confirmation: SessionReopenConfirmation,
+    expectedBefore: SessionCorrectionSnapshot? = nil
+  ) async throws -> SessionCorrectionAuditEntry {
+    guard confirmation == .confirmed else {
+      throw SessionLoggingError.confirmationRequired
+    }
+    guard try await !resultRepository.sessionBelongsToTerminalCycle(sessionID: request.sessionID)
+    else {
+      throw SetResultRepositoryError.terminalCycle
+    }
+    guard try await activeSession(sessionID: request.sessionID) != nil else {
+      if let terminal = try await resultRepository.loadSessionCorrectionSnapshot(
+        sessionID: request.sessionID), terminal.status.isTerminal
+      {
+        throw SetResultRepositoryError.terminalCycle
+      }
+      throw SessionLoggingError.unknownSession
+    }
+    let current: SessionCorrectionSnapshot?
+    if let expectedBefore {
+      current = expectedBefore
+    } else {
+      current = try await correctionSnapshot(sessionID: request.sessionID)
+    }
+    return try await resultRepository.applySessionCorrection(
+      request,
+      expectedBefore: current,
+      confirmation: confirmation,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: timestamp()
+    )
+  }
+
+  @discardableResult
+  public func correct(
+    _ request: SessionCorrectionRequest,
+    confirmation: SessionReopenConfirmation,
+    expectedBefore: SessionCorrectionSnapshot? = nil
+  ) async throws -> SessionCorrectionAuditEntry {
+    try await correctSession(
+      request, confirmation: confirmation, expectedBefore: expectedBefore)
+  }
+
+  @discardableResult
+  public func skipSession(
+    sessionID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> TodaySessionSnapshot {
+    guard confirmation == .confirmed else {
+      throw SessionLoggingError.confirmationRequired
+    }
+    guard let current = try await correctionSnapshot(sessionID: sessionID) else {
+      throw SessionLoggingError.unknownSession
+    }
+    let request = SessionCorrectionRequest(
+      sessionID: current.sessionID,
+      status: .skipped,
+      intendedDate: current.intendedDate,
+      primaryLiftID: current.primaryLiftID,
+      assistanceLiftID: current.assistanceLiftID,
+      results: current.results,
+      omissions: current.omissions,
+      additionalSets: current.additionalSets,
+      note: note
+    )
+    _ = try await resultRepository.applySessionCorrection(
+      request,
+      expectedBefore: current,
+      confirmation: confirmation,
+      auditID: uuidGenerator.makeUUID().uuidString,
+      occurredAt: timestamp()
+    )
+    guard let skipped = try await session(on: request.intendedDate) else {
+      throw SessionLoggingError.unknownSession
+    }
+    return skipped
+  }
+
+  public func skip(
+    sessionID: String,
+    confirmation: SessionReopenConfirmation,
+    note: String? = nil
+  ) async throws -> TodaySessionSnapshot {
+    try await skipSession(sessionID: sessionID, confirmation: confirmation, note: note)
+  }
+
+  public func correctionSnapshot(sessionID: String) async throws
+    -> SessionCorrectionSnapshot?
+  {
+    if let snapshot = try await resultRepository.loadSessionCorrectionSnapshot(sessionID: sessionID)
+    {
+      return snapshot
+    }
+    guard let current = try await activeSession(sessionID: sessionID) else { return nil }
+    return SessionCorrectionSnapshot(
+      sessionID: current.id,
+      status: current.session.status,
+      intendedDate: current.intendedDate,
+      primaryLiftID: current.session.primaryLiftID,
+      assistanceLiftID: current.session.assistanceLiftID,
+      results: current.results,
+      omissions: current.omissions,
+      additionalSets: current.additionalSets,
+      completion: current.completion
+    )
+  }
+
+  public func correctionAuditHistory(for sessionID: String) async throws
+    -> [SessionCorrectionAuditEntry]
+  {
+    try await resultRepository.sessionCorrectionAuditHistory(for: sessionID)
+  }
+
   public func auditHistory(for sessionID: String) async throws -> [SetResultAuditEntry] {
     try await resultRepository.setResultAuditHistory(for: sessionID)
   }
@@ -556,4 +899,9 @@ public enum SessionLoggingError: Error, Equatable, Sendable {
   case confirmationRequired
   case alreadyCompleted
   case unknownAdditionalSet
+  case sessionNotTerminal
 }
+
+/// Convenience boundary for callers that do not need the ordinary Today
+/// logging operations. It shares the same repository and concurrency seams.
+public typealias SessionCorrectionBoundary = SessionLoggingBoundary

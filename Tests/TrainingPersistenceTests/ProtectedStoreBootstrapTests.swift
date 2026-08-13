@@ -67,7 +67,7 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
     )
   }
 
-  func testUpgradesAV5StoreDirectlyToV6() throws {
+  func testUpgradesAV6StoreDirectlyToV7() throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -75,12 +75,15 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
     let stores = try bootstrapper.open(in: root)
 
     try stores.authoritative.write { db in
-      for table in ["session_completions", "additional_sets", "omitted_sets"] {
+      try db.execute(
+        sql: "INSERT INTO session_completions (session_id, confirmed_at) VALUES (?, ?)",
+        arguments: ["existing-session", 42])
+      for table in ["session_correction_audit", "session_projections"] {
         try db.execute(sql: "DROP TABLE \(table)")
       }
       try db.execute(
         sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
-        arguments: ["authoritative_v6_session_logging_completion"]
+        arguments: ["authoritative_v7_session_corrections"]
       )
     }
 
@@ -90,7 +93,15 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         let omitted = try db.tableExists("omitted_sets")
         let additional = try db.tableExists("additional_sets")
         let completions = try db.tableExists("session_completions")
-        return omitted && additional && completions
+        let projections = try db.tableExists("session_projections")
+        let corrections = try db.tableExists("session_correction_audit")
+        let preserved =
+          try Int.fetchOne(
+            db,
+            sql: "SELECT confirmed_at FROM session_completions WHERE session_id = ?",
+            arguments: ["existing-session"]
+          ) == 42
+        return omitted && additional && completions && projections && corrections && preserved
       }
     )
   }
