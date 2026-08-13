@@ -764,7 +764,7 @@ public struct TrainingCycleBoundary: Sendable {
       throw TrainingCycleValidationError.confirmationRequired
     }
     let preview = try await previewCompleteCycle()
-    return try await repository.saveTrainingCycle(
+    let audit = try await repository.saveTrainingCycle(
       preview.after,
       expectedBefore: preview.before,
       auditID: uuidGenerator.makeUUID().uuidString,
@@ -773,6 +773,18 @@ public struct TrainingCycleBoundary: Sendable {
       note: note,
       targetID: nil
     )
+    if let proposalRepository = repository as? any TrainingMaxProposalRepository {
+      let proposalBoundary = TrainingMaxProposalBoundary(
+        proposalRepository: proposalRepository,
+        cycleRepository: repository,
+        resultRepository: repository as? any SetResultRepository,
+        liftRepository: liftRepository,
+        clock: clock,
+        uuidGenerator: uuidGenerator
+      )
+      _ = try await proposalBoundary.generateMissingProposals()
+    }
+    return audit
   }
 
   public func previewAbandonCycle(note: String? = nil) async throws
@@ -1323,6 +1335,20 @@ public struct TrainingCycleBoundary: Sendable {
     let active = try await repository.loadActiveTrainingCycle()
     guard active == nil else { throw TrainingCycleValidationError.activeCycleAlreadyExists }
 
+    if let proposalRepository = repository as? any TrainingMaxProposalRepository {
+      let proposalBoundary = TrainingMaxProposalBoundary(
+        proposalRepository: proposalRepository,
+        cycleRepository: repository,
+        resultRepository: repository as? any SetResultRepository,
+        liftRepository: liftRepository,
+        clock: clock,
+        uuidGenerator: uuidGenerator
+      )
+      if try await proposalBoundary.hasPendingProposals() {
+        throw TrainingCycleValidationError.pendingTrainingMaxProposals
+      }
+    }
+
     if draft.week1AnchorDate < today(), anchorChoice == nil {
       throw TrainingCycleValidationError.pastAnchorRequiresChoice
     }
@@ -1376,13 +1402,17 @@ public struct TrainingCycleBoundary: Sendable {
     guard try await repository.loadActiveTrainingCycle() == nil else {
       throw TrainingCycleValidationError.activeCycleAlreadyExists
     }
-    return try await repository.saveTrainingCycle(
+    let audit = try await repository.saveTrainingCycle(
       preview.after,
       expectedBefore: preview.before,
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp(),
       action: .activated
     )
+    if let proposalRepository = repository as? any TrainingMaxProposalRepository {
+      try await proposalRepository.markTrainingMaxProposalsEffective(cycleID: preview.after.id)
+    }
+    return audit
   }
 
   @discardableResult

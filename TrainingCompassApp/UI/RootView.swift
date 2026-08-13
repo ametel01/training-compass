@@ -1629,6 +1629,9 @@ private struct TMsView: View {
   }
   @State private var draft: TMDraft?
   @State private var pendingPreview: LiftConfigurationChangePreview?
+  @State private var proposals: [TrainingMaxProposal] = []
+  @State private var manualProposal: TrainingMaxProposal?
+  @State private var manualValue = ""
   @State private var showingConfirmation = false
   @State private var errorMessage: String?
 
@@ -1646,6 +1649,58 @@ private struct TMsView: View {
         ForEach(rows.filter { $0.identity.progressionLift != nil }) { item in
           TMRow(item: item) {
             draft = TMDraft(item: item)
+          }
+        }
+      }
+
+      Section("Training Max Proposals") {
+        if proposals.isEmpty {
+          Text("No completed-cycle proposals are waiting for review.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(proposals) { proposal in
+            VStack(alignment: .leading, spacing: 6) {
+              HStack {
+                Text(proposal.liftName).font(.headline)
+                Spacer()
+                Text(proposal.status.rawValue.capitalized)
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+              Text(
+                "\(proposal.currentTrainingMaxKg, specifier: "%.1f") → \(proposal.proposedTrainingMaxKg, specifier: "%.1f") kg · Cycle \(proposal.sourceCycleID)"
+              )
+              .font(.subheadline)
+              Text(
+                "Evidence: \(proposal.evidence.eligibleE1RM.count) eligible e1RM · \(proposal.evidence.excludedWork.count) excluded records"
+              )
+              .font(.caption).foregroundStyle(.secondary)
+              DisclosureGroup("Review evidence") {
+                ForEach(proposal.evidence.eligibleE1RM) { observation in
+                  Text("e1RM \(observation.displayValue) · \(observation.date.iso8601String)")
+                    .font(.caption)
+                }
+                ForEach(proposal.evidence.excludedWork) { work in
+                  Text("\(work.kind.displayName) · \(work.note ?? work.id)")
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(proposal.evidence.explanation.text)
+                  .font(.caption2).foregroundStyle(.secondary)
+              }
+              if proposal.status == .pending {
+                HStack {
+                  Button("Accept") { Task { await decide(proposal, .accept) } }
+                    .accessibilityIdentifier("tm.proposal.accept.\(proposal.id)")
+                  Button("Reject") { Task { await decide(proposal, .reject) } }
+                    .accessibilityIdentifier("tm.proposal.reject.\(proposal.id)")
+                  Button("Replace") {
+                    manualProposal = proposal
+                    manualValue = String(format: "%.1f", proposal.proposedTrainingMaxKg)
+                  }
+                  .accessibilityIdentifier("tm.proposal.replace.\(proposal.id)")
+                }
+              }
+            }
+            .accessibilityIdentifier("tm.proposal.\(proposal.id)")
           }
         }
       }
@@ -1690,6 +1745,29 @@ private struct TMsView: View {
         Task { await review(reviewedDraft) }
       }
     }
+    .sheet(item: $manualProposal) { proposal in
+      NavigationStack {
+        Form {
+          Section("Manual Training Max") {
+            TextField("Kilograms", text: $manualValue)
+              .keyboardType(.decimalPad)
+          }
+        }
+        .navigationTitle("Replace \(proposal.liftName)")
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { manualProposal = nil }
+          }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Save") {
+              guard let value = Double(manualValue) else { return }
+              manualProposal = nil
+              Task { await decide(proposal, .replace(kg: value)) }
+            }
+          }
+        }
+      }
+    }
     .alert("Confirm lift change", isPresented: $showingConfirmation) {
       Button("Cancel", role: .cancel) {
         pendingPreview = nil
@@ -1721,6 +1799,20 @@ private struct TMsView: View {
   private func reload() async {
     do {
       rows = try await model.liftConfigurationBoundary.listTMs()
+      proposals = try await model.trainingMaxProposalBoundary.proposals()
+    } catch {
+      errorMessage = String(describing: error)
+    }
+  }
+
+  private func decide(
+    _ proposal: TrainingMaxProposal,
+    _ decision: TrainingMaxProposalDecision
+  ) async {
+    do {
+      _ = try await model.trainingMaxProposalBoundary.decide(
+        proposalID: proposal.id, decision: decision)
+      await reload()
     } catch {
       errorMessage = String(describing: error)
     }

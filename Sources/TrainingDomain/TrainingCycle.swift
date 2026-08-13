@@ -553,5 +553,6 @@ public enum TrainingCycleValidationError: Error, Equatable, Sendable {
   case cycleNotFinishable
   case weekNotFinishable
   case weekSequenceWarningRequired
+  case pendingTrainingMaxProposals
   case confirmationRequired
 }

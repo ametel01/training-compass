@@ -23,7 +23,8 @@ public protocol ApplicationFileSystem: Sendable {
 }
 
 public protocol TrainingRepository: Sendable, LiftConfigurationRepository,
-  ScheduleTemplateRepository, TrainingCycleRepository, SetResultRepository
+  ScheduleTemplateRepository, TrainingCycleRepository, SetResultRepository,
+  TrainingMaxProposalRepository
 {
   func prepareStores() async throws
 }

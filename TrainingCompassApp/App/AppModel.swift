@@ -21,6 +21,7 @@ final class AppModel {
   let trainingCycleBoundary: TrainingCycleBoundary
   let sessionLoggingBoundary: SessionLoggingBoundary
   let progressBoundary: ProgressBoundary
+  let trainingMaxProposalBoundary: TrainingMaxProposalBoundary
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -28,7 +29,8 @@ final class AppModel {
     scheduleTemplateBoundary: ScheduleTemplateBoundary,
     trainingCycleBoundary: TrainingCycleBoundary,
     sessionLoggingBoundary: SessionLoggingBoundary,
-    progressBoundary: ProgressBoundary
+    progressBoundary: ProgressBoundary,
+    trainingMaxProposalBoundary: TrainingMaxProposalBoundary
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -36,6 +38,7 @@ final class AppModel {
     self.trainingCycleBoundary = trainingCycleBoundary
     self.sessionLoggingBoundary = sessionLoggingBoundary
     self.progressBoundary = progressBoundary
+    self.trainingMaxProposalBoundary = trainingMaxProposalBoundary
   }
 
   func prepare() async {
@@ -91,7 +94,12 @@ final class AppModel {
         calendar: dependencies.calendar,
         uuidGenerator: dependencies.uuidGenerator
       ),
-      progressBoundary: ProgressBoundary(repository: repository, clock: dependencies.clock)
+      progressBoundary: ProgressBoundary(repository: repository, clock: dependencies.clock),
+      trainingMaxProposalBoundary: TrainingMaxProposalBoundary(
+        repository: repository,
+        clock: dependencies.clock,
+        uuidGenerator: dependencies.uuidGenerator
+      )
     )
   }
 }

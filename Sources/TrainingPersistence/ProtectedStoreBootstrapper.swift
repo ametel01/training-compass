@@ -322,6 +322,54 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.add(column: "target_id", .text)
       }
     }
+    migrator.registerMigration("authoritative_v11_training_max_proposals") { db in
+      try db.create(table: "training_max_proposals") { table in
+        table.column("id", .text).primaryKey()
+        table.column("lift_id", .text).notNull().references("lifts", onDelete: .restrict)
+        table.column("source_cycle_id", .text).notNull()
+        table.column("status", .text).notNull()
+          .check {
+            $0 == "pending" || $0 == "accepted" || $0 == "rejected"
+              || $0 == "manuallyReplaced"
+          }
+        table.column("proposal_json", .text).notNull()
+        table.column("created_at", .integer).notNull()
+        table.column("updated_at", .integer).notNull()
+      }
+      try db.create(
+        index: "training_max_proposals_cycle_lift",
+        on: "training_max_proposals",
+        columns: ["source_cycle_id", "lift_id"],
+        unique: true
+      )
+      try db.create(table: "training_max_history") { table in
+        table.column("id", .text).primaryKey()
+        table.column("lift_id", .text).notNull().references("lifts", onDelete: .restrict)
+        table.column("event", .text).notNull()
+        table.column("occurred_at", .integer).notNull()
+        table.column("history_json", .text).notNull()
+      }
+      try db.create(
+        index: "training_max_history_lift_time",
+        on: "training_max_history",
+        columns: ["lift_id", "occurred_at"]
+      )
+      try db.execute(
+        sql: """
+          INSERT INTO training_max_history
+            (id, lift_id, event, occurred_at, history_json)
+          SELECT
+            lifts.id || ':initial', lifts.id, 'initial', lifts.created_at,
+            json_object(
+              'id', lifts.id || ':initial', 'liftID', lifts.id, 'event', 'initial',
+              'occurredAt', lifts.created_at, 'beforeKg', NULL,
+              'afterKg', lifts.training_max_kg, 'proposalID', NULL, 'cycleID', NULL,
+              'effectiveCycleID', NULL, 'evidence', NULL, 'decision', NULL, 'note', NULL
+            )
+          FROM lifts
+          """
+      )
+    }
     return migrator
   }
 

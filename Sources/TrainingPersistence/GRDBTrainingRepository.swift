@@ -113,6 +113,31 @@ public actor GRDBTrainingRepository: TrainingRepository {
           after.loadingIncrementKg,
         ]
       )
+      let historyEvent: TrainingMaxHistoryEvent
+      switch action {
+      case .created: historyEvent = .initial
+      case .edited: historyEvent = .manual
+      case .corrected: historyEvent = .correction
+      }
+      let history = TrainingMaxHistoryEntry(
+        id: auditID + ":tm",
+        liftID: id,
+        event: historyEvent,
+        occurredAt: timestamp,
+        beforeKg: before?.trainingMaxKg,
+        afterKg: after.trainingMaxKg
+      )
+      try db.execute(
+        sql: """
+          INSERT OR IGNORE INTO training_max_history
+            (id, lift_id, event, occurred_at, history_json)
+          VALUES (?, ?, ?, ?, ?)
+          """,
+        arguments: [
+          history.id, history.liftID, history.event.rawValue, history.occurredAt,
+          try Self.encodeTrainingMaxHistory(history),
+        ]
+      )
       return LiftConfigurationAuditEntry(
         id: auditID,
         liftID: configuration.id,
@@ -288,6 +313,260 @@ public actor GRDBTrainingRepository: TrainingRepository {
         sql: "SELECT COUNT(*) FROM training_cycles WHERE lifecycle_state = ?",
         arguments: [TrainingCycleLifecycleState.completed.rawValue]
       ) ?? 0
+    }
+  }
+
+  public func loadTrainingMaxProposals() async throws -> [TrainingMaxProposal] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT proposal_json FROM training_max_proposals
+          ORDER BY source_cycle_id, lift_id, rowid
+          """
+      ).map(Self.trainingMaxProposal(from:))
+    }
+  }
+
+  public func saveTrainingMaxProposal(
+    _ proposal: TrainingMaxProposal,
+    expectedBefore: TrainingMaxProposal?,
+    auditID: String,
+    occurredAt: Int64,
+    history: TrainingMaxHistoryEntry?
+  ) async throws -> TrainingMaxProposal {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      let current = try Row.fetchOne(
+        db,
+        sql: "SELECT proposal_json FROM training_max_proposals WHERE id = ?",
+        arguments: [proposal.id]
+      ).map(Self.trainingMaxProposal(from:))
+      guard current == expectedBefore else {
+        throw TrainingMaxProposalRepositoryError.staleProposal
+      }
+      let json = try Self.encodeTrainingMaxProposal(proposal)
+      try db.execute(
+        sql: """
+          INSERT INTO training_max_proposals
+            (id, lift_id, source_cycle_id, status, proposal_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            lift_id = excluded.lift_id,
+            source_cycle_id = excluded.source_cycle_id,
+            status = excluded.status,
+            proposal_json = excluded.proposal_json,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [
+          proposal.id, proposal.liftID, proposal.sourceCycleID, proposal.status.rawValue,
+          json, proposal.createdAt, proposal.updatedAt,
+        ]
+      )
+      if let history {
+        try db.execute(
+          sql: """
+            INSERT INTO training_max_history
+              (id, lift_id, event, occurred_at, history_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            history.id, history.liftID, history.event.rawValue, history.occurredAt,
+            try Self.encodeTrainingMaxHistory(history),
+          ]
+        )
+      }
+      _ = auditID
+      _ = occurredAt
+      return proposal
+    }
+  }
+
+  public func decideTrainingMaxProposal(
+    _ proposal: TrainingMaxProposal,
+    expectedBefore: TrainingMaxProposal,
+    configuration: LiftConfiguration?,
+    expectedConfiguration: LiftConfigurationSnapshot?,
+    auditID: String,
+    occurredAt: Int64,
+    history: TrainingMaxHistoryEntry,
+    liftAuditID: String
+  ) async throws -> TrainingMaxProposal {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      let currentProposal = try Row.fetchOne(
+        db,
+        sql: "SELECT proposal_json FROM training_max_proposals WHERE id = ?",
+        arguments: [proposal.id]
+      ).map(Self.trainingMaxProposal(from:))
+      guard currentProposal == expectedBefore else {
+        throw TrainingMaxProposalRepositoryError.staleProposal
+      }
+      if let configuration {
+        let before = try Row.fetchOne(
+          db,
+          sql:
+            "SELECT identity_kind, identity_value, training_max_kg, loading_increment_kg FROM lifts WHERE id = ?",
+          arguments: [configuration.id]
+        ).map(Self.snapshot(from:))
+        guard before == expectedConfiguration else {
+          throw LiftConfigurationRepositoryError.staleConfiguration
+        }
+        let identity = Self.identityParts(configuration.identity)
+        try db.execute(
+          sql: """
+            UPDATE lifts SET identity_kind = ?, identity_value = ?, training_max_kg = ?,
+              loading_increment_kg = ?, updated_at = ? WHERE id = ?
+            """,
+          arguments: [
+            identity.kind, identity.value, configuration.trainingMax.kg,
+            configuration.loadingIncrement.kg, occurredAt, configuration.id,
+          ]
+        )
+        try db.execute(
+          sql: """
+            INSERT INTO lift_configuration_audit
+              (id, lift_id, action, occurred_at,
+               before_identity_kind, before_identity_value, before_training_max_kg, before_loading_increment_kg,
+               after_identity_kind, after_identity_value, after_training_max_kg, after_loading_increment_kg)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            liftAuditID, configuration.id, LiftConfigurationAuditAction.edited.rawValue, occurredAt,
+            before.map { Self.identityParts($0.identity).kind },
+            before.map { Self.identityParts($0.identity).value }, before?.trainingMaxKg,
+            before?.loadingIncrementKg, identity.kind, identity.value,
+            configuration.trainingMax.kg, configuration.loadingIncrement.kg,
+          ]
+        )
+        let manualHistory = TrainingMaxHistoryEntry(
+          id: liftAuditID + ":tm", liftID: configuration.id, event: .manual,
+          occurredAt: occurredAt, beforeKg: before?.trainingMaxKg,
+          afterKg: configuration.trainingMax.kg
+        )
+        try db.execute(
+          sql:
+            "INSERT INTO training_max_history (id, lift_id, event, occurred_at, history_json) VALUES (?, ?, ?, ?, ?)",
+          arguments: [
+            manualHistory.id, manualHistory.liftID, manualHistory.event.rawValue,
+            manualHistory.occurredAt, try Self.encodeTrainingMaxHistory(manualHistory),
+          ]
+        )
+      }
+      try db.execute(
+        sql:
+          "UPDATE training_max_proposals SET status = ?, proposal_json = ?, updated_at = ? WHERE id = ?",
+        arguments: [
+          proposal.status.rawValue, try Self.encodeTrainingMaxProposal(proposal),
+          proposal.updatedAt,
+          proposal.id,
+        ]
+      )
+      try db.execute(
+        sql:
+          "INSERT INTO training_max_history (id, lift_id, event, occurred_at, history_json) VALUES (?, ?, ?, ?, ?)",
+        arguments: [
+          history.id, history.liftID, history.event.rawValue, history.occurredAt,
+          try Self.encodeTrainingMaxHistory(history),
+        ]
+      )
+      _ = auditID
+      return proposal
+    }
+  }
+
+  public func loadTrainingMaxHistory(for liftID: String?) async throws
+    -> [TrainingMaxHistoryEntry]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      let sql: String
+      let arguments: StatementArguments
+      if let liftID {
+        sql = """
+          SELECT history_json FROM training_max_history
+          WHERE lift_id = ? ORDER BY occurred_at, rowid
+          """
+        arguments = [liftID]
+      } else {
+        sql = "SELECT history_json FROM training_max_history ORDER BY occurred_at, rowid"
+        arguments = []
+      }
+      return try Row.fetchAll(db, sql: sql, arguments: arguments).map(
+        Self.trainingMaxHistory(from:))
+    }
+  }
+
+  public func markTrainingMaxProposalsEffective(cycleID: String) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      let latestCompletedCycleID = try String.fetchOne(
+        db,
+        sql: """
+          SELECT id FROM training_cycles
+          WHERE lifecycle_state = ?
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+          """,
+        arguments: [TrainingCycleLifecycleState.completed.rawValue]
+      )
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT proposal_json FROM training_max_proposals
+          WHERE status IN (?, ?)
+            AND source_cycle_id = (
+              SELECT id FROM training_cycles
+              WHERE lifecycle_state = ?
+              ORDER BY updated_at DESC, rowid DESC LIMIT 1
+            )
+          """,
+        arguments: [
+          TrainingMaxProposalStatus.accepted.rawValue,
+          TrainingMaxProposalStatus.manuallyReplaced.rawValue,
+          TrainingCycleLifecycleState.completed.rawValue,
+        ]
+      )
+      // Effective cycle is a projection of the next activated cycle and
+      // remains recoverable in the JSON history ledger.
+      for row in rows {
+        let proposal = try Self.trainingMaxProposal(from: row)
+        guard proposal.effectiveCycleID == nil else { continue }
+        let updated = TrainingMaxProposal(
+          id: proposal.id, liftID: proposal.liftID, liftName: proposal.liftName,
+          sourceCycleID: proposal.sourceCycleID,
+          currentTrainingMaxKg: proposal.currentTrainingMaxKg,
+          proposedTrainingMaxKg: proposal.proposedTrainingMaxKg,
+          incrementKg: proposal.incrementKg, evidence: proposal.evidence,
+          status: proposal.status, decision: proposal.decision,
+          decidedAt: proposal.decidedAt, effectiveCycleID: cycleID,
+          createdAt: proposal.createdAt, updatedAt: proposal.updatedAt
+        )
+        try db.execute(
+          sql: "UPDATE training_max_proposals SET proposal_json = ? WHERE id = ?",
+          arguments: [try Self.encodeTrainingMaxProposal(updated), proposal.id]
+        )
+      }
+      let historyRows = try Row.fetchAll(
+        db, sql: "SELECT history_json FROM training_max_history")
+      for row in historyRows {
+        let history = try Self.trainingMaxHistory(from: row)
+        guard history.effectiveCycleID == nil,
+          history.cycleID == latestCompletedCycleID,
+          history.event == .accepted || history.event == .manuallyReplaced
+        else { continue }
+        let updated = TrainingMaxHistoryEntry(
+          id: history.id, liftID: history.liftID, event: history.event,
+          occurredAt: history.occurredAt, beforeKg: history.beforeKg, afterKg: history.afterKg,
+          proposalID: history.proposalID, cycleID: history.cycleID,
+          effectiveCycleID: cycleID, evidence: history.evidence,
+          decision: history.decision, note: history.note
+        )
+        try db.execute(
+          sql: "UPDATE training_max_history SET history_json = ? WHERE id = ?",
+          arguments: [try Self.encodeTrainingMaxHistory(updated), history.id]
+        )
+      }
     }
   }
 
@@ -1429,6 +1708,45 @@ public actor GRDBTrainingRepository: TrainingRepository {
     return string
   }
 
+  private static func encodeTrainingMaxProposal(_ proposal: TrainingMaxProposal) throws -> String {
+    let data = try JSONEncoder().encode(proposal)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidTrainingMaxProposal
+    }
+    return string
+  }
+
+  private static func trainingMaxProposal(from row: Row) throws -> TrainingMaxProposal {
+    guard let data = (row["proposal_json"] as String).data(using: .utf8) else {
+      throw PersistenceError.invalidTrainingMaxProposal
+    }
+    do {
+      return try JSONDecoder().decode(TrainingMaxProposal.self, from: data)
+    } catch {
+      throw PersistenceError.invalidTrainingMaxProposal
+    }
+  }
+
+  private static func encodeTrainingMaxHistory(_ history: TrainingMaxHistoryEntry) throws -> String
+  {
+    let data = try JSONEncoder().encode(history)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw PersistenceError.invalidTrainingMaxHistory
+    }
+    return string
+  }
+
+  private static func trainingMaxHistory(from row: Row) throws -> TrainingMaxHistoryEntry {
+    guard let data = (row["history_json"] as String).data(using: .utf8) else {
+      throw PersistenceError.invalidTrainingMaxHistory
+    }
+    do {
+      return try JSONDecoder().decode(TrainingMaxHistoryEntry.self, from: data)
+    } catch {
+      throw PersistenceError.invalidTrainingMaxHistory
+    }
+  }
+
   private static func recordedSetResult(from row: Row) throws -> RecordedSetResult {
     guard let data = (row["result_json"] as String).data(using: .utf8) else {
       throw PersistenceError.invalidSetResult
@@ -1673,6 +1991,8 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidSetResultAudit
   case invalidSessionProjection
   case invalidSessionCorrectionAudit
+  case invalidTrainingMaxProposal
+  case invalidTrainingMaxHistory
   case storesUnavailable
 }
 
