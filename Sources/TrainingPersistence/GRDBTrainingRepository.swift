@@ -2,19 +2,56 @@ import Foundation
 import GRDB
 import TrainingApplication
 
-public actor GRDBTrainingRepository: TrainingRepository {
+public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
+  private let phaseObserver: any TrainingImportPhaseObserver
   private var stores: TrainingStores?
 
-  public init(root: URL, bootstrapper: ProtectedStoreBootstrapper = .init()) {
+  public init(
+    root: URL,
+    bootstrapper: ProtectedStoreBootstrapper = .init(),
+    phaseObserver: any TrainingImportPhaseObserver = NoOpTrainingImportPhaseObserver()
+  ) {
     self.root = root
     self.bootstrapper = bootstrapper
+    self.phaseObserver = phaseObserver
   }
 
   public func prepareStores() async throws {
     guard stores == nil else { return }
     stores = try bootstrapper.open(in: root)
+  }
+
+  public func authoritativeStoreIsEmpty() async throws -> Bool {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      let tables = try String.fetchAll(
+        db,
+        sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+      )
+      for table in tables where table != "gate_zero_metadata" && table != "grdb_migrations" {
+        let quoted = Self.quoteIdentifier(table)
+        if (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(quoted)")) ?? 0 > 0 {
+          return false
+        }
+      }
+      return true
+    }
+  }
+
+  public func replaceAuthoritativeData(
+    _ data: TrainingAuthoritativeExportData,
+    progress: TrainingImportProgressHandler?
+  ) async throws {
+    do {
+      try TrainingImportBoundary.validateAuthoritativeData(data)
+      try await performReplacement(data, progress: progress)
+    } catch let error as TrainingImportError {
+      throw error
+    } catch {
+      throw TrainingImportError.replacementFailed(String(describing: error))
+    }
   }
 
   public func loadAuthoritativeExportData() async throws -> TrainingAuthoritativeExportData {
@@ -1353,6 +1390,265 @@ public actor GRDBTrainingRepository: TrainingRepository {
     }
   }
 
+  private func performReplacement(
+    _ data: TrainingAuthoritativeExportData,
+    progress: TrainingImportProgressHandler?
+  ) async throws {
+    let locations = actualLocations()
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(
+      at: locations.authoritativeDirectory, withIntermediateDirectories: true)
+    try? fileManager.removeItem(at: locations.authoritativeStagingDatabase)
+    try? fileManager.removeItem(at: locations.authoritativeBackupDatabase)
+
+    try phaseObserver.didReach(.staging)
+    progress?(
+      .init(phase: .staging, fraction: 0.15, message: "Preparing an isolated staging database."))
+    var staged: DatabaseQueue?
+    do {
+      var configuration = Configuration()
+      configuration.label = "TrainingCompassImport"
+      staged = try DatabaseQueue(
+        path: locations.authoritativeStagingDatabase.path(), configuration: configuration)
+      guard let stagingDatabase = staged else {
+        throw TrainingImportError.stagingFailed("staging database unavailable")
+      }
+      try phaseObserver.didReach(.migrating)
+      progress?(
+        .init(phase: .migrating, fraction: 0.3, message: "Migrating the archive into staging."))
+      try ProtectedStoreBootstrapper.authoritativeMigrator.migrate(stagingDatabase)
+      try await stagingDatabase.write { db in
+        try Self.insert(data, into: db)
+        try phaseObserver.didReach(.validatingStaging)
+        progress?(
+          .init(
+            phase: .validatingStaging, fraction: 0.55,
+            message: "Validating relationships and domain invariants."))
+        try Self.validateStagedStore(db)
+        try phaseObserver.didReach(.regeneratingProjections)
+        progress?(
+          .init(
+            phase: .regeneratingProjections, fraction: 0.7,
+            message: "Regenerating derived session projections."))
+        try Self.regenerateProjections(db)
+      }
+      try stagingDatabase.close()
+      staged = nil
+    } catch {
+      let failure = error
+      try? staged?.close()
+      try? fileManager.removeItem(at: locations.authoritativeStagingDatabase)
+      if let importError = failure as? TrainingImportError { throw importError }
+      throw TrainingImportError.stagingFailed(String(describing: failure))
+    }
+
+    try phaseObserver.didReach(.closingCurrentStore)
+    progress?(
+      .init(
+        phase: .closingCurrentStore, fraction: 0.8,
+        message: "Closing the current store before replacement."))
+    let current = try await readyStores()
+    try current.authoritative.close()
+    try current.reconstructible.close()
+    stores = nil
+
+    try phaseObserver.didReach(.swappingAuthoritativeStore)
+    progress?(
+      .init(
+        phase: .swappingAuthoritativeStore, fraction: 0.9,
+        message: "Installing the validated replacement."))
+    do {
+      if fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
+        try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
+      }
+      fileManager.createFile(atPath: locations.authoritativeSwapMarker.path(), contents: nil)
+      let hadCurrent = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
+      if hadCurrent {
+        try fileManager.moveItem(
+          at: locations.authoritativeDatabase, to: locations.authoritativeBackupDatabase)
+      }
+      do {
+        try fileManager.moveItem(
+          at: locations.authoritativeStagingDatabase, to: locations.authoritativeDatabase)
+        try bootstrapper.protectAuthoritativeStore(in: root)
+      } catch {
+        try? fileManager.removeItem(at: locations.authoritativeDatabase)
+        if hadCurrent, fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path())
+        {
+          try? fileManager.moveItem(
+            at: locations.authoritativeBackupDatabase, to: locations.authoritativeDatabase)
+        }
+        throw error
+      }
+      if fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
+        try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
+      }
+      try? fileManager.removeItem(at: locations.authoritativeSwapMarker)
+    } catch {
+      try? fileManager.removeItem(at: locations.authoritativeStagingDatabase)
+      throw TrainingImportError.replacementFailed(String(describing: error))
+    }
+  }
+
+  private func actualLocations() -> StoreLocations {
+    #if targetEnvironment(simulator)
+      let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appending(path: "TrainingCompass", directoryHint: .isDirectory)
+      return StoreLocations(root: simulatorRoot)
+    #else
+      return StoreLocations(root: root)
+    #endif
+  }
+
+  private static func insert(_ data: TrainingAuthoritativeExportData, into db: Database) throws {
+    let tableNames = try String.fetchAll(
+      db,
+      sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    )
+    let available = Set(tableNames)
+    let byName = Dictionary(uniqueKeysWithValues: data.tables.map { ($0.name, $0) })
+    for tableName in importTableOrder {
+      guard let table = byName[tableName] else { continue }
+      guard available.contains(table.name) else {
+        throw TrainingImportError.incompleteArchive("table \(table.name)")
+      }
+      let quotedTable = quoteIdentifier(table.name)
+      let schemaColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(\(quotedTable))")
+        .map { $0["name"] as String }
+      let expected = Set(schemaColumns)
+      for record in table.records {
+        guard Set(record.fields.keys) == expected else {
+          throw TrainingImportError.incompleteArchive("columns in \(table.name)")
+        }
+        let orderedValues = schemaColumns.map { databaseValue(record.fields[$0]!) }
+        let placeholders = Array(repeating: "?", count: schemaColumns.count).joined(separator: ", ")
+        let quotedColumns = schemaColumns.map(quoteIdentifier).joined(separator: ", ")
+        try db.execute(
+          sql: "INSERT INTO \(quotedTable) (\(quotedColumns)) VALUES (\(placeholders))",
+          arguments: StatementArguments(orderedValues.map(\.storage.value))
+        )
+      }
+    }
+  }
+
+  private static func validateStagedStore(_ db: Database) throws {
+    let foreignKeys = try Row.fetchAll(db, sql: "PRAGMA foreign_key_check")
+    guard foreignKeys.isEmpty else {
+      throw TrainingImportError.invalidRelationship("foreign key check")
+    }
+    let cycles = try Row.fetchAll(
+      db, sql: "SELECT id, lifecycle_state, cycle_json FROM training_cycles")
+    var cycleIDs = Set<String>()
+    var sessionIDs = Set<String>()
+    var prescriptionIDs = Set<String>()
+    let liftIDs = Set(try String.fetchAll(db, sql: "SELECT id FROM lifts"))
+    for row in cycles {
+      let cycle = try trainingCycle(from: row)
+      guard cycle.id == (row["id"] as String), cycleIDs.insert(cycle.id).inserted else {
+        throw TrainingImportError.invariantViolation("training cycle identity")
+      }
+      guard cycle.liftSnapshots.keys.allSatisfy({ liftIDs.contains($0) }) else {
+        throw TrainingImportError.invalidRelationship("cycle lift snapshot")
+      }
+      for session in cycle.weeks.flatMap(\.sessions) {
+        guard sessionIDs.insert(session.id).inserted else {
+          throw TrainingImportError.invariantViolation("duplicate session identity")
+        }
+        guard cycle.liftSnapshots[session.primaryLiftID] != nil,
+          cycle.liftSnapshots[session.assistanceLiftID] != nil
+        else {
+          throw TrainingImportError.invalidRelationship("session lift")
+        }
+        for prescription in session.prescriptions {
+          guard prescriptionIDs.insert(prescription.id).inserted else {
+            throw TrainingImportError.invariantViolation("duplicate prescription identity")
+          }
+        }
+      }
+    }
+    for row in try Row.fetchAll(
+      db, sql: "SELECT session_id, prescription_id, result_json FROM set_results")
+    {
+      guard sessionIDs.contains(row["session_id"]), prescriptionIDs.contains(row["prescription_id"])
+      else {
+        throw TrainingImportError.invalidRelationship("set result")
+      }
+      _ = try recordedSetResult(from: row)
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT session_id, prescription_id FROM omitted_sets") {
+      guard sessionIDs.contains(row["session_id"]), prescriptionIDs.contains(row["prescription_id"])
+      else {
+        throw TrainingImportError.invalidRelationship("omitted set")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT session_id, lift_id FROM additional_sets") {
+      guard sessionIDs.contains(row["session_id"]), liftIDs.contains(row["lift_id"]) else {
+        throw TrainingImportError.invalidRelationship("additional set")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT session_id FROM session_completions") {
+      guard sessionIDs.contains(row["session_id"]) else {
+        throw TrainingImportError.invalidRelationship("session completion")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT proposal_json FROM training_max_proposals") {
+      let data = try JSONDecoder().decode(
+        TrainingMaxProposal.self, from: Data((row["proposal_json"] as String).utf8))
+      guard liftIDs.contains(data.liftID), cycleIDs.contains(data.sourceCycleID) else {
+        throw TrainingImportError.invalidRelationship("training max proposal")
+      }
+    }
+    for row in try Row.fetchAll(db, sql: "SELECT history_json FROM training_max_history") {
+      let data = try JSONDecoder().decode(
+        TrainingMaxHistoryEntry.self, from: Data((row["history_json"] as String).utf8))
+      guard liftIDs.contains(data.liftID) else {
+        throw TrainingImportError.invalidRelationship("training max history")
+      }
+    }
+  }
+
+  private static func regenerateProjections(_ db: Database) throws {
+    try db.execute(sql: "DELETE FROM session_projections")
+    for row in try Row.fetchAll(db, sql: "SELECT cycle_json FROM training_cycles") {
+      let cycle = try trainingCycle(from: row)
+      for session in cycle.weeks.flatMap(\.sessions) where session.status != .unperformed {
+        try upsertSessionProjection(
+          db,
+          cycleID: cycle.id,
+          session: session,
+          status: session.status,
+          intendedDate: session.intendedDate,
+          primaryLiftID: session.primaryLiftID,
+          assistanceLiftID: session.assistanceLiftID,
+          updatedAt: cycle.updatedAt
+        )
+      }
+    }
+  }
+
+  private static func databaseValue(_ value: TrainingExportJSONValue) -> DatabaseValue {
+    switch value {
+    case .null: return .null
+    case .boolean(let value): return value.databaseValue
+    case .integer(let value): return value.databaseValue
+    case .number(let value): return value.databaseValue
+    case .string(let value): return value.databaseValue
+    case .blob(let value): return (Data(base64Encoded: value) ?? Data()).databaseValue
+    }
+  }
+
+  private static func quoteIdentifier(_ value: String) -> String {
+    "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+  }
+
+  private static let importTableOrder = [
+    "gate_zero_metadata", "lifts", "schedule_templates", "schedule_template_sessions",
+    "training_cycles", "set_results", "omitted_sets", "additional_sets", "session_completions",
+    "lift_configuration_audit", "schedule_template_audit", "training_cycle_audit",
+    "set_result_audit",
+    "session_correction_audit", "training_max_proposals", "training_max_history",
+  ]
+
   public func sessionCorrectionAuditHistory(for sessionID: String) async throws
     -> [SessionCorrectionAuditEntry]
   {
@@ -1794,7 +2090,9 @@ public actor GRDBTrainingRepository: TrainingRepository {
         ORDER BY name
         """
     )
-    let exportTableNames = tableNames.filter { !$0.hasSuffix("_projections") }
+    let exportTableNames = tableNames.filter {
+      !$0.hasSuffix("_projections") && $0 != "grdb_migrations"
+    }
     let tables = try exportTableNames.map { tableName -> TrainingExportTable in
       let quotedName = "\"" + tableName.replacingOccurrences(of: "\"", with: "\"\"") + "\""
       let rows = try Row.fetchAll(db, sql: "SELECT rowid, * FROM \(quotedName) ORDER BY rowid")

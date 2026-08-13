@@ -34,6 +34,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
     #else
       let locations = StoreLocations(root: root)
     #endif
+    try recoverPendingAuthoritativeSwap(locations)
     try prepareDirectory(locations.authoritativeDirectory, excludedFromBackup: false)
     try prepareDirectory(locations.reconstructibleDirectory, excludedFromBackup: true)
 
@@ -66,11 +67,46 @@ public struct ProtectedStoreBootstrapper: Sendable {
     )
   }
 
+  /// Applies the same protection and backup invariants to a database installed
+  /// by a replacement import before it becomes authoritative.
+  public func protectAuthoritativeStore(in root: URL) throws {
+    #if targetEnvironment(simulator)
+      let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appending(path: "TrainingCompass", directoryHint: .isDirectory)
+      let locations = StoreLocations(root: simulatorRoot)
+    #else
+      let locations = StoreLocations(root: root)
+    #endif
+    try protection.applyCompleteFileProtection(to: locations.authoritativeDatabase)
+    try protection.verifyCompleteFileProtection(at: locations.authoritativeDirectory)
+    try protection.verifyCompleteFileProtection(at: locations.authoritativeDatabase)
+  }
+
   private func prepareDirectory(_ url: URL, excludedFromBackup: Bool) throws {
     try protection.createDirectory(at: url)
     try protection.applyCompleteFileProtection(to: url)
     if excludedFromBackup {
       try protection.excludeFromBackup(url)
+    }
+  }
+
+  private func recoverPendingAuthoritativeSwap(_ locations: StoreLocations) throws {
+    let fileManager = FileManager.default
+    let markerExists = fileManager.fileExists(atPath: locations.authoritativeSwapMarker.path())
+    let currentExists = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
+    let backupExists = fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path())
+    guard markerExists || backupExists else { return }
+
+    if !currentExists, backupExists {
+      try fileManager.moveItem(
+        at: locations.authoritativeBackupDatabase, to: locations.authoritativeDatabase)
+    } else if currentExists, backupExists {
+      // A fully moved replacement is authoritative; the previous file is
+      // only a rollback candidate and must not be reopened as live data.
+      try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
+    }
+    if markerExists {
+      try fileManager.removeItem(at: locations.authoritativeSwapMarker)
     }
   }
 

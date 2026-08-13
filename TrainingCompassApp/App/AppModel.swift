@@ -23,6 +23,7 @@ final class AppModel {
   let progressBoundary: ProgressBoundary
   let trainingMaxProposalBoundary: TrainingMaxProposalBoundary
   let trainingExportBoundary: TrainingExportBoundary
+  let trainingImportBoundary: TrainingImportBoundary?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -32,7 +33,8 @@ final class AppModel {
     sessionLoggingBoundary: SessionLoggingBoundary,
     progressBoundary: ProgressBoundary,
     trainingMaxProposalBoundary: TrainingMaxProposalBoundary,
-    trainingExportBoundary: TrainingExportBoundary
+    trainingExportBoundary: TrainingExportBoundary,
+    trainingImportBoundary: TrainingImportBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -42,6 +44,7 @@ final class AppModel {
     self.progressBoundary = progressBoundary
     self.trainingMaxProposalBoundary = trainingMaxProposalBoundary
     self.trainingExportBoundary = trainingExportBoundary
+    self.trainingImportBoundary = trainingImportBoundary
   }
 
   func prepare() async {
@@ -110,7 +113,10 @@ final class AppModel {
         timeZone: dependencies.timeZone,
         uuidGenerator: dependencies.uuidGenerator,
         fileSystem: dependencies.exportFileSystem
-      )
+      ),
+      trainingImportBoundary: (repository as? any TrainingReplacementImportRepository).map {
+        TrainingImportBoundary(repository: $0, fileSystem: FoundationTrainingImportFileSystem())
+      }
     )
   }
 }

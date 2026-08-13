@@ -19,6 +19,24 @@ public struct StoreLocations: Equatable, Sendable {
     authoritativeDirectory.appending(path: "authoritative.sqlite", directoryHint: .notDirectory)
   }
 
+  /// A same-volume staging path. It is deliberately next to the live database
+  /// so a replacement can use filesystem rename semantics rather than copying
+  /// bytes across volumes.
+  public var authoritativeStagingDatabase: URL {
+    authoritativeDirectory.appending(
+      path: "authoritative.importing.sqlite", directoryHint: .notDirectory)
+  }
+
+  public var authoritativeBackupDatabase: URL {
+    authoritativeDirectory.appending(
+      path: "authoritative.previous.sqlite", directoryHint: .notDirectory)
+  }
+
+  public var authoritativeSwapMarker: URL {
+    authoritativeDirectory.appending(
+      path: "authoritative.swap.pending", directoryHint: .notDirectory)
+  }
+
   public var reconstructibleDatabase: URL {
     reconstructibleDirectory.appending(path: "reconstructible.sqlite", directoryHint: .notDirectory)
   }

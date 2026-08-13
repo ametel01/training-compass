@@ -226,6 +226,12 @@ public struct TrainingCompassExport: Codable, Equatable, Sendable {
       throw TrainingExportError.integrityMismatch
     }
   }
+
+  /// Decodes one complete export document. Importers should call
+  /// ``verifyIntegrity()`` and their domain validation after decoding.
+  public static func decode(_ data: Data) throws -> TrainingCompassExport {
+    try TrainingExportCodec.decode(data)
+  }
 }
 
 public enum TrainingExportConfirmation: Codable, Equatable, Sendable {
@@ -347,7 +353,7 @@ private struct TrainingExportDigestPayload: Codable {
   let healthKitMirror: TrainingHealthKitMirrorExport?
 }
 
-private enum TrainingExportCodec {
+enum TrainingExportCodec {
   static func encoder() -> JSONEncoder {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -367,6 +373,10 @@ private enum TrainingExportCodec {
 
   static func encode(_ archive: TrainingCompassExport) throws -> Data {
     try encoder().encode(archive)
+  }
+
+  static func decode(_ data: Data) throws -> TrainingCompassExport {
+    try JSONDecoder().decode(TrainingCompassExport.self, from: data)
   }
 }
 

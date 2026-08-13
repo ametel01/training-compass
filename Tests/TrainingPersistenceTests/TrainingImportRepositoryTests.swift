@@ -1,0 +1,109 @@
+import Foundation
+import XCTest
+
+@testable import TrainingApplication
+@testable import TrainingDomain
+@testable import TrainingPersistence
+
+final class TrainingImportRepositoryTests: XCTestCase {
+  func testValidatedExportReplacesCurrentAuthoritativeDataAndRegeneratesProjection() async throws {
+    let sourceRoot = temporaryRoot("source")
+    let destinationRoot = temporaryRoot("destination")
+    defer {
+      try? FileManager.default.removeItem(at: sourceRoot)
+      try? FileManager.default.removeItem(at: destinationRoot)
+    }
+    let source = GRDBTrainingRepository(root: sourceRoot)
+    let lift = try LiftConfiguration(
+      id: "lift-squat", identity: .progression(.squat), trainingMax: try TrainingMax(kg: 100)
+    )
+    _ = try await source.saveLiftConfiguration(
+      lift, expectedBefore: nil, auditID: "audit-1", occurredAt: 10, action: .created
+    )
+    let archiveData = try await makeArchiveData(source: source)
+
+    let destination = GRDBTrainingRepository(root: destinationRoot)
+    let destinationLift = try LiftConfiguration(
+      id: "lift-bench", identity: .progression(.benchPress), trainingMax: try TrainingMax(kg: 80)
+    )
+    _ = try await destination.saveLiftConfiguration(
+      destinationLift, expectedBefore: nil, auditID: "audit-old", occurredAt: 11, action: .created
+    )
+
+    let boundary = TrainingImportBoundary(repository: destination)
+    do {
+      _ = try await boundary.importArchive(data: archiveData, confirmation: .confirmed)
+      XCTFail("Replacing a non-empty store needs export-first confirmation")
+    } catch let error as TrainingImportError {
+      XCTAssertEqual(error, .replacementConfirmationRequired)
+    }
+    let result = try await boundary.importArchive(
+      data: archiveData, confirmation: .confirmedAfterExport
+    )
+    XCTAssertEqual(result.recordCount, 4)
+    let restoredLifts = try await destination.loadLiftConfigurations().map(\.id)
+    XCTAssertEqual(restoredLifts, [lift.id])
+    let isEmpty = try await destination.authoritativeStoreIsEmpty()
+    XCTAssertFalse(isEmpty)
+  }
+
+  func testCorruptArchiveLeavesCurrentStoreUntouched() async throws {
+    let sourceRoot = temporaryRoot("source")
+    let destinationRoot = temporaryRoot("destination")
+    defer {
+      try? FileManager.default.removeItem(at: sourceRoot)
+      try? FileManager.default.removeItem(at: destinationRoot)
+    }
+    let source = GRDBTrainingRepository(root: sourceRoot)
+    let lift = try LiftConfiguration(
+      id: "lift-squat", identity: .progression(.squat), trainingMax: try TrainingMax(kg: 100)
+    )
+    _ = try await source.saveLiftConfiguration(
+      lift, expectedBefore: nil, auditID: "audit-1", occurredAt: 10, action: .created
+    )
+    let archiveData = try await makeArchiveData(source: source)
+    var corrupt = archiveData
+    corrupt[corrupt.index(corrupt.startIndex, offsetBy: 20)] ^= 0x01
+
+    let destination = GRDBTrainingRepository(root: destinationRoot)
+    let boundary = TrainingImportBoundary(repository: destination)
+    do {
+      _ = try await boundary.importArchive(data: corrupt, confirmation: .confirmed)
+      XCTFail("Expected corrupt archive to fail")
+    } catch {
+      XCTAssertTrue(error is TrainingImportError)
+    }
+    let isEmpty = try await destination.authoritativeStoreIsEmpty()
+    XCTAssertTrue(isEmpty)
+  }
+
+  private func makeArchiveData(source: GRDBTrainingRepository) async throws -> Data {
+    let boundary = TrainingExportBoundary(
+      repository: source,
+      clock: FixedClock(date: Date(timeIntervalSince1970: 42)),
+      timeZone: FixedTimeZone(identifier: "UTC"),
+      uuidGenerator: FixedUUIDGenerator()
+    )
+    return try boundary.create(try await boundary.preview(), confirmation: .confirmed)
+      .archive.encodedData()
+  }
+
+  private func temporaryRoot(_ label: String) -> URL {
+    FileManager.default.temporaryDirectory
+      .appending(path: "training-import-\(label)-\(UUID().uuidString)", directoryHint: .isDirectory)
+  }
+}
+
+private struct FixedClock: Clock {
+  let date: Date
+  func now() -> Date { date }
+}
+
+private struct FixedTimeZone: TimeZoneProvider {
+  let identifier: String
+  func timeZone() -> TimeZone { TimeZone(identifier: identifier)! }
+}
+
+private struct FixedUUIDGenerator: UUIDGenerator {
+  func makeUUID() -> UUID { UUID(uuidString: "00000000-0000-0000-0000-000000000001")! }
+}
