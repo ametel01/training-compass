@@ -39,7 +39,16 @@ fi
 
 while IFS= read -r entitlement; do
   [[ -z "$entitlement" ]] && continue
-  if ! plutil -convert json -o - "$entitlement" 2>/dev/null | rg -q '"com\.apple\.developer\.healthkit"\s*:\s*true'; then
+  if command -v rg >/dev/null 2>&1; then
+    entitlement_is_reviewed() {
+      plutil -convert json -o - "$1" 2>/dev/null | rg -q '"com\.apple\.developer\.healthkit"\s*:\s*true'
+    }
+  else
+    entitlement_is_reviewed() {
+      plutil -convert json -o - "$1" 2>/dev/null | grep -Eq '"com\.apple\.developer\.healthkit"[[:space:]]*:[[:space:]]*true'
+    }
+  fi
+  if ! entitlement_is_reviewed "$entitlement"; then
     echo "Only the reviewed HealthKit entitlement may be shipped: $entitlement" >&2
     exit 1
   fi
