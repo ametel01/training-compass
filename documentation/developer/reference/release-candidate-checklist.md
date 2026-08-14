@@ -41,6 +41,11 @@ application container between steps:
    stale confirmations, exercise exact-UUID reconnection, then explicitly
    unlink. Repeat by linking during completion and verify the no-Write-back
    disposition.
+10. Workout route: confirm ordinary import and enrichment cause no route prompt
+    or query, then open a route-bearing workout detail. Exercise loading,
+    cancellation, retry, unavailable, failure, and ready presentation; verify
+    the ready map survives relaunch and disappears when the workout is deleted
+    or Health data is rebuilt.
 
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover
@@ -62,6 +67,7 @@ HealthKit wait time is reported separately from app-controlled work.
 | Local mutation reflected on screen | 150 milliseconds |
 | Ordinary local query | 300 milliseconds |
 | Complex insight calculation | 750 milliseconds |
+| Route decoding, simplification, persistence, and display preparation after HealthKit returns | 2 seconds |
 | Foreground peak memory | 250 MiB |
 | Background peak memory | 100 MiB |
 | Combined persistent stores | 2 GiB |

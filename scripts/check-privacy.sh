@@ -15,11 +15,18 @@ PY
 search_recursive() {
   local pattern=$1
   shift
+  local status
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@"
+    rg --hidden --no-ignore -n "$pattern" "$@" || status=$?
   else
-    grep -REn --include='*.swift' "$pattern" "$@"
+    grep -REn "$pattern" "$@" || status=$?
   fi
+  status=${status:-0}
+  if (( status > 1 )); then
+    echo "Privacy scan failed for: $*" >&2
+    exit "$status"
+  fi
+  return "$status"
 }
 
 require_pattern() {
@@ -71,10 +78,22 @@ require_pattern 'isExcludedFromBackup' Sources/TrainingPersistence/StoreProtecti
 require_pattern 'privacySensitive\(\)' TrainingCompassApp/UI/RootView.swift
 require_pattern 'scenePhase != \.active' TrainingCompassApp/App/TrainingCompassApp.swift
 
-if search_recursive 'latitude|longitude|freeTextNote|rawMeasurement' fixtures Sources Tests; then
-  echo "Fixture or source contains prohibited sensitive payload fields." >&2
+if search_recursive 'latitude|longitude|northSouthDegrees|eastWestDegrees|freeTextNote|rawMeasurement' fixtures evidence; then
+  echo "Fixture or evidence output contains prohibited sensitive payload fields." >&2
   exit 1
 fi
+
+if search_recursive 'logger\..*(latitude|longitude|northSouthDegrees|eastWestDegrees)' Sources TrainingCompassApp; then
+  echo "Route coordinates must never be logged." >&2
+  exit 1
+fi
+
+if search_recursive 'public (struct|enum|class) HealthKitRouteCoordinate' Sources; then
+  echo "Full-resolution HealthKit route coordinates must remain adapter-private." >&2
+  exit 1
+fi
+
+require_pattern 'maximumRetainedPoints = 2_000' Sources/TrainingApplication/HealthWorkoutRouteBoundary.swift
 
 require_pattern 'SWIFT_STRICT_CONCURRENCY = complete' TrainingCompass.xcodeproj/project.pbxproj
 require_pattern 'IPHONEOS_DEPLOYMENT_TARGET = 26\.0' TrainingCompass.xcodeproj/project.pbxproj

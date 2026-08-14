@@ -164,31 +164,35 @@ private struct HealthView: View {
           .accessibilityIdentifier("health.refresh-empty")
         } else {
           ForEach(healthHistory.events) { entry in
-            VStack(alignment: .leading, spacing: 3) {
-              HStack {
-                Text(entry.event.activityType).font(.headline)
-                Spacer()
-                Text(entry.event.sourceBadge)
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(.tint)
-              }
-              Text("\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min")
-                .font(.subheadline)
-              Text("Health Workout · \(entry.provenance.displayName)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-              Text(entry.provenance.detailLabel)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-              Text(
-                "Heart rate: \(entry.enrichment.heartRate.state.displayName) · Distance: \(entry.enrichment.distance.state.displayName) · Active energy: \(entry.enrichment.activeEnergy.state.displayName)"
-              )
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-              if let context = entry.event.reconciliationContext {
-                Text("Last reconciliation: \(context)")
+            NavigationLink {
+              HealthWorkoutHistoryDetailView(entry: entry, model: model)
+            } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                  Text(entry.event.activityType).font(.headline)
+                  Spacer()
+                  Text(entry.event.sourceBadge)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                }
+                Text("\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min")
+                  .font(.subheadline)
+                Text("Health Workout · \(entry.provenance.displayName)")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                Text(entry.provenance.detailLabel)
                   .font(.caption2)
                   .foregroundStyle(.secondary)
+                Text(
+                  "Heart rate: \(entry.enrichment.heartRate.state.displayName) · Distance: \(entry.enrichment.distance.state.displayName) · Active energy: \(entry.enrichment.activeEnergy.state.displayName)"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                if let context = entry.event.reconciliationContext {
+                  Text("Last reconciliation: \(context)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
               }
             }
             .accessibilityIdentifier("health.workout.\(entry.id)")
@@ -789,6 +793,9 @@ private struct UnifiedTrainingEventDetailView: View {
         if let enrichment = event.healthWorkoutEnrichment {
           HealthWorkoutEnrichmentView(enrichment: enrichment)
         }
+        if model.healthWorkoutRouteBoundary != nil {
+          HealthWorkoutRouteView(healthKitUUID: workout.healthKitUUID, model: model)
+        }
       } else if event.link != nil {
         Section("Health Workout") {
           Text("The exact linked HealthKit UUID is not currently available in the mirror.")
@@ -825,6 +832,10 @@ private struct UnifiedTrainingEventDetailView: View {
     }
     .navigationTitle("Training Event")
     .accessibilityIdentifier("training-event.detail")
+    .onDisappear {
+      guard let healthKitUUID = event.healthWorkout?.healthKitUUID else { return }
+      Task { await model.healthWorkoutRouteBoundary?.cancelRoute(for: healthKitUUID) }
+    }
     .confirmationDialog(
       "Unlink this Training Event?",
       isPresented: $showingUnlinkConfirmation,
@@ -871,6 +882,7 @@ private struct UnifiedTrainingEventDetailView: View {
 
 private struct HealthWorkoutHistoryDetailView: View {
   let entry: HealthWorkoutHistoryEntry
+  let model: AppModel
 
   var body: some View {
     List {
@@ -891,6 +903,9 @@ private struct HealthWorkoutHistoryDetailView: View {
         LabeledContent("Coverage", value: entry.event.healthCoverage.displayName)
       }
       HealthWorkoutEnrichmentView(enrichment: entry.enrichment)
+      if model.healthWorkoutRouteBoundary != nil {
+        HealthWorkoutRouteView(healthKitUUID: entry.event.healthKitUUID, model: model)
+      }
       Section("Reconciliation") {
         LabeledContent("State", value: entry.state.displayName)
         if let context = entry.event.reconciliationContext {
@@ -903,6 +918,131 @@ private struct HealthWorkoutHistoryDetailView: View {
       }
     }
     .navigationTitle("Health Workout")
+    .onDisappear {
+      Task {
+        await model.healthWorkoutRouteBoundary?.cancelRoute(for: entry.event.healthKitUUID)
+      }
+    }
+  }
+}
+
+private struct HealthWorkoutRouteView: View {
+  let healthKitUUID: String
+  let model: AppModel
+
+  @State private var snapshot = HealthWorkoutRouteSnapshot.loading
+
+  var body: some View {
+    Section("Workout Route") {
+      switch snapshot.state {
+      case .loading:
+        ProgressView("Loading route from Health…")
+          .accessibilityIdentifier("health.route.loading")
+        Button("Cancel Route") {
+          Task { await model.healthWorkoutRouteBoundary?.cancelRoute(for: healthKitUUID) }
+        }
+        .accessibilityIdentifier("health.route.cancel")
+      case .unavailable:
+        Label("No route is currently available from Health.", systemImage: "map")
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("health.route.unavailable")
+        retryButton
+      case .failed:
+        Label(
+          "Route loading failed. No partial route was retained.",
+          systemImage: "exclamationmark.triangle"
+        )
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("health.route.failed")
+        retryButton
+      case .cancelled:
+        Label("Route loading was cancelled.", systemImage: "xmark.circle")
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("health.route.cancelled")
+        retryButton
+      case .ready:
+        if let route = snapshot.route {
+          HealthWorkoutRoutePlot(segments: route.segments)
+            .frame(minHeight: 260)
+            .clipShape(.rect(cornerRadius: 12))
+            .accessibilityIdentifier("health.route.ready")
+          LabeledContent(
+            "Retained points", value: "\(route.points.count) of \(route.originalPointCount)")
+          LabeledContent(
+            "Source",
+            value: route.sources.map(\.provenance.displayName).joined(separator: ", "))
+          if let duration = snapshot.appProcessingDurationMilliseconds {
+            LabeledContent("App processing", value: "\(Int(duration.rounded())) ms")
+          }
+          Text("Only simplified, reconstructible geometry is retained locally.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .task { await load() }
+  }
+
+  private var retryButton: some View {
+    Button("Retry Route") { Task { await load() } }
+      .accessibilityIdentifier("health.route.retry")
+  }
+
+  private func load() async {
+    guard let boundary = model.healthWorkoutRouteBoundary else {
+      snapshot = .unavailable
+      return
+    }
+    snapshot = .loading
+    snapshot = await boundary.openRoute(for: healthKitUUID)
+  }
+}
+
+private struct HealthWorkoutRoutePlot: View {
+  let segments: [HealthWorkoutRouteSegment]
+
+  var body: some View {
+    Canvas { context, size in
+      let points = segments.flatMap(\.points)
+      guard let first = points.first else { return }
+      let northValues = points.map(\.northSouthDegrees)
+      let eastValues = points.map(\.eastWestDegrees)
+      let minimumNorth = northValues.min() ?? first.northSouthDegrees
+      let maximumNorth = northValues.max() ?? first.northSouthDegrees
+      let minimumEast = eastValues.min() ?? first.eastWestDegrees
+      let maximumEast = eastValues.max() ?? first.eastWestDegrees
+      let minimumSpanDegrees = 0.000_1
+      let northSpan = max(maximumNorth - minimumNorth, minimumSpanDegrees)
+      let averageNorth = (minimumNorth + maximumNorth) / 2
+      let eastScale = cos(averageNorth * .pi / 180)
+      let eastSpan = max(
+        (maximumEast - minimumEast) * eastScale, minimumSpanDegrees)
+      let inset: CGFloat = 16
+      let drawingWidth = max(1, size.width - inset * 2)
+      let drawingHeight = max(1, size.height - inset * 2)
+      let drawingScale = min(
+        drawingWidth / CGFloat(eastSpan),
+        drawingHeight / CGFloat(northSpan))
+      let horizontalOffset = inset + (drawingWidth - CGFloat(eastSpan) * drawingScale) / 2
+      let verticalOffset = inset + (drawingHeight - CGFloat(northSpan) * drawingScale) / 2
+      func displayPoint(_ point: HealthWorkoutRoutePoint) -> CGPoint {
+        CGPoint(
+          x: horizontalOffset
+            + CGFloat((point.eastWestDegrees - minimumEast) * eastScale) * drawingScale,
+          y: verticalOffset
+            + CGFloat(maximumNorth - point.northSouthDegrees) * drawingScale
+        )
+      }
+      for segment in segments {
+        guard let segmentFirst = segment.points.first else { continue }
+        var path = Path()
+        path.move(to: displayPoint(segmentFirst))
+        for point in segment.points.dropFirst() { path.addLine(to: displayPoint(point)) }
+        context.stroke(path, with: .color(.blue), style: .init(lineWidth: 4, lineCap: .round))
+      }
+    }
+    .background(.quaternary)
+    .accessibilityLabel("Simplified workout route")
   }
 }
 

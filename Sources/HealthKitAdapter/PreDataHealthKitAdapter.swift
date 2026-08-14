@@ -8,7 +8,7 @@ import TrainingApplication
 /// The real HealthKit adapter.  Its public surface is made only of
 /// application-owned values so HealthKit cannot leak through the application
 /// or persistence layers.
-public actor PreDataHealthKitAdapter: HealthWorkoutClient {
+public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteClient {
   #if canImport(HealthKit)
     private let store: HKHealthStore
   #endif
@@ -55,6 +55,95 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
       return .init(state: .authorized, requested: request)
     #else
       return .init(state: .unavailable, requested: request)
+    #endif
+  }
+
+  public func requestWorkoutRouteAuthorization() async throws
+    -> HealthWorkoutRouteAuthorizationState
+  {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable() else { return .unavailable }
+      let routeType = HKSeriesType.workoutRoute()
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        store.requestAuthorization(toShare: [], read: [routeType]) { _, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else {
+            // HealthKit does not reveal read denial. A completed request is
+            // followed by the route query, whose empty result remains honest.
+            continuation.resume(returning: ())
+          }
+        }
+      }
+      return .authorized
+    #else
+      return .unavailable
+    #endif
+  }
+
+  public func fetchSimplifiedWorkoutRoute(
+    for healthKitUUID: String,
+    maximumRetainedPoints: Int
+  ) async throws -> HealthWorkoutRoute? {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable(),
+        let uuid = UUID(uuidString: healthKitUUID),
+        let healthWorkout = try await fetchWorkout(uuid: uuid)
+      else { return nil }
+      let routes = try await fetchWorkoutRoutes(for: healthWorkout)
+      guard !routes.isEmpty else { return nil }
+      // Every segment receives at least two points, so this guard must stay
+      // aligned with the minimum segment budget below.
+      guard routes.count <= maximumRetainedPoints / 2 else {
+        throw HealthKitAdapterError.tooManyRouteSegments
+      }
+
+      var segments: [HealthWorkoutRouteSegment] = []
+      var remainingPointBudget = maximumRetainedPoints
+      var processingDurationMilliseconds = 0.0
+      for (index, route) in routes.sorted(by: Self.routeOrder).enumerated() {
+        try Task.checkCancellation()
+        let remainingSegmentCount = routes.count - index
+        let segmentPointBudget = max(2, remainingPointBudget / remainingSegmentCount)
+        var simplifier = BoundedHealthKitRouteSimplifier(
+          maximumRetainedPoints: segmentPointBudget)
+        let source = HealthWorkoutRouteSource(
+          healthKitUUID: route.uuid.uuidString,
+          provenance: Self.provenance(
+            sourceRevision: route.sourceRevision,
+            device: route.device))
+        for try await page in routeCoordinatePages(for: route) {
+          try Task.checkCancellation()
+          processingDurationMilliseconds += page.decodingDurationMilliseconds
+          let appendStart = ProcessInfo.processInfo.systemUptime
+          simplifier.append(page: page.coordinates)
+          processingDurationMilliseconds +=
+            (ProcessInfo.processInfo.systemUptime - appendStart) * 1_000
+        }
+        let finishStart = ProcessInfo.processInfo.systemUptime
+        let points = simplifier.finish()
+        if !points.isEmpty {
+          segments.append(
+            .init(
+              source: source,
+              points: points,
+              originalPointCount: simplifier.originalPointCount))
+          remainingPointBudget -= points.count
+        }
+        processingDurationMilliseconds +=
+          (ProcessInfo.processInfo.systemUptime - finishStart) * 1_000
+      }
+      guard !segments.isEmpty else { return nil }
+      return HealthWorkoutRoute(
+        healthKitUUID: healthKitUUID,
+        segments: segments,
+        retainedAt: Date(),
+        simplification: .boundedDouglasPeuckerV1,
+        reconciliationContext: "workout-route-query",
+        adapterProcessingDurationMilliseconds: processingDurationMilliseconds)
+    #else
+      return nil
     #endif
   }
 
@@ -184,6 +273,71 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
         }
         store.execute(query)
       }
+    }
+
+    private func fetchWorkoutRoutes(for workout: HKWorkout) async throws -> [HKWorkoutRoute] {
+      try await withCheckedThrowingContinuation { continuation in
+        let query = HKSampleQuery(
+          sampleType: HKSeriesType.workoutRoute(),
+          predicate: HKQuery.predicateForObjects(from: workout),
+          limit: HKObjectQueryNoLimit,
+          sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+        ) { _, samples, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else {
+            continuation.resume(returning: samples as? [HKWorkoutRoute] ?? [])
+          }
+        }
+        store.execute(query)
+      }
+    }
+
+    private struct RouteCoordinatePage: Sendable {
+      let coordinates: [HealthKitRouteCoordinate]
+      let decodingDurationMilliseconds: Double
+    }
+
+    private func routeCoordinatePages(for route: HKWorkoutRoute)
+      -> AsyncThrowingStream<RouteCoordinatePage, any Error>
+    {
+      // Absorb ordinary HealthKit delivery bursts while the adapter actor
+      // simplifies a page. The fixed capacity keeps this queue bounded.
+      AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
+        let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
+          if let error {
+            continuation.finish(throwing: error)
+            return
+          }
+          if let locations, !locations.isEmpty {
+            let decodingStart = ProcessInfo.processInfo.systemUptime
+            let coordinates = locations.map {
+              HealthKitRouteCoordinate(
+                northSouthDegrees: $0.coordinate.latitude,
+                eastWestDegrees: $0.coordinate.longitude)
+            }
+            let result = continuation.yield(
+              .init(
+                coordinates: coordinates,
+                decodingDurationMilliseconds: (ProcessInfo.processInfo.systemUptime - decodingStart)
+                  * 1_000))
+            if case .dropped = result {
+              continuation.finish(throwing: HealthKitAdapterError.routeBufferExceeded)
+              return
+            }
+          }
+          if done { continuation.finish() }
+        }
+        continuation.onTermination = { [store] _ in
+          store.stop(query)
+        }
+        store.execute(query)
+      }
+    }
+
+    private static func routeOrder(_ left: HKWorkoutRoute, _ right: HKWorkoutRoute) -> Bool {
+      if left.startDate != right.startDate { return left.startDate < right.startDate }
+      return left.uuid.uuidString < right.uuid.uuidString
     }
 
     private func fetchHeartRateSamples(for workout: HKWorkout) async throws
@@ -370,4 +524,6 @@ public enum HealthKitAdapterModule {}
 public enum HealthKitAdapterError: Error, Equatable, Sendable {
   case unavailable
   case observerRegistrationFailed
+  case routeBufferExceeded
+  case tooManyRouteSegments
 }

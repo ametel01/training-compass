@@ -521,6 +521,13 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("updated_at", .double).notNull()
       }
     }
+    migrator.registerMigration("reconstructible_v6_workout_routes") { db in
+      try db.create(table: "health_workout_routes") { table in
+        table.column("healthkit_uuid", .text).primaryKey()
+        table.column("route_json", .text).notNull()
+        table.column("updated_at", .double).notNull()
+      }
+    }
     return migrator
   }
 

@@ -17,7 +17,7 @@ private enum ApplicationAcceptanceScenario {
 
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
   TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
-  TrainingEventLinkRepository
+  HealthWorkoutRouteRepository, TrainingEventLinkRepository
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -388,6 +388,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           arguments: [uuid]
         )
         try db.execute(
+          sql: "DELETE FROM health_workout_routes WHERE healthkit_uuid = ?",
+          arguments: [uuid]
+        )
+        try db.execute(
           sql: """
             INSERT INTO health_workout_deletions
               (healthkit_uuid, deleted_at, reconciliation_context)
@@ -570,6 +574,53 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  public func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws -> Bool {
+    let stores = try await readyStores()
+    let encoded = String(decoding: try JSONEncoder().encode(route), as: UTF8.self)
+    return try await stores.reconstructible.write { db in
+      let workoutExists =
+        try Bool.fetchOne(
+          db,
+          sql: "SELECT EXISTS(SELECT 1 FROM health_workouts WHERE healthkit_uuid = ?)",
+          arguments: [route.healthKitUUID]
+        ) ?? false
+      guard workoutExists else { return false }
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_routes (healthkit_uuid, route_json, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(healthkit_uuid) DO UPDATE SET
+            route_json = excluded.route_json,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [route.healthKitUUID, encoded, Date().timeIntervalSince1970]
+      )
+      return true
+    }
+  }
+
+  public func loadHealthWorkoutRoute(for healthKitUUID: String) async throws
+    -> HealthWorkoutRoute?
+  {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      guard
+        let encoded = try String.fetchOne(
+          db,
+          sql: "SELECT route_json FROM health_workout_routes WHERE healthkit_uuid = ?",
+          arguments: [healthKitUUID]
+        )
+      else { return nil }
+      let route = try JSONDecoder().decode(HealthWorkoutRoute.self, from: Data(encoded.utf8))
+      guard route.healthKitUUID == healthKitUUID,
+        !route.segments.isEmpty,
+        route.points.count <= HealthWorkoutRoute.maximumRetainedPoints,
+        route.originalPointCount >= route.points.count
+      else { return nil }
+      return route
+    }
+  }
+
   public func estimateHealthRebuildStorage(
     policy: HealthRebuildStoragePolicy
   ) async throws -> HealthRebuildStorageEstimate {
@@ -619,6 +670,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     try await stores.reconstructible.write { db in
       // Only reconstructible Health state is discarded. The authoritative
       // store (sessions, results, audits, and future link facts) is untouched.
+      try db.execute(sql: "DELETE FROM health_workout_routes")
       try db.execute(sql: "DELETE FROM health_workout_enrichment")
       try db.execute(sql: "DELETE FROM health_workouts")
       try db.execute(sql: "DELETE FROM health_workout_deletions")

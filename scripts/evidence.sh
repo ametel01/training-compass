@@ -84,7 +84,6 @@ record = {
     },
     "ownerDataAccepted": owner_data_accepted,
     "platform": platform.platform(),
-    "rawMeasurements": device_evidence.get("measurements", []),
     "swiftVersion": output("swift", "--version").splitlines()[0],
     "verdicts": {
         "automatedChangeGate": automated_verdict("VERIFY_RESULT"),

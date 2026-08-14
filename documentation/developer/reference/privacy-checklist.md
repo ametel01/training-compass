@@ -10,6 +10,8 @@ Automated change gates verify:
 - both store directories receive complete file protection;
 - the reconstructible directory receives and verifies backup exclusion;
 - fixtures are synthetic, deterministic, versioned, and marked as not accepting owner data;
+- route coordinates are absent from fixtures, evidence, logs, and authoritative export-by-default output;
+- full-resolution HealthKit route coordinates remain adapter-private while only geometry simplified to at most 2,000 points crosses the application boundary;
 - logs accept a fixed event enum instead of arbitrary strings or payloads; and
 - app content is privacy-sensitive and covered whenever the scene is not active.
 

@@ -88,21 +88,21 @@ let reconstructibleTables = try reopenedStores.reconstructible.read { db in
       sql: """
         SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
           ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts',
-           'health_rebuild_state', 'health_workout_enrichment')
+           'health_rebuild_state', 'health_workout_enrichment', 'health_workout_routes')
         """
     ))
 }
 guard
   reconstructibleTables == [
     "health_workouts", "health_workout_deletions", "health_sync_streams", "health_sync_facts",
-    "health_rebuild_state", "health_workout_enrichment",
+    "health_rebuild_state", "health_workout_enrichment", "health_workout_routes",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v5")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v6")
 }
 
 print(
-  "Authoritative v13 and reconstructible v5 migration interruption, retry, and idempotence passed.")
+  "Authoritative v13 and reconstructible v6 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {
