@@ -12,7 +12,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   private let erasurePhaseObserver: any TrainingErasurePhaseObserver
   private let erasurePreferences: any TrainingErasurePreferences
   private let temporaryExportDirectory: URL
+  private let trainingEventAcceptanceScenarioRequested: Bool
   private var stores: TrainingStores?
+  private var hasPreparedTrainingEventAcceptanceScenario = false
 
   public init(
     root: URL,
@@ -29,12 +31,40 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     self.erasurePhaseObserver = erasurePhaseObserver
     self.erasurePreferences = erasurePreferences
     self.temporaryExportDirectory = temporaryExportDirectory
+    self.trainingEventAcceptanceScenarioRequested = false
+  }
+
+  private init(applicationRoot root: URL) {
+    self.root = root
+    self.bootstrapper = .init()
+    self.phaseObserver = NoOpTrainingImportPhaseObserver()
+    self.erasurePhaseObserver = NoOpTrainingErasurePhaseObserver()
+    self.erasurePreferences = FoundationTrainingErasurePreferences()
+    self.temporaryExportDirectory = FileManager.default.temporaryDirectory
+      .appending(path: "TrainingCompassExports", directoryHint: .isDirectory)
+    self.trainingEventAcceptanceScenarioRequested =
+      ProcessInfo.processInfo.environment["TRAINING_COMPASS_UI_SCENARIO"] == "event-linking"
+  }
+
+  public static func applicationRepository(root: URL) -> GRDBTrainingRepository {
+    GRDBTrainingRepository(applicationRoot: root)
   }
 
   public func prepareStores() async throws {
-    guard stores == nil else { return }
-    try recoverPendingErasure()
-    stores = try bootstrapper.open(in: root)
+    if stores == nil {
+      try recoverPendingErasure()
+      stores = try bootstrapper.open(in: root)
+    }
+    guard trainingEventAcceptanceScenarioRequested,
+      !hasPreparedTrainingEventAcceptanceScenario
+    else { return }
+    hasPreparedTrainingEventAcceptanceScenario = true
+    do {
+      try await seedTrainingEventAcceptanceScenario(now: Date())
+    } catch {
+      hasPreparedTrainingEventAcceptanceScenario = false
+      throw error
+    }
   }
 
   /// Removes every copy owned by this installation. A marker is written before

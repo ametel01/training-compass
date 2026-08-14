@@ -17,7 +17,6 @@ final class AppModel {
   private(set) var phase: Phase = .preparing
   private(set) var isErasing = false
   private let preparePreDataShell: PreparePreDataShell
-  private let prepareUIScenario: (@Sendable () async throws -> Void)?
   let liftConfigurationBoundary: LiftConfigurationBoundary
   let scheduleTemplateBoundary: ScheduleTemplateBoundary
   let trainingCycleBoundary: TrainingCycleBoundary
@@ -44,11 +43,9 @@ final class AppModel {
     trainingErasureBoundary: TrainingErasureBoundary? = nil,
     healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil,
     healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil,
-    trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
-    prepareUIScenario: (@Sendable () async throws -> Void)? = nil
+    trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
-    self.prepareUIScenario = prepareUIScenario
     self.liftConfigurationBoundary = liftConfigurationBoundary
     self.scheduleTemplateBoundary = scheduleTemplateBoundary
     self.trainingCycleBoundary = trainingCycleBoundary
@@ -67,7 +64,6 @@ final class AppModel {
     guard phase == .preparing else { return }
     do {
       _ = try await preparePreDataShell()
-      try await prepareUIScenario?()
       phase = .ready
     } catch {
       phase = .failed
@@ -90,7 +86,7 @@ final class AppModel {
     let repository: any TrainingRepository
     do {
       let root = try fileSystem.applicationSupportDirectory()
-      repository = GRDBTrainingRepository(root: root)
+      repository = GRDBTrainingRepository.applicationRepository(root: root)
     } catch {
       repository = UnavailableTrainingRepository()
     }
@@ -106,17 +102,6 @@ final class AppModel {
       healthKit: PreDataHealthKitAdapter(),
       logger: UnifiedPrivacyLogger()
     )
-    let prepareUIScenario: (@Sendable () async throws -> Void)?
-    if ProcessInfo.processInfo.environment["TRAINING_COMPASS_UI_SCENARIO"] == "event-linking",
-      let scenarioRepository = repository as? GRDBTrainingRepository
-    {
-      prepareUIScenario = { @Sendable in
-        try await scenarioRepository.seedTrainingEventAcceptanceScenario(
-          now: dependencies.clock.now())
-      }
-    } else {
-      prepareUIScenario = nil
-    }
     return AppModel(
       preparePreDataShell: PreparePreDataShell(dependencies: dependencies),
       liftConfigurationBoundary: LiftConfigurationBoundary(
@@ -188,8 +173,7 @@ final class AppModel {
           clock: dependencies.clock,
           uuidGenerator: dependencies.uuidGenerator
         )
-      }(),
-      prepareUIScenario: prepareUIScenario
+      }()
     )
   }
 }

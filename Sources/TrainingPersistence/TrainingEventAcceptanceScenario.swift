@@ -3,9 +3,9 @@ import TrainingApplication
 
 extension GRDBTrainingRepository {
   /// Installs deterministic local data for the Training Event XCUITest journey.
-  /// Production composition calls this only when the explicit test launch
-  /// environment is present.
-  public func seedTrainingEventAcceptanceScenario(now: Date) async throws {
+  /// The application repository enables it only for the explicit test launch
+  /// environment, keeping test orchestration out of the app model.
+  func seedTrainingEventAcceptanceScenario(now: Date) async throws {
     try await eraseAllData(progress: nil)
     try await prepareStores()
 
