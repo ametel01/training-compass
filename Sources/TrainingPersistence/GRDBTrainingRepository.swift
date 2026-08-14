@@ -574,17 +574,17 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
-  public func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws {
+  public func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws -> Bool {
     let stores = try await readyStores()
     let encoded = String(decoding: try JSONEncoder().encode(route), as: UTF8.self)
-    try await stores.reconstructible.write { db in
+    return try await stores.reconstructible.write { db in
       let workoutExists =
         try Bool.fetchOne(
           db,
           sql: "SELECT EXISTS(SELECT 1 FROM health_workouts WHERE healthkit_uuid = ?)",
           arguments: [route.healthKitUUID]
         ) ?? false
-      guard workoutExists else { return }
+      guard workoutExists else { return false }
       try db.execute(
         sql: """
           INSERT INTO health_workout_routes (healthkit_uuid, route_json, updated_at)
@@ -595,6 +595,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           """,
         arguments: [route.healthKitUUID, encoded, Date().timeIntervalSince1970]
       )
+      return true
     }
   }
 
@@ -612,7 +613,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       else { return nil }
       let route = try JSONDecoder().decode(HealthWorkoutRoute.self, from: Data(encoded.utf8))
       guard route.healthKitUUID == healthKitUUID,
-        !route.points.isEmpty,
+        !route.segments.isEmpty,
         route.points.count <= HealthWorkoutRoute.maximumRetainedPoints,
         route.originalPointCount >= route.points.count
       else { return nil }

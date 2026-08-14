@@ -1,3 +1,4 @@
+import TrainingApplication
 import XCTest
 
 @testable import HealthKitAdapter
@@ -20,23 +21,32 @@ final class PreDataHealthKitAdapterTests: XCTestCase {
         northSouthDegrees: 14.5 + progress * 0.2,
         eastWestDegrees: 120.9 + progress * 0.2 + turn)
     }
-    var simplifier = BoundedHealthKitRouteSimplifier(maximumRetainedPoints: 2_000)
     let clock = ContinuousClock()
+    var durations: [Duration] = []
+    var output: [HealthWorkoutRoutePoint] = []
+    var peakBufferedPointCount = 0
 
-    let elapsed = clock.measure {
-      for pageStart in stride(from: 0, to: input.count, by: 777) {
-        simplifier.append(
-          page: Array(input[pageStart..<min(input.count, pageStart + 777)]))
+    for _ in 0..<10 {
+      var simplifier = BoundedHealthKitRouteSimplifier(maximumRetainedPoints: 2_000)
+      let elapsed = clock.measure {
+        for pageStart in stride(from: 0, to: input.count, by: 777) {
+          simplifier.append(
+            page: Array(input[pageStart..<min(input.count, pageStart + 777)]))
+        }
+        output = simplifier.finish()
       }
+      durations.append(elapsed)
+      peakBufferedPointCount = max(peakBufferedPointCount, simplifier.peakBufferedPointCount)
+      XCTAssertEqual(simplifier.originalPointCount, total)
     }
-    let output = simplifier.finish()
+    let p95Index = Int((Double(durations.count) * 0.95).rounded(.up)) - 1
+    let p95 = durations.sorted()[p95Index]
 
-    XCTAssertEqual(simplifier.originalPointCount, total)
     XCTAssertLessThanOrEqual(output.count, 2_000)
-    XCTAssertLessThanOrEqual(simplifier.peakBufferedPointCount, 4_001)
+    XCTAssertLessThanOrEqual(peakBufferedPointCount, 4_001)
     XCTAssertEqual(output.first?.northSouthDegrees, input.first?.northSouthDegrees)
     XCTAssertEqual(output.last?.eastWestDegrees, input.last?.eastWestDegrees)
     XCTAssertTrue(output.contains { $0.eastWestDegrees > 121.09 })
-    XCTAssertLessThan(elapsed, Duration.seconds(2))
+    XCTAssertLessThan(p95, Duration.seconds(2))
   }
 }

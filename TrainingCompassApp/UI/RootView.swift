@@ -949,7 +949,7 @@ private struct HealthWorkoutRouteView: View {
         retryButton
       case .ready:
         if let route = snapshot.route {
-          HealthWorkoutRoutePlot(points: route.points)
+          HealthWorkoutRoutePlot(segments: route.segments)
             .frame(minHeight: 260)
             .clipShape(.rect(cornerRadius: 12))
             .accessibilityIdentifier("health.route.ready")
@@ -958,6 +958,9 @@ private struct HealthWorkoutRouteView: View {
           LabeledContent(
             "Source",
             value: route.sources.map(\.provenance.displayName).joined(separator: ", "))
+          if let duration = snapshot.appProcessingDurationMilliseconds {
+            LabeledContent("App processing", value: "\(Int(duration.rounded())) ms")
+          }
           Text("Only simplified, reconstructible geometry is retained locally.")
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -986,10 +989,11 @@ private struct HealthWorkoutRouteView: View {
 }
 
 private struct HealthWorkoutRoutePlot: View {
-  let points: [HealthWorkoutRoutePoint]
+  let segments: [HealthWorkoutRouteSegment]
 
   var body: some View {
     Canvas { context, size in
+      let points = segments.flatMap(\.points)
       guard let first = points.first else { return }
       let northValues = points.map(\.northSouthDegrees)
       let eastValues = points.map(\.eastWestDegrees)
@@ -998,22 +1002,33 @@ private struct HealthWorkoutRoutePlot: View {
       let minimumEast = eastValues.min() ?? first.eastWestDegrees
       let maximumEast = eastValues.max() ?? first.eastWestDegrees
       let northSpan = max(maximumNorth - minimumNorth, .leastNonzeroMagnitude)
-      let eastSpan = max(maximumEast - minimumEast, .leastNonzeroMagnitude)
+      let averageNorth = (minimumNorth + maximumNorth) / 2
+      let eastScale = cos(averageNorth * .pi / 180)
+      let eastSpan = max(
+        (maximumEast - minimumEast) * eastScale, .leastNonzeroMagnitude)
       let inset: CGFloat = 16
       let drawingWidth = max(1, size.width - inset * 2)
       let drawingHeight = max(1, size.height - inset * 2)
+      let drawingScale = min(
+        drawingWidth / CGFloat(eastSpan),
+        drawingHeight / CGFloat(northSpan))
+      let horizontalOffset = inset + (drawingWidth - CGFloat(eastSpan) * drawingScale) / 2
+      let verticalOffset = inset + (drawingHeight - CGFloat(northSpan) * drawingScale) / 2
       func displayPoint(_ point: HealthWorkoutRoutePoint) -> CGPoint {
         CGPoint(
-          x: inset
-            + drawingWidth * CGFloat((point.eastWestDegrees - minimumEast) / eastSpan),
-          y: inset
-            + drawingHeight * CGFloat(1 - (point.northSouthDegrees - minimumNorth) / northSpan)
+          x: horizontalOffset
+            + CGFloat((point.eastWestDegrees - minimumEast) * eastScale) * drawingScale,
+          y: verticalOffset
+            + CGFloat(maximumNorth - point.northSouthDegrees) * drawingScale
         )
       }
-      var path = Path()
-      path.move(to: displayPoint(first))
-      for point in points.dropFirst() { path.addLine(to: displayPoint(point)) }
-      context.stroke(path, with: .color(.blue), style: .init(lineWidth: 4, lineCap: .round))
+      for segment in segments {
+        guard let segmentFirst = segment.points.first else { continue }
+        var path = Path()
+        path.move(to: displayPoint(segmentFirst))
+        for point in segment.points.dropFirst() { path.addLine(to: displayPoint(point)) }
+        context.stroke(path, with: .color(.blue), style: .init(lineWidth: 4, lineCap: .round))
+      }
     }
     .background(.quaternary)
     .accessibilityLabel("Simplified workout route")

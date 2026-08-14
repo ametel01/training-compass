@@ -200,25 +200,42 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
       HealthWorkoutPage(workouts: [workout]), stream: .workouts, limits: .default)
     let route = HealthWorkoutRoute(
       healthKitUUID: workout.healthKitUUID,
-      points: [
-        .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-        .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942),
-      ],
-      originalPointCount: 10_000,
-      sources: [
+      segments: [
         .init(
-          healthKitUUID: "route-source-uuid",
-          provenance: .init(
-            sourceName: "Watch", sourceBundleIdentifier: "com.example.source"))
+          source: .init(
+            healthKitUUID: "route-source-uuid",
+            provenance: .init(
+              sourceName: "Watch", sourceBundleIdentifier: "com.example.source")),
+          points: [
+            .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+            .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942),
+          ],
+          originalPointCount: 6_000),
+        .init(
+          source: .init(
+            healthKitUUID: "route-source-uuid-2",
+            provenance: .init(
+              sourceName: "Watch", sourceBundleIdentifier: "com.example.source")),
+          points: [
+            .init(northSouthDegrees: 14.6195, eastWestDegrees: 121.0042),
+            .init(northSouthDegrees: 14.6295, eastWestDegrees: 121.0142),
+          ],
+          originalPointCount: 4_000),
       ],
       retainedAt: Date(timeIntervalSince1970: 1_700_000_900),
       simplification: .boundedDouglasPeuckerV1,
       reconciliationContext: "workout-route-query")
 
-    try await repository.saveHealthWorkoutRoute(route)
+    let saved = try await repository.saveHealthWorkoutRoute(route)
+    XCTAssertTrue(saved)
     let restarted = GRDBTrainingRepository(root: root)
     let persisted = try await restarted.loadHealthWorkoutRoute(for: workout.healthKitUUID)
     XCTAssertEqual(persisted, route)
+    XCTAssertEqual(
+      persisted?.segments.map(\.source.healthKitUUID),
+      [
+        "route-source-uuid", "route-source-uuid-2",
+      ])
 
     try await restarted.commitHealthWorkoutPage(
       HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: [workout.healthKitUUID]),
@@ -252,22 +269,24 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
         heartRate: .loading,
         distance: .loading,
         activeEnergy: .loading))
-    try await repository.saveHealthWorkoutRoute(
+    let routeSaved = try await repository.saveHealthWorkoutRoute(
       HealthWorkoutRoute(
         healthKitUUID: mirroredWorkout.healthKitUUID,
-        points: [
-          .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-          .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
-        ],
-        originalPointCount: 2,
-        sources: [
+        segments: [
           .init(
-            healthKitUUID: "route-source",
-            provenance: .init(sourceBundleIdentifier: "com.example.watch"))
+            source: .init(
+              healthKitUUID: "route-source",
+              provenance: .init(sourceBundleIdentifier: "com.example.watch")),
+            points: [
+              .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+            ],
+            originalPointCount: 2)
         ],
         retainedAt: Date(timeIntervalSince1970: 1_700_000_900),
         simplification: .boundedDouglasPeuckerV1,
         reconciliationContext: "workout-route-query"))
+    XCTAssertTrue(routeSaved)
 
     try await repository.beginHealthRebuild()
     let workouts = try await repository.loadHealthWorkouts()

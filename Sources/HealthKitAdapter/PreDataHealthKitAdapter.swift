@@ -93,33 +93,53 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       else { return nil }
       let routes = try await fetchWorkoutRoutes(for: healthWorkout)
       guard !routes.isEmpty else { return nil }
+      guard routes.count <= maximumRetainedPoints / 2 else {
+        throw HealthKitAdapterError.tooManyRouteSegments
+      }
 
-      var simplifier = BoundedHealthKitRouteSimplifier(
-        maximumRetainedPoints: maximumRetainedPoints)
-      var sources: [HealthWorkoutRouteSource] = []
-      for route in routes.sorted(by: Self.routeOrder) {
+      var segments: [HealthWorkoutRouteSegment] = []
+      var remainingPointBudget = maximumRetainedPoints
+      var processingDurationMilliseconds = 0.0
+      for (index, route) in routes.sorted(by: Self.routeOrder).enumerated() {
         try Task.checkCancellation()
-        sources.append(
-          .init(
-            healthKitUUID: route.uuid.uuidString,
-            provenance: Self.provenance(
-              sourceRevision: route.sourceRevision,
-              device: route.device)))
+        let remainingSegmentCount = routes.count - index
+        let segmentPointBudget = max(2, remainingPointBudget / remainingSegmentCount)
+        var simplifier = BoundedHealthKitRouteSimplifier(
+          maximumRetainedPoints: segmentPointBudget)
+        let source = HealthWorkoutRouteSource(
+          healthKitUUID: route.uuid.uuidString,
+          provenance: Self.provenance(
+            sourceRevision: route.sourceRevision,
+            device: route.device))
         for try await page in routeCoordinatePages(for: route) {
           try Task.checkCancellation()
-          simplifier.append(page: page)
+          processingDurationMilliseconds += page.decodingDurationMilliseconds
+          let appendStart = ProcessInfo.processInfo.systemUptime
+          simplifier.append(page: page.coordinates)
+          processingDurationMilliseconds +=
+            (ProcessInfo.processInfo.systemUptime - appendStart) * 1_000
         }
+        let finishStart = ProcessInfo.processInfo.systemUptime
+        let points = simplifier.finish()
+        if !points.isEmpty {
+          segments.append(
+            .init(
+              source: source,
+              points: points,
+              originalPointCount: simplifier.originalPointCount))
+          remainingPointBudget -= points.count
+        }
+        processingDurationMilliseconds +=
+          (ProcessInfo.processInfo.systemUptime - finishStart) * 1_000
       }
-      let points = simplifier.finish()
-      guard !points.isEmpty else { return nil }
+      guard !segments.isEmpty else { return nil }
       return HealthWorkoutRoute(
         healthKitUUID: healthKitUUID,
-        points: points,
-        originalPointCount: simplifier.originalPointCount,
-        sources: sources,
+        segments: segments,
         retainedAt: Date(),
         simplification: .boundedDouglasPeuckerV1,
-        reconciliationContext: "workout-route-query")
+        reconciliationContext: "workout-route-query",
+        adapterProcessingDurationMilliseconds: processingDurationMilliseconds)
     #else
       return nil
     #endif
@@ -271,8 +291,13 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       }
     }
 
+    private struct RouteCoordinatePage: Sendable {
+      let coordinates: [HealthKitRouteCoordinate]
+      let decodingDurationMilliseconds: Double
+    }
+
     private func routeCoordinatePages(for route: HKWorkoutRoute)
-      -> AsyncThrowingStream<[HealthKitRouteCoordinate], any Error>
+      -> AsyncThrowingStream<RouteCoordinatePage, any Error>
     {
       AsyncThrowingStream(bufferingPolicy: .bufferingOldest(2)) { continuation in
         let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
@@ -281,12 +306,17 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
             return
           }
           if let locations, !locations.isEmpty {
+            let decodingStart = ProcessInfo.processInfo.systemUptime
+            let coordinates = locations.map {
+              HealthKitRouteCoordinate(
+                northSouthDegrees: $0.coordinate.latitude,
+                eastWestDegrees: $0.coordinate.longitude)
+            }
             let result = continuation.yield(
-              locations.map {
-                HealthKitRouteCoordinate(
-                  northSouthDegrees: $0.coordinate.latitude,
-                  eastWestDegrees: $0.coordinate.longitude)
-              })
+              .init(
+                coordinates: coordinates,
+                decodingDurationMilliseconds: (ProcessInfo.processInfo.systemUptime - decodingStart)
+                  * 1_000))
             if case .dropped = result {
               continuation.finish(throwing: HealthKitAdapterError.routeBufferExceeded)
               return
@@ -491,4 +521,5 @@ public enum HealthKitAdapterError: Error, Equatable, Sendable {
   case unavailable
   case observerRegistrationFailed
   case routeBufferExceeded
+  case tooManyRouteSegments
 }

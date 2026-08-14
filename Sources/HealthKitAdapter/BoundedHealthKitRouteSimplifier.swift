@@ -132,11 +132,13 @@ struct BoundedHealthKitRouteSimplifier: Sendable {
     from start: HealthKitRouteCoordinate,
     to end: HealthKitRouteCoordinate
   ) -> Double {
-    let x = point.eastWestDegrees
+    let longitudeScale = cos(
+      ((start.northSouthDegrees + end.northSouthDegrees) / 2) * .pi / 180)
+    let x = point.eastWestDegrees * longitudeScale
     let y = point.northSouthDegrees
-    let startX = start.eastWestDegrees
+    let startX = start.eastWestDegrees * longitudeScale
     let startY = start.northSouthDegrees
-    let deltaX = end.eastWestDegrees - startX
+    let deltaX = end.eastWestDegrees * longitudeScale - startX
     let deltaY = end.northSouthDegrees - startY
     let lengthSquared = deltaX * deltaX + deltaY * deltaY
     guard lengthSquared > 0 else {

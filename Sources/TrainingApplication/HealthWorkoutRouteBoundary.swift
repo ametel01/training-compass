@@ -42,6 +42,26 @@ public struct HealthWorkoutRouteSource: Codable, Equatable, Sendable {
   }
 }
 
+public struct HealthWorkoutRouteSegment: Codable, Equatable, Sendable, Identifiable {
+  public let source: HealthWorkoutRouteSource
+  public let points: [HealthWorkoutRoutePoint]
+  public let originalPointCount: Int
+
+  public var id: String { source.healthKitUUID }
+
+  public init(
+    source: HealthWorkoutRouteSource,
+    points: [HealthWorkoutRoutePoint],
+    originalPointCount: Int
+  ) {
+    precondition(!points.isEmpty)
+    precondition(originalPointCount >= points.count)
+    self.source = source
+    self.points = points
+    self.originalPointCount = originalPointCount
+  }
+}
+
 /// A reconstructible, display-ready route. Only simplified geometry may be
 /// constructed at this boundary, and persisted values are capped at 2,000
 /// points independently of the size of HealthKit's original result.
@@ -49,64 +69,85 @@ public struct HealthWorkoutRoute: Codable, Equatable, Sendable, Identifiable {
   public static let maximumRetainedPoints = 2_000
 
   public let healthKitUUID: String
-  public let points: [HealthWorkoutRoutePoint]
-  public let originalPointCount: Int
-  public let sources: [HealthWorkoutRouteSource]
+  public let segments: [HealthWorkoutRouteSegment]
   public let retainedAt: Date
   public let simplification: HealthWorkoutRouteSimplification
   public let reconciliationContext: String
+  /// Adapter-controlled work after HealthKit returns coordinate pages. HealthKit
+  /// query wait is deliberately excluded so Acceptance Device runs can report it
+  /// separately from the two-second application budget.
+  public let adapterProcessingDurationMilliseconds: Double
 
   public var id: String { healthKitUUID }
+  public var points: [HealthWorkoutRoutePoint] { segments.flatMap(\.points) }
+  public var originalPointCount: Int { segments.reduce(0) { $0 + $1.originalPointCount } }
+  public var sources: [HealthWorkoutRouteSource] { segments.map(\.source) }
 
   public init(
     healthKitUUID: String,
-    points: [HealthWorkoutRoutePoint],
-    originalPointCount: Int,
-    sources: [HealthWorkoutRouteSource],
+    segments: [HealthWorkoutRouteSegment],
     retainedAt: Date,
     simplification: HealthWorkoutRouteSimplification,
-    reconciliationContext: String
+    reconciliationContext: String,
+    adapterProcessingDurationMilliseconds: Double = 0
   ) {
     precondition(!healthKitUUID.isEmpty)
-    precondition(!points.isEmpty && points.count <= Self.maximumRetainedPoints)
-    precondition(originalPointCount >= points.count)
-    precondition(!sources.isEmpty)
+    precondition(!segments.isEmpty)
+    precondition(segments.reduce(0) { $0 + $1.points.count } <= Self.maximumRetainedPoints)
     precondition(!reconciliationContext.isEmpty)
+    precondition(
+      adapterProcessingDurationMilliseconds.isFinite
+        && adapterProcessingDurationMilliseconds >= 0)
     self.healthKitUUID = healthKitUUID
-    self.points = points
-    self.originalPointCount = originalPointCount
-    self.sources = sources
+    self.segments = segments
     self.retainedAt = retainedAt
     self.simplification = simplification
     self.reconciliationContext = reconciliationContext
+    self.adapterProcessingDurationMilliseconds = adapterProcessingDurationMilliseconds
   }
+}
+
+public enum HealthWorkoutRouteFailureCode: String, Codable, Equatable, Sendable {
+  case identityOrSizeMismatch = "route-identity-or-size-mismatch"
+  case operationFailed = "route-operation-failed"
+  case persistenceRejected = "route-persistence-rejected"
+  case resourcePressure = "route-resource-pressure"
 }
 
 public struct HealthWorkoutRouteSnapshot: Codable, Equatable, Sendable {
   public let state: HealthWorkoutRouteState
   public let route: HealthWorkoutRoute?
-  public let failureCode: String?
+  public let failureCode: HealthWorkoutRouteFailureCode?
+  public let appProcessingDurationMilliseconds: Double?
 
   private init(
     state: HealthWorkoutRouteState,
     route: HealthWorkoutRoute? = nil,
-    failureCode: String? = nil
+    failureCode: HealthWorkoutRouteFailureCode? = nil,
+    appProcessingDurationMilliseconds: Double? = nil
   ) {
     self.state = state
     self.route = route
     self.failureCode = failureCode
+    self.appProcessingDurationMilliseconds = appProcessingDurationMilliseconds
   }
 
   public static let loading = HealthWorkoutRouteSnapshot(state: .loading)
   public static let unavailable = HealthWorkoutRouteSnapshot(state: .unavailable)
   public static let cancelled = HealthWorkoutRouteSnapshot(state: .cancelled)
 
-  public static func failed(code: String) -> Self {
+  public static func failed(code: HealthWorkoutRouteFailureCode) -> Self {
     .init(state: .failed, failureCode: code)
   }
 
-  public static func ready(_ route: HealthWorkoutRoute) -> Self {
-    .init(state: .ready, route: route)
+  public static func ready(
+    _ route: HealthWorkoutRoute,
+    appProcessingDurationMilliseconds: Double? = nil
+  ) -> Self {
+    .init(
+      state: .ready,
+      route: route,
+      appProcessingDurationMilliseconds: appProcessingDurationMilliseconds)
   }
 }
 
@@ -119,7 +160,9 @@ public protocol HealthWorkoutRouteClient: Sendable {
 }
 
 public protocol HealthWorkoutRouteRepository: Sendable {
-  func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws
+  /// Returns false when the owning workout no longer exists, including a
+  /// concurrent deletion or reconstructible rebuild.
+  func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws -> Bool
   func loadHealthWorkoutRoute(for healthKitUUID: String) async throws -> HealthWorkoutRoute?
 }
 
@@ -194,6 +237,7 @@ public actor HealthWorkoutRouteBoundary {
   private let maximumRetainedPoints: Int
   private var inFlight: Operation?
   private var states: [String: HealthWorkoutRouteSnapshot] = [:]
+  private var cancellationGenerations: [String: Int] = [:]
 
   public init(
     client: any HealthWorkoutRouteClient,
@@ -202,7 +246,7 @@ public actor HealthWorkoutRouteBoundary {
     resourceProvider: any HealthWorkoutRouteResourceProviding =
       UnconstrainedHealthWorkoutRouteResourceProvider()
   ) {
-    precondition(maximumRetainedPoints > 0)
+    precondition(maximumRetainedPoints >= 2)
     precondition(maximumRetainedPoints <= HealthWorkoutRoute.maximumRetainedPoints)
     self.client = client
     self.repository = repository
@@ -211,7 +255,7 @@ public actor HealthWorkoutRouteBoundary {
   }
 
   public func state(for healthKitUUID: String) async -> HealthWorkoutRouteSnapshot {
-    if let state = states[healthKitUUID] { return state }
+    if states[healthKitUUID]?.state == .loading { return .loading }
     if let route = try? await repository.loadHealthWorkoutRoute(for: healthKitUUID) {
       let ready = HealthWorkoutRouteSnapshot.ready(route)
       states[healthKitUUID] = ready
@@ -221,12 +265,14 @@ public actor HealthWorkoutRouteBoundary {
   }
 
   public func openRoute(for healthKitUUID: String) async -> HealthWorkoutRouteSnapshot {
+    let cancellationGeneration = cancellationGenerations[healthKitUUID, default: 0]
     if let route = try? await repository.loadHealthWorkoutRoute(for: healthKitUUID) {
       let ready = HealthWorkoutRouteSnapshot.ready(route)
       states[healthKitUUID] = ready
       return ready
     }
 
+    states[healthKitUUID] = .loading
     while let operation = inFlight {
       let result = await operation.task.value
       if inFlight?.healthKitUUID == operation.healthKitUUID {
@@ -236,9 +282,17 @@ public actor HealthWorkoutRouteBoundary {
       if operation.healthKitUUID == healthKitUUID {
         return result
       }
+      guard cancellationGenerations[healthKitUUID, default: 0] == cancellationGeneration else {
+        states[healthKitUUID] = .cancelled
+        return .cancelled
+      }
     }
 
-    states[healthKitUUID] = .loading
+    guard cancellationGenerations[healthKitUUID, default: 0] == cancellationGeneration else {
+      states[healthKitUUID] = .cancelled
+      return .cancelled
+    }
+
     let client = self.client
     let repository = self.repository
     let resourceProvider = self.resourceProvider
@@ -247,7 +301,7 @@ public actor HealthWorkoutRouteBoundary {
       do {
         try Task.checkCancellation()
         guard await resourceProvider.currentRouteResources().permitsRouteWork else {
-          return .failed(code: "route-resource-pressure")
+          return .failed(code: .resourcePressure)
         }
         let authorization = try await client.requestWorkoutRouteAuthorization()
         guard authorization == .authorized else { return .unavailable }
@@ -257,20 +311,31 @@ public actor HealthWorkoutRouteBoundary {
             for: healthKitUUID,
             maximumRetainedPoints: maximumRetainedPoints)
         else { return .unavailable }
+        let postFetchStart = ProcessInfo.processInfo.systemUptime
         try Task.checkCancellation()
         guard route.healthKitUUID == healthKitUUID,
           route.points.count <= maximumRetainedPoints
-        else { return .failed(code: "route-identity-or-size-mismatch") }
+        else { return .failed(code: .identityOrSizeMismatch) }
         guard await resourceProvider.currentRouteResources().permitsRouteWork else {
-          return .failed(code: "route-resource-pressure")
+          return .failed(code: .resourcePressure)
         }
-        try await repository.saveHealthWorkoutRoute(route)
+        guard try await repository.saveHealthWorkoutRoute(route) else {
+          return .failed(code: .persistenceRejected)
+        }
+        guard try await repository.loadHealthWorkoutRoute(for: healthKitUUID) == route else {
+          return .failed(code: .persistenceRejected)
+        }
         try Task.checkCancellation()
-        return .ready(route)
+        let postFetchMilliseconds =
+          (ProcessInfo.processInfo.systemUptime - postFetchStart) * 1_000
+        return .ready(
+          route,
+          appProcessingDurationMilliseconds: route.adapterProcessingDurationMilliseconds
+            + postFetchMilliseconds)
       } catch is CancellationError {
         return .cancelled
       } catch {
-        return .failed(code: "route-operation-failed")
+        return .failed(code: .operationFailed)
       }
     }
     inFlight = Operation(healthKitUUID: healthKitUUID, task: task)
@@ -283,7 +348,9 @@ public actor HealthWorkoutRouteBoundary {
   }
 
   public func cancelRoute(for healthKitUUID: String) {
-    guard inFlight?.healthKitUUID == healthKitUUID else { return }
-    inFlight?.task.cancel()
+    cancellationGenerations[healthKitUUID, default: 0] += 1
+    if inFlight?.healthKitUUID == healthKitUUID {
+      inFlight?.task.cancel()
+    }
   }
 }

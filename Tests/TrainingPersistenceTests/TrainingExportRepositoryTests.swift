@@ -52,22 +52,24 @@ final class TrainingExportRepositoryTests: XCTestCase {
       localDate: "2023-11-14")
     try await repository.commitHealthWorkoutPage(
       HealthWorkoutPage(workouts: [workout]), stream: .workouts, limits: .default)
-    try await repository.saveHealthWorkoutRoute(
+    let routeSaved = try await repository.saveHealthWorkoutRoute(
       HealthWorkoutRoute(
         healthKitUUID: workout.healthKitUUID,
-        points: [
-          .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-          .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
-        ],
-        originalPointCount: 20_000,
-        sources: [
+        segments: [
           .init(
-            healthKitUUID: "route-source",
-            provenance: .init(sourceBundleIdentifier: "com.example.watch"))
+            source: .init(
+              healthKitUUID: "route-source",
+              provenance: .init(sourceBundleIdentifier: "com.example.watch")),
+            points: [
+              .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+            ],
+            originalPointCount: 20_000)
         ],
         retainedAt: Date(timeIntervalSince1970: 1_700_000_700),
         simplification: .boundedDouglasPeuckerV1,
         reconciliationContext: "workout-route-query"))
+    XCTAssertTrue(routeSaved)
 
     let snapshot = try await repository.loadAuthoritativeExportData()
 

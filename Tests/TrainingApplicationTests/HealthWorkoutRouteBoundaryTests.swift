@@ -45,7 +45,9 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
 
     let result = await boundary.openRoute(for: workout.healthKitUUID)
 
-    XCTAssertEqual(result, .ready(route))
+    XCTAssertEqual(result.state, .ready)
+    XCTAssertEqual(result.route, route)
+    XCTAssertNotNil(result.appProcessingDurationMilliseconds)
     let authorizationRequests = await client.authorizationRequestCount
     let fetches = await client.fetchCount
     let persisted = try await repository.loadHealthWorkoutRoute(for: workout.healthKitUUID)
@@ -118,6 +120,61 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
     XCTAssertNil(failed.route)
   }
 
+  func testQueuedCancellationPreventsAuthorizationFetchAndPersistence() async throws {
+    let firstWorkout = routeWorkout("active-before-queued-cancel")
+    let queuedWorkout = routeWorkout("queued-cancel")
+    let client = SuspendedRouteClient(
+      routes: [
+        firstWorkout.healthKitUUID: retainedRoute(for: firstWorkout.healthKitUUID),
+        queuedWorkout.healthKitUUID: retainedRoute(for: queuedWorkout.healthKitUUID),
+      ])
+    let repository = RouteRepository()
+    let boundary = HealthWorkoutRouteBoundary(client: client, repository: repository)
+    let first = Task { await boundary.openRoute(for: firstWorkout.healthKitUUID) }
+    await client.waitUntilFetchStarts()
+    let queued = Task { await boundary.openRoute(for: queuedWorkout.healthKitUUID) }
+    while await boundary.state(for: queuedWorkout.healthKitUUID).state != .loading {
+      await Task.yield()
+    }
+
+    await boundary.cancelRoute(for: queuedWorkout.healthKitUUID)
+    await client.resumeAll()
+    let firstResult = await first.value
+    let queuedResult = await queued.value
+    let counts = await client.counts()
+    let queuedPersisted = try await repository.loadHealthWorkoutRoute(
+      for: queuedWorkout.healthKitUUID)
+
+    XCTAssertEqual(firstResult.state, .ready)
+    XCTAssertEqual(queuedResult.state, .cancelled)
+    XCTAssertEqual(counts.fetches, 1)
+    XCTAssertNil(queuedPersisted)
+  }
+
+  func testDeletionAndRebuildRacesCannotLeaveCachedOrNewReadyState() async throws {
+    let workout = routeWorkout("deleted-after-ready")
+    let route = retainedRoute(for: workout.healthKitUUID)
+    let repository = RouteRepository()
+    _ = try await repository.saveHealthWorkoutRoute(route)
+    let boundary = HealthWorkoutRouteBoundary(
+      client: RouteClient(results: [.success(route)]),
+      repository: repository)
+
+    let beforeDeletion = await boundary.state(for: workout.healthKitUUID)
+    await repository.removeRoute(for: workout.healthKitUUID)
+    let afterDeletion = await boundary.state(for: workout.healthKitUUID)
+    XCTAssertEqual(beforeDeletion.state, .ready)
+    XCTAssertEqual(afterDeletion.state, .unavailable)
+
+    let racedWorkout = routeWorkout("deleted-during-save")
+    let rejectedBoundary = HealthWorkoutRouteBoundary(
+      client: RouteClient(results: [.success(retainedRoute(for: racedWorkout.healthKitUUID))]),
+      repository: RouteRepository(rejectsOnSave: true))
+    let rejected = await rejectedBoundary.openRoute(for: racedWorkout.healthKitUUID)
+    XCTAssertEqual(rejected.failureCode, .persistenceRejected)
+    XCTAssertNil(rejected.route)
+  }
+
   func testResourcePressureRefusesWorkBeforeAuthorizationAndBeforePersistence() async throws {
     let workout = routeWorkout("resource-pressure")
     let route = retainedRoute(for: workout.healthKitUUID)
@@ -139,7 +196,7 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
     let constrainedCounts = await client.counts()
 
     XCTAssertEqual(result.state, .failed)
-    XCTAssertEqual(result.failureCode, "route-resource-pressure")
+    XCTAssertEqual(result.failureCode, .resourcePressure)
     XCTAssertEqual(constrainedCounts, .init(authorizationRequests: 0, fetches: 0))
 
     let afterFetchRepository = RouteRepository()
@@ -188,9 +245,10 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
     let retried = await retryBoundary.openRoute(for: workout.healthKitUUID)
     let persisted = try await retryRepository.loadHealthWorkoutRoute(for: workout.healthKitUUID)
 
-    XCTAssertEqual(failed.failureCode, "route-identity-or-size-mismatch")
+    XCTAssertEqual(failed.failureCode, .identityOrSizeMismatch)
     XCTAssertNil(failed.route)
-    XCTAssertEqual(retried, .ready(expected))
+    XCTAssertEqual(retried.state, .ready)
+    XCTAssertEqual(retried.route, expected)
     XCTAssertEqual(persisted, expected)
   }
 
@@ -212,16 +270,17 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
   private func retainedRoute(for healthKitUUID: String) -> HealthWorkoutRoute {
     HealthWorkoutRoute(
       healthKitUUID: healthKitUUID,
-      points: [
-        .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-        .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
-      ],
-      originalPointCount: 2,
-      sources: [
+      segments: [
         .init(
-          healthKitUUID: "route-1",
-          provenance: .init(
-            sourceName: "Watch", sourceBundleIdentifier: "com.example.watch"))
+          source: .init(
+            healthKitUUID: "route-1",
+            provenance: .init(
+              sourceName: "Watch", sourceBundleIdentifier: "com.example.watch")),
+          points: [
+            .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+            .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+          ],
+          originalPointCount: 2)
       ],
       retainedAt: Date(timeIntervalSince1970: 1_700_000_700),
       simplification: .boundedDouglasPeuckerV1,
@@ -267,18 +326,26 @@ private actor RouteRepository: HealthWorkoutRouteRepository, HealthWorkoutReposi
   private var routes: [String: HealthWorkoutRoute] = [:]
   private var workouts: [HealthWorkout] = []
   private let failsOnSave: Bool
+  private let rejectsOnSave: Bool
 
-  init(failsOnSave: Bool = false) {
+  init(failsOnSave: Bool = false, rejectsOnSave: Bool = false) {
     self.failsOnSave = failsOnSave
+    self.rejectsOnSave = rejectsOnSave
   }
 
-  func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws {
+  func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws -> Bool {
     if failsOnSave { throw RouteTestError.persistence }
+    if rejectsOnSave { return false }
     routes[route.healthKitUUID] = route
+    return true
   }
 
   func loadHealthWorkoutRoute(for healthKitUUID: String) async throws -> HealthWorkoutRoute? {
     routes[healthKitUUID]
+  }
+
+  func removeRoute(for healthKitUUID: String) {
+    routes[healthKitUUID] = nil
   }
 
   func upsertHealthWorkouts(

@@ -29,11 +29,14 @@ evidence record.
 7. Exercise storage below 500 MiB, Low Power Mode, battery below 20%, and
    serious thermal pressure. Verify that route work is refused before mutation,
    local training stays usable, and retry works after pressure clears.
-8. After one conditioning run, measure ten route operations. Report HealthKit
-   wait separately and verify the 95th percentile of app-controlled decoding,
-   simplification, persistence, and display preparation is at most two seconds.
-   Verify foreground memory and simplified route storage remain inside the
-   release envelope.
+8. After one conditioning run, measure ten route operations. Record the coarse
+   `App processing` millisecond value shown by the Ready view; it sums decoded
+   page handling, simplification, reconstructible persistence verification, and
+   display-ready model preparation while excluding HealthKit query wait. Sort
+   the ten values, use the tenth value as the nearest-rank 95th percentile, and
+   verify it is at most two seconds. Report HealthKit wait separately. Verify
+   foreground memory and simplified route storage remain inside the release
+   envelope.
 9. Inspect the default Training Compass Export, device logs, and evidence
    payload. Verify that route geometry appears in none of them and that only
    coarse counts, duration, device/OS context, and pass/fail results are
