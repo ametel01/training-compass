@@ -69,20 +69,84 @@ final class RunningPerformanceTests: XCTestCase {
     XCTAssertEqual(records.first?.environment, .unspecified)
   }
 
+  func testComparableRunsMatchEnvironmentAndInclusiveFivePercentDistance() {
+    let date = TrainingDate(year: 2026, month: 8, day: 15)
+    let heartRate = RunningHeartRateContext(
+      averageBeatsPerMinute: 150, coveredSeconds: 480, workoutDurationSeconds: 600,
+      source: "Watch")
+    let reference = record(
+      "reference", date: date, duration: 600, distance: 10_000, importedAt: 50, start: 5_000,
+      environment: .outdoor, heartRate: heartRate)
+    let inclusive = record(
+      "inclusive", date: date.adding(days: -1), duration: 620, distance: 9_500, importedAt: 40,
+      start: 4_000, environment: .outdoor, heartRate: heartRate)
+    let wrongEnvironment = record(
+      "wrong-environment", date: date.adding(days: -2), duration: 600, distance: 10_000,
+      importedAt: 30,
+      start: 3_000, environment: .treadmill, heartRate: heartRate)
+    let outsideTolerance = record(
+      "outside-tolerance", date: date.adding(days: -3), duration: 600, distance: 9_499,
+      importedAt: 20, start: 2_000, environment: .outdoor, heartRate: heartRate)
+    let performance = RunningPerformanceCalculator().calculate(
+      records: [reference, inclusive, wrongEnvironment, outsideTolerance],
+      asOf: date,
+      sourceCoverage: "available")
+
+    XCTAssertEqual(performance.comparison?.precedingComparableRunID, "inclusive")
+    XCTAssertEqual(performance.comparison?.precedingFourComparableRunIDs, ["inclusive"])
+    XCTAssertEqual(performance.comparison?.pace.direction, .faster)
+    XCTAssertEqual(performance.comparison?.duration.direction, .lower)
+    XCTAssertEqual(performance.comparison?.distance.direction, .higher)
+  }
+
+  func testFourRunMedianRequiresAllFourAndExclusionIsTrendOnly() {
+    let date = TrainingDate(year: 2026, month: 8, day: 15)
+    let runs = (0..<5).map { index in
+      let id = index == 0 ? "reference" : "prior-\(index)"
+      return record(
+        id,
+        date: date.adding(days: -index),
+        duration: 600 + Double(index),
+        distance: 10_000,
+        importedAt: Double(100 - index),
+        start: 10_000 - Double(index),
+        environment: .unspecified)
+    }
+    let performance = RunningPerformanceCalculator().calculate(
+      records: runs,
+      asOf: date,
+      sourceCoverage: "available")
+    XCTAssertEqual(performance.comparison?.precedingFourComparableRunIDs.count, 4)
+    XCTAssertNotNil(performance.comparison?.baseline)
+    XCTAssertNotNil(performance.comparison?.medianDuration)
+    XCTAssertEqual(performance.runs.count, 5)
+    let excluded = RunningPerformanceCalculator().calculate(
+      records: runs,
+      asOf: date,
+      sourceCoverage: "available",
+      excludedRunIDs: ["prior-1"])
+    XCTAssertEqual(excluded.runs.count, 5)
+    XCTAssertEqual(excluded.comparison?.precedingComparableRunID, "prior-2")
+  }
+
   private func record(
     _ id: String,
     date: TrainingDate,
     duration: Double?,
     distance: Double?,
-    importedAt: Double? = nil
+    importedAt: Double? = nil,
+    start: Double? = nil,
+    environment: RunningEnvironment = .unspecified,
+    heartRate: RunningHeartRateContext = .unavailable(reason: "unavailable")
   ) -> RunningWorkoutRecord {
     RunningWorkoutRecord(
       id: id,
       localDate: date,
-      startDate: importedAt ?? 1,
+      startDate: start ?? importedAt ?? 1,
       durationSeconds: duration,
       distanceMeters: distance,
-      environment: .unspecified,
+      environment: environment,
+      heartRate: heartRate,
       importedAt: importedAt)
   }
 }

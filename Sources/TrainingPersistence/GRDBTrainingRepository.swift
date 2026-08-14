@@ -17,7 +17,8 @@ private enum ApplicationAcceptanceScenario {
 
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
   TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
-  HealthWorkoutRouteRepository, TrainingEventLinkRepository
+  HealthWorkoutRouteRepository, TrainingEventLinkRepository,
+  RunningComparisonExclusionRepository
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -1149,6 +1150,41 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     let stores = try await readyStores()
     try await stores.authoritative.write { db in
       try db.execute(sql: "DELETE FROM heart_rate_configuration")
+    }
+  }
+
+  public func loadRunningComparisonExclusions() async throws -> [String] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try String.fetchAll(
+        db,
+        sql:
+          "SELECT healthkit_uuid FROM running_comparison_exclusions ORDER BY excluded_at, healthkit_uuid"
+      )
+    }
+  }
+
+  public func saveRunningComparisonExclusion(healthKitUUID: String) async throws {
+    guard !healthKitUUID.isEmpty else { return }
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO running_comparison_exclusions (healthkit_uuid, excluded_at)
+          VALUES (?, ?)
+          ON CONFLICT(healthkit_uuid) DO UPDATE SET excluded_at = excluded.excluded_at
+          """,
+        arguments: [healthKitUUID, Date().timeIntervalSince1970])
+    }
+  }
+
+  public func deleteRunningComparisonExclusion(healthKitUUID: String) async throws {
+    guard !healthKitUUID.isEmpty else { return }
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(
+        sql: "DELETE FROM running_comparison_exclusions WHERE healthkit_uuid = ?",
+        arguments: [healthKitUUID])
     }
   }
 
@@ -2860,6 +2896,15 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         throw TrainingImportError.invalidRelationship("training event link")
       }
     }
+    for row in try Row.fetchAll(
+      db,
+      sql: "SELECT healthkit_uuid, excluded_at FROM running_comparison_exclusions"
+    ) {
+      let uuid = row["healthkit_uuid"] as String
+      guard !uuid.isEmpty, (row["excluded_at"] as Double).isFinite else {
+        throw TrainingImportError.invariantViolation("running comparison exclusion")
+      }
+    }
     for row in try Row.fetchAll(db, sql: "SELECT proposal_json FROM training_max_proposals") {
       let data = try JSONDecoder().decode(
         TrainingMaxProposal.self, from: Data((row["proposal_json"] as String).utf8))
@@ -2917,6 +2962,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "set_result_audit",
     "session_correction_audit", "training_max_proposals", "training_max_history",
     "health_workout_link_facts", "heart_rate_configuration",
+    "running_comparison_exclusions",
   ]
 
   private static let legacyImportColumns: [String: Set<String>] = [

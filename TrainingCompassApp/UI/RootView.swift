@@ -575,6 +575,8 @@ private struct StrengthProgressView: View {
   @State private var runningPerformance: RunningPerformance?
   @State private var eventTimeline: TrainingEventTimelineSnapshot?
   @State private var selectedLiftID: String?
+  @State private var selectedRunningRunID: String?
+  @State private var showingLongerRunningHistory = false
   @State private var showingLongerHistory = false
   @State private var errorMessage: String?
 
@@ -823,7 +825,10 @@ private struct StrengthProgressView: View {
       if let runningPerformance {
         if let selected = runningPerformance.selectedRun {
           NavigationLink {
-            RunningRunDetailView(summary: selected)
+            RunningRunDetailView(
+              summary: selected,
+              model: model,
+              isExcluded: runningPerformance.excludedRunIDs.contains(selected.id))
           } label: {
             VStack(alignment: .leading, spacing: 3) {
               HStack {
@@ -840,6 +845,9 @@ private struct StrengthProgressView: View {
                 "Distance: \(selected.record.distanceMeters.map { String(format: "%.1f m", $0) } ?? "Unavailable") · Duration: \(selected.record.durationSeconds.map { String(format: "%.1f min", $0 / 60) } ?? "Unavailable")"
               )
               .font(.caption2).foregroundStyle(.secondary)
+              Text("Comparison reference")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tint)
             }
           }
           .accessibilityIdentifier("progress.running.selected")
@@ -850,7 +858,10 @@ private struct StrengthProgressView: View {
         if !runningPerformance.runs.isEmpty {
           ForEach(runningPerformance.runs) { run in
             NavigationLink {
-              RunningRunDetailView(summary: run)
+              RunningRunDetailView(
+                summary: run,
+                model: model,
+                isExcluded: runningPerformance.excludedRunIDs.contains(run.id))
             } label: {
               VStack(alignment: .leading, spacing: 3) {
                 HStack {
@@ -868,7 +879,76 @@ private struct StrengthProgressView: View {
               }
             }
             .accessibilityIdentifier("progress.running.run.\(run.id)")
+            Button(
+              run.id == runningPerformance.selectedRunID
+                ? "Selected as comparison reference"
+                : "Use as comparison reference"
+            ) {
+              selectedRunningRunID = run.id
+              Task { await reload() }
+            }
+            .disabled(run.id == runningPerformance.selectedRunID)
+            .font(.caption)
           }
+        }
+        if let comparison = runningPerformance.comparison {
+          Section("Running Comparison") {
+            if let preceding = comparison.precedingComparableRun {
+              Text(
+                "Immediately preceding Comparable Run: \(preceding.record.localDate.iso8601String)"
+              )
+              .font(.subheadline)
+              Text(comparison.pace.statement)
+              Text(comparison.duration.statement)
+              Text(comparison.distance.statement)
+              if comparison.heartRate.isAvailable {
+                Text(comparison.heartRate.statement)
+              } else {
+                Text("Heart-rate comparison unavailable below 80% coverage.")
+                  .foregroundStyle(.secondary)
+              }
+            } else {
+              Text("No preceding Comparable Run is available.")
+                .foregroundStyle(.secondary)
+            }
+            if let baseline = comparison.baseline {
+              Text("Four-run median uses \(baseline.runIDs.count) preceding Comparable Runs.")
+                .font(.caption)
+              if let medianPace = comparison.medianPace {
+                Text("Median pace: \(medianPace.statement)")
+              }
+              if let medianDuration = comparison.medianDuration {
+                Text("Median duration: \(medianDuration.statement)")
+              }
+              if let medianDistance = comparison.medianDistance {
+                Text("Median distance: \(medianDistance.statement)")
+              }
+              if let medianHeartRate = comparison.medianHeartRate {
+                Text(
+                  medianHeartRate.isAvailable
+                    ? "Median heart rate: \(medianHeartRate.statement)"
+                    : "Median heart-rate comparison unavailable below 80% coverage."
+                )
+                .foregroundStyle(medianHeartRate.isAvailable ? .primary : .secondary)
+              }
+            } else {
+              Text("Four-run median appears after four preceding Comparable Runs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            NavigationLink {
+              InsightExplanationDetailView(explanation: comparison.explanation)
+            } label: {
+              Label("Explain Running Comparison", systemImage: "info.circle")
+            }
+          }
+        }
+        if runningPerformance.comparisonHistoryDays == 90 {
+          Button("Show Longer Comparison History") {
+            showingLongerRunningHistory = true
+            Task { await reload() }
+          }
+          .accessibilityIdentifier("progress.running.show-history")
         }
         LabeledContent(
           "Trailing seven-day runs",
@@ -997,12 +1077,26 @@ private struct StrengthProgressView: View {
     eventTimeline = try? await model.trainingEventLinkBoundary?.timeline()
     if eventTimeline == nil { eventTimeline = TrainingEventTimelineSnapshot(events: []) }
     rollingOverview = try? await model.rollingWorkoutOverviewBoundary?.overview()
-    runningPerformance = try? await model.runningPerformanceBoundary?.runningPerformance()
+    runningPerformance = try? await model.runningPerformanceBoundary?.runningPerformance(
+      selectedRunID: selectedRunningRunID,
+      historyDays: showingLongerRunningHistory ? 365 : 90)
   }
 }
 
 private struct RunningRunDetailView: View {
   let summary: RunningRunSummary
+  let model: AppModel
+  let isExcluded: Bool
+
+  @State private var exclusionError: String?
+  @State private var excluded: Bool
+
+  init(summary: RunningRunSummary, model: AppModel, isExcluded: Bool) {
+    self.summary = summary
+    self.model = model
+    self.isExcluded = isExcluded
+    _excluded = State(initialValue: isExcluded)
+  }
 
   var body: some View {
     List {
@@ -1040,8 +1134,41 @@ private struct RunningRunDetailView: View {
           Label("Explain this run", systemImage: "info.circle")
         }
       }
+      Section("Comparable Runs") {
+        Text(
+          excluded
+            ? "Excluded from comparable trends; the run remains visible in history and Running Volume."
+            : "Included in comparable trends when its source-owned environment and distance match the reference."
+        )
+        .font(.caption)
+        Button(excluded ? "Restore to Comparable Runs" : "Exclude from Comparable Runs") {
+          Task {
+            do {
+              if excluded {
+                try await model.runningPerformanceBoundary?.includeRunningComparison(summary.id)
+              } else {
+                try await model.runningPerformanceBoundary?.excludeRunningComparison(summary.id)
+              }
+              excluded.toggle()
+            } catch {
+              exclusionError = String(describing: error)
+            }
+          }
+        }
+        .accessibilityIdentifier("progress.running.exclusion")
+      }
     }
     .navigationTitle("Run Details")
+    .alert(
+      "Could not update Running Comparison",
+      isPresented: Binding(
+        get: { exclusionError != nil },
+        set: { if !$0 { exclusionError = nil } })
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(exclusionError ?? "Try again.")
+    }
   }
 }
 

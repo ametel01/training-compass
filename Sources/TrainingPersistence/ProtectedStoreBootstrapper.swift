@@ -457,6 +457,12 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("updated_at", .integer).notNull()
       }
     }
+    migrator.registerMigration("authoritative_v15_running_comparison_exclusions") { db in
+      try db.create(table: "running_comparison_exclusions") { table in
+        table.column("healthkit_uuid", .text).primaryKey()
+        table.column("excluded_at", .double).notNull()
+      }
+    }
     return migrator
   }
 

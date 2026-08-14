@@ -302,6 +302,27 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertEqual(links, [link])
   }
 
+  func testRunningComparisonExclusionIsAuthoritativeAndSurvivesRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(
+        path: "training-running-exclusion-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    try await repository.saveRunningComparisonExclusion(healthKitUUID: "run-a")
+    let restarted = GRDBTrainingRepository(root: root)
+    let persisted = try await restarted.loadRunningComparisonExclusions()
+    XCTAssertEqual(persisted, ["run-a"])
+
+    try await restarted.beginHealthRebuild()
+    let afterRebuild = try await restarted.loadRunningComparisonExclusions()
+    XCTAssertEqual(afterRebuild, ["run-a"])
+
+    try await restarted.saveRunningComparisonExclusion(healthKitUUID: "run-b")
+    try await restarted.deleteRunningComparisonExclusion(healthKitUUID: "run-a")
+    let afterRestore = try await restarted.loadRunningComparisonExclusions()
+    XCTAssertEqual(afterRestore, ["run-b"])
+  }
+
   private func workout(activity: String, source: String) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: "health-uuid",

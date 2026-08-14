@@ -1,10 +1,30 @@
 import Foundation
 
+public protocol RunningComparisonExclusionRepository: Sendable {
+  func loadRunningComparisonExclusions() async throws -> [String]
+  func saveRunningComparisonExclusion(healthKitUUID: String) async throws
+  func deleteRunningComparisonExclusion(healthKitUUID: String) async throws
+}
+
+extension RunningComparisonExclusionRepository {
+  public func saveRunningComparisonExclusion(
+    _ exclusion: RunningComparisonExclusion
+  ) async throws {
+    try await saveRunningComparisonExclusion(healthKitUUID: exclusion.healthKitUUID)
+  }
+}
+
+public enum RunningComparisonExclusionError: Error, Equatable, Sendable {
+  case unavailable
+  case invalidHealthKitUUID
+}
+
 /// Builds the source-classified running projection from the reconstructible
 /// Health mirror.  No activity or environment is inferred at this seam.
 public struct RunningPerformanceBoundary: Sendable {
   private let repository: any HealthWorkoutRepository
   private let routeRepository: (any HealthWorkoutRouteRepository)?
+  private let exclusionRepository: (any RunningComparisonExclusionRepository)?
   private let clock: any Clock
   private let calendarProvider: any CalendarProvider
   private let zoneProvider: (any RollingWorkoutZoneProjectionProviding)?
@@ -12,12 +32,15 @@ public struct RunningPerformanceBoundary: Sendable {
   public init(
     repository: any HealthWorkoutRepository,
     routeRepository: (any HealthWorkoutRouteRepository)? = nil,
+    exclusionRepository: (any RunningComparisonExclusionRepository)? = nil,
     clock: any Clock = SystemClock(),
     calendar: any CalendarProvider = CurrentCalendarProvider(),
     zoneProvider: (any RollingWorkoutZoneProjectionProviding)? = nil
   ) {
     self.repository = repository
     self.routeRepository = routeRepository ?? (repository as? any HealthWorkoutRouteRepository)
+    self.exclusionRepository =
+      exclusionRepository ?? (repository as? any RunningComparisonExclusionRepository)
     self.clock = clock
     self.calendarProvider = calendar
     self.zoneProvider = zoneProvider
@@ -25,10 +48,14 @@ public struct RunningPerformanceBoundary: Sendable {
 
   public func runningPerformance(
     selectedRunID: String? = nil,
-    asOf date: TrainingDate? = nil
+    asOf date: TrainingDate? = nil,
+    historyDays: Int = 90,
+    comparisonHistoryDays: Int? = nil
   ) async throws -> RunningPerformance {
     let asOf = date ?? TrainingDate(date: clock.now(), calendar: calendarProvider.calendar())
     let deleted = Set(try await repository.loadHealthWorkoutDeletionUUIDs())
+    let excluded = Set(
+      try await exclusionRepository?.loadRunningComparisonExclusions() ?? [])
     let workouts = try await repository.loadHealthWorkouts()
     let workoutsByID = Dictionary(
       workouts.map { ($0.healthKitUUID, $0) },
@@ -74,11 +101,54 @@ public struct RunningPerformanceBoundary: Sendable {
       selectedRunID: selectedRunID,
       asOf: asOf,
       sourceCoverage: sourceCoverage,
-      lastReconciliation: checkpoint?.reconciliationContext)
+      lastReconciliation: checkpoint?.reconciliationContext,
+      excludedRunIDs: excluded,
+      historyDays: comparisonHistoryDays ?? historyDays)
   }
 
-  public func load(selectedRunID: String? = nil) async throws -> RunningPerformance {
-    try await runningPerformance(selectedRunID: selectedRunID)
+  public func load(
+    selectedRunID: String? = nil,
+    historyDays: Int = 90
+  ) async throws -> RunningPerformance {
+    try await runningPerformance(selectedRunID: selectedRunID, historyDays: historyDays)
+  }
+
+  public func excludeRunningComparison(_ healthKitUUID: String) async throws {
+    guard !healthKitUUID.isEmpty else {
+      throw RunningComparisonExclusionError.invalidHealthKitUUID
+    }
+    guard let exclusionRepository else {
+      throw RunningComparisonExclusionError.unavailable
+    }
+    try await exclusionRepository.saveRunningComparisonExclusion(
+      healthKitUUID: healthKitUUID)
+  }
+
+  public func includeRunningComparison(_ healthKitUUID: String) async throws {
+    guard !healthKitUUID.isEmpty else {
+      throw RunningComparisonExclusionError.invalidHealthKitUUID
+    }
+    guard let exclusionRepository else {
+      throw RunningComparisonExclusionError.unavailable
+    }
+    try await exclusionRepository.deleteRunningComparisonExclusion(
+      healthKitUUID: healthKitUUID)
+  }
+
+  public func excludeRun(_ healthKitUUID: String) async throws {
+    try await excludeRunningComparison(healthKitUUID)
+  }
+
+  public func restoreRun(_ healthKitUUID: String) async throws {
+    try await includeRunningComparison(healthKitUUID)
+  }
+
+  public func excludeRunFromComparison(_ healthKitUUID: String) async throws {
+    try await excludeRunningComparison(healthKitUUID)
+  }
+
+  public func restoreRunToComparison(_ healthKitUUID: String) async throws {
+    try await includeRunningComparison(healthKitUUID)
   }
 
   private func routeAvailability(for healthKitUUID: String) async -> RunningRouteAvailability {

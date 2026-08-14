@@ -227,6 +227,9 @@ public struct RunningRunSummary: Codable, Equatable, Identifiable, Sendable {
   public let explanation: InsightExplanation
 
   public var id: String { record.id }
+  public var averageRunningPaceSecondsPerKilometer: Double? {
+    averageRunningPace?.secondsPerKilometer
+  }
 
   public init(
     record: RunningWorkoutRecord,
@@ -239,22 +242,167 @@ public struct RunningRunSummary: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+public enum RunningComparisonDirection: String, Codable, Equatable, Sendable {
+  case faster
+  case slower
+  case higher
+  case lower
+  case unchanged
+  case unavailable
+
+  public var displayName: String {
+    switch self {
+    case .faster: "Faster"
+    case .slower: "Slower"
+    case .higher: "Higher"
+    case .lower: "Lower"
+    case .unchanged: "Unchanged"
+    case .unavailable: "Unavailable"
+    }
+  }
+}
+
+public struct RunningComparisonMetric: Codable, Equatable, Sendable {
+  public let referenceValue: Double?
+  public let comparisonValue: Double?
+  public let difference: Double?
+  public let direction: RunningComparisonDirection
+  public let statement: String
+
+  public init(
+    referenceValue: Double?,
+    comparisonValue: Double?,
+    difference: Double?,
+    direction: RunningComparisonDirection,
+    statement: String
+  ) {
+    self.referenceValue = referenceValue
+    self.comparisonValue = comparisonValue
+    self.difference = difference
+    self.direction = direction
+    self.statement = statement
+  }
+
+  public var isAvailable: Bool { difference != nil }
+}
+
+public struct RunningComparisonExclusion: Codable, Equatable, Identifiable, Sendable {
+  public let healthKitUUID: String
+  public let excludedAt: Double
+
+  public var id: String { healthKitUUID }
+
+  public init(healthKitUUID: String, excludedAt: Double) {
+    precondition(!healthKitUUID.isEmpty)
+    self.healthKitUUID = healthKitUUID
+    self.excludedAt = excludedAt
+  }
+}
+
+public struct RunningComparisonBaseline: Codable, Equatable, Sendable {
+  public let runIDs: [String]
+  public let paceSecondsPerKilometer: Double?
+  public let durationSeconds: Double?
+  public let distanceMeters: Double?
+  public let heartRateBeatsPerMinute: Double?
+
+  public init(
+    runIDs: [String],
+    paceSecondsPerKilometer: Double?,
+    durationSeconds: Double?,
+    distanceMeters: Double?,
+    heartRateBeatsPerMinute: Double?
+  ) {
+    self.runIDs = runIDs
+    self.paceSecondsPerKilometer = paceSecondsPerKilometer
+    self.durationSeconds = durationSeconds
+    self.distanceMeters = distanceMeters
+    self.heartRateBeatsPerMinute = heartRateBeatsPerMinute
+  }
+}
+
+public struct RunningPerformanceComparison: Codable, Equatable, Sendable {
+  public let referenceRunID: String
+  public let precedingComparableRunID: String?
+  public let precedingComparableRun: RunningRunSummary?
+  public let precedingFourComparableRunIDs: [String]
+  public let baseline: RunningComparisonBaseline?
+  public let pace: RunningComparisonMetric
+  public let duration: RunningComparisonMetric
+  public let distance: RunningComparisonMetric
+  public let heartRate: RunningComparisonMetric
+  public let medianPace: RunningComparisonMetric?
+  public let medianDuration: RunningComparisonMetric?
+  public let medianDistance: RunningComparisonMetric?
+  public let medianHeartRate: RunningComparisonMetric?
+  public let explanation: InsightExplanation
+
+  public init(
+    referenceRunID: String,
+    precedingComparableRunID: String?,
+    precedingComparableRun: RunningRunSummary?,
+    precedingFourComparableRunIDs: [String],
+    baseline: RunningComparisonBaseline?,
+    pace: RunningComparisonMetric,
+    duration: RunningComparisonMetric,
+    distance: RunningComparisonMetric,
+    heartRate: RunningComparisonMetric,
+    medianPace: RunningComparisonMetric? = nil,
+    medianDuration: RunningComparisonMetric? = nil,
+    medianDistance: RunningComparisonMetric? = nil,
+    medianHeartRate: RunningComparisonMetric? = nil,
+    explanation: InsightExplanation
+  ) {
+    self.referenceRunID = referenceRunID
+    self.precedingComparableRunID = precedingComparableRunID
+    self.precedingComparableRun = precedingComparableRun
+    self.precedingFourComparableRunIDs = precedingFourComparableRunIDs
+    self.baseline = baseline
+    self.pace = pace
+    self.duration = duration
+    self.distance = distance
+    self.heartRate = heartRate
+    self.medianPace = medianPace
+    self.medianDuration = medianDuration
+    self.medianDistance = medianDistance
+    self.medianHeartRate = medianHeartRate
+    self.explanation = explanation
+  }
+
+  public var median: RunningComparisonBaseline? { baseline }
+  public var hasPrecedingComparableRun: Bool { precedingComparableRun != nil }
+}
+
+public typealias RunningComparison = RunningPerformanceComparison
+
 public struct RunningPerformance: Codable, Equatable, Sendable {
   public let runs: [RunningRunSummary]
   public let selectedRunID: String?
   public let selectedRun: RunningRunSummary?
   public let volume: RunningVolume
+  public let comparison: RunningPerformanceComparison?
+  public let comparisonHistoryDays: Int
+  public let excludedRunIDs: [String]
+
+  public var selectedComparison: RunningPerformanceComparison? { comparison }
+  public var runningComparison: RunningPerformanceComparison? { comparison }
 
   public init(
     runs: [RunningRunSummary],
     selectedRunID: String?,
     selectedRun: RunningRunSummary?,
-    volume: RunningVolume
+    volume: RunningVolume,
+    comparison: RunningPerformanceComparison? = nil,
+    comparisonHistoryDays: Int = 90,
+    excludedRunIDs: [String] = []
   ) {
     self.runs = runs
     self.selectedRunID = selectedRunID
     self.selectedRun = selectedRun
     self.volume = volume
+    self.comparison = comparison
+    self.comparisonHistoryDays = comparisonHistoryDays
+    self.excludedRunIDs = excludedRunIDs.sorted()
   }
 }
 
@@ -399,8 +547,30 @@ public struct RunningPerformanceCalculator: Sendable {
     selectedRunID: String? = nil,
     asOf: TrainingDate,
     sourceCoverage: String,
-    lastReconciliation: String? = nil
+    lastReconciliation: String? = nil,
+    excludedRunIDs: [String],
+    historyDays: Int = 90
   ) -> RunningPerformance {
+    calculate(
+      records: records,
+      selectedRunID: selectedRunID,
+      asOf: asOf,
+      sourceCoverage: sourceCoverage,
+      lastReconciliation: lastReconciliation,
+      excludedRunIDs: Set(excludedRunIDs),
+      historyDays: historyDays)
+  }
+
+  public func calculate(
+    records: [RunningWorkoutRecord],
+    selectedRunID: String? = nil,
+    asOf: TrainingDate,
+    sourceCoverage: String,
+    lastReconciliation: String? = nil,
+    excludedRunIDs: Set<String> = [],
+    historyDays: Int = 90
+  ) -> RunningPerformance {
+    let historyDays = max(1, historyDays)
     let ordered = records.sorted {
       if $0.startDate != $1.startDate { return $0.startDate > $1.startDate }
       return $0.id > $1.id
@@ -424,6 +594,16 @@ public struct RunningPerformanceCalculator: Sendable {
       })?.id
       ?? ordered.first?.id
     let selected = summaries.first { $0.id == selectedID }
+    let builtComparison: RunningPerformanceComparison? = {
+      guard let selected else { return nil }
+      return comparison(
+        reference: selected,
+        summaries: summaries,
+        excludedRunIDs: excludedRunIDs,
+        historyDays: historyDays,
+        sourceCoverage: sourceCoverage,
+        lastReconciliation: lastReconciliation)
+    }()
     return RunningPerformance(
       runs: summaries,
       selectedRunID: selectedID,
@@ -432,7 +612,262 @@ public struct RunningPerformanceCalculator: Sendable {
         records: records,
         asOf: asOf,
         sourceCoverage: sourceCoverage,
-        lastReconciliation: lastReconciliation))
+        lastReconciliation: lastReconciliation),
+      comparison: builtComparison,
+      comparisonHistoryDays: historyDays,
+      excludedRunIDs: Array(excludedRunIDs))
+  }
+
+  private enum MetricKind {
+    case pace
+    case positiveDifference
+  }
+
+  private func comparison(
+    reference: RunningRunSummary,
+    summaries: [RunningRunSummary],
+    excludedRunIDs: Set<String>,
+    historyDays: Int,
+    sourceCoverage: String,
+    lastReconciliation: String?
+  ) -> RunningPerformanceComparison {
+    let referenceRecord = reference.record
+    let candidates =
+      summaries
+      .filter { candidate in
+        guard !excludedRunIDs.contains(reference.id),
+          candidate.id != reference.id, !excludedRunIDs.contains(candidate.id)
+        else { return false }
+        guard isEarlier(candidate.record, than: referenceRecord) else { return false }
+        guard referenceRecord.startDate - candidate.record.startDate <= Double(historyDays) * 86_400
+        else {
+          return false
+        }
+        return isComparable(candidate.record, to: referenceRecord)
+      }
+      .sorted { isEarlier($1.record, than: $0.record) }
+    let preceding = candidates.first
+    let four = Array(candidates.prefix(4))
+    let baseline =
+      four.count == 4
+      ? RunningComparisonBaseline(
+        runIDs: four.map(\.id),
+        paceSecondsPerKilometer: median(four.compactMap(\.averageRunningPaceSecondsPerKilometer)),
+        durationSeconds: median(four.compactMap(\.record.durationSeconds)),
+        distanceMeters: median(four.compactMap(\.record.distanceMeters)),
+        heartRateBeatsPerMinute: medianHeartRate(
+          reference: reference.record, preceding: four.map(\.record))
+      )
+      : nil
+    let baselineLabel =
+      baseline.map {
+        "Median of four preceding Comparable Runs: \($0.runIDs.joined(separator: ", "))"
+      }
+      ?? "No four-run median until four preceding Comparable Runs exist."
+    let comparisonIDs = [reference.id] + four.map(\.id)
+    let explanation = InsightExplanation(
+      question: "How does running workout \(reference.id) compare with preceding Comparable Runs?",
+      includedRecordIDs: comparisonIDs,
+      excludedRecords: [],
+      formula:
+        "Comparable Run = positive duration and distance, matching source-owned environment, and full-precision distance within 5% of the selected run.",
+      dateRange:
+        "Selected run \(reference.record.localDate.iso8601String); history: preceding \(historyDays) days",
+      roundingRule:
+        "Pace is displayed to the nearest second per kilometre; duration to the nearest second and distance to the nearest metre. Differences retain full precision.",
+      sourceState: sourceCoverage,
+      includedDates: Set(
+        comparisonIDs.compactMap { id in
+          summaries.first { $0.id == id }?.record.localDate.iso8601String
+        }
+      ).sorted(),
+      sourceCoverage: sourceCoverage,
+      calculationRule:
+        "Runs are ordered by HealthKit start time; UUID is used only for exact start-time ties. Unspecified environments match only Unspecified. Elevation and route are context, not eligibility.",
+      comparisonBaseline: baselineLabel,
+      missingData: comparisonMissingData(
+        reference: reference, preceding: preceding, baseline: baseline),
+      exclusions: summaries.filter { excludedRunIDs.contains($0.id) }.map {
+        InsightExplanationExclusion(recordID: $0.id, reason: "Running Comparison Exclusion")
+      },
+      lastReconciliation: lastReconciliation ?? reference.record.lastReconciliation,
+      configuration: "Comparable history defaults to 90 days and can be extended on demand.")
+    return RunningPerformanceComparison(
+      referenceRunID: reference.id,
+      precedingComparableRunID: preceding?.id,
+      precedingComparableRun: preceding,
+      precedingFourComparableRunIDs: four.map(\.id),
+      baseline: baseline,
+      pace: metric(
+        reference: reference.averageRunningPaceSecondsPerKilometer,
+        comparison: preceding?.averageRunningPaceSecondsPerKilometer,
+        kind: .pace,
+        unit: "min/km"),
+      duration: metric(
+        reference: reference.record.durationSeconds,
+        comparison: preceding?.record.durationSeconds,
+        kind: .positiveDifference,
+        unit: "seconds"),
+      distance: metric(
+        reference: reference.record.distanceMeters,
+        comparison: preceding?.record.distanceMeters,
+        kind: .positiveDifference,
+        unit: "metres"),
+      heartRate: metric(
+        reference: comparableHeartRate(for: reference.record),
+        comparison: preceding.flatMap { comparableHeartRate(for: $0.record) },
+        kind: .positiveDifference,
+        unit: "bpm"),
+      medianPace: baseline.map {
+        metric(
+          reference: reference.averageRunningPaceSecondsPerKilometer,
+          comparison: $0.paceSecondsPerKilometer,
+          kind: .pace,
+          unit: "min/km")
+      },
+      medianDuration: baseline.map {
+        metric(
+          reference: reference.record.durationSeconds,
+          comparison: $0.durationSeconds,
+          kind: .positiveDifference,
+          unit: "seconds")
+      },
+      medianDistance: baseline.map {
+        metric(
+          reference: reference.record.distanceMeters,
+          comparison: $0.distanceMeters,
+          kind: .positiveDifference,
+          unit: "metres")
+      },
+      medianHeartRate: baseline.map {
+        metric(
+          reference: comparableHeartRate(for: reference.record),
+          comparison: $0.heartRateBeatsPerMinute,
+          kind: .positiveDifference,
+          unit: "bpm")
+      },
+      explanation: explanation)
+  }
+
+  private func metric(
+    reference: Double?, comparison: Double?, kind: MetricKind, unit: String
+  ) -> RunningComparisonMetric {
+    guard let reference, let comparison else {
+      return .init(
+        referenceValue: reference,
+        comparisonValue: comparison,
+        difference: nil,
+        direction: .unavailable,
+        statement: "Unavailable: a positive, comparable value is not available for both runs.")
+    }
+    let difference = reference - comparison
+    let displayReference = displayValue(reference, kind: kind)
+    let displayComparison = displayValue(comparison, kind: kind)
+    if displayReference == displayComparison {
+      return .init(
+        referenceValue: reference,
+        comparisonValue: comparison,
+        difference: difference,
+        direction: .unchanged,
+        statement: "Unchanged at displayed precision (\(displayReference) \(unit)).")
+    }
+    let direction: RunningComparisonDirection
+    switch kind {
+    case .pace:
+      direction = difference < 0 ? .faster : .slower
+    case .positiveDifference:
+      direction = difference > 0 ? .higher : .lower
+    }
+    return .init(
+      referenceValue: reference,
+      comparisonValue: comparison,
+      difference: difference,
+      direction: direction,
+      statement:
+        "\(direction.displayName) by \(displayDifference(abs(difference), kind: kind)) \(unit).")
+  }
+
+  private func isComparable(_ candidate: RunningWorkoutRecord, to reference: RunningWorkoutRecord)
+    -> Bool
+  {
+    guard let candidateDistance = candidate.distanceMeters,
+      let candidateDuration = candidate.durationSeconds,
+      let referenceDistance = reference.distanceMeters,
+      let referenceDuration = reference.durationSeconds,
+      candidateDistance > 0, candidateDuration > 0, referenceDistance > 0, referenceDuration > 0
+    else { return false }
+    guard candidate.environment == reference.environment else { return false }
+    let tolerance = referenceDistance * 0.05
+    return candidateDistance >= referenceDistance - tolerance
+      && candidateDistance <= referenceDistance + tolerance
+  }
+
+  private func isEarlier(_ lhs: RunningWorkoutRecord, than rhs: RunningWorkoutRecord) -> Bool {
+    if lhs.startDate != rhs.startDate { return lhs.startDate < rhs.startDate }
+    return lhs.id < rhs.id
+  }
+
+  private func comparableHeartRate(for record: RunningWorkoutRecord) -> Double? {
+    guard record.heartRate.hasComparisonCoverage else { return nil }
+    return record.heartRate.averageBeatsPerMinute
+  }
+
+  private func medianHeartRate(
+    reference: RunningWorkoutRecord, preceding: [RunningWorkoutRecord]
+  ) -> Double? {
+    guard comparableHeartRate(for: reference) != nil,
+      preceding.count == 4,
+      preceding.allSatisfy({ comparableHeartRate(for: $0) != nil })
+    else { return nil }
+    return median(preceding.compactMap { comparableHeartRate(for: $0) })
+  }
+
+  private func median(_ values: [Double]) -> Double? {
+    guard !values.isEmpty else { return nil }
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    return sorted.count.isMultiple(of: 2)
+      ? (sorted[middle - 1] + sorted[middle]) / 2
+      : sorted[middle]
+  }
+
+  private func displayValue(_ value: Double, kind: MetricKind) -> Int {
+    switch kind {
+    case .pace, .positiveDifference: return Int(value.rounded())
+    }
+  }
+
+  private func displayDifference(_ value: Double, kind: MetricKind) -> String {
+    switch kind {
+    case .pace:
+      let rounded = Int(value.rounded())
+      let seconds = rounded % 60
+      return "\(rounded / 60):\(seconds < 10 ? "0" : "")\(seconds)"
+    case .positiveDifference: return String(Int(value.rounded()))
+    }
+  }
+
+  private func comparisonMissingData(
+    reference: RunningRunSummary,
+    preceding: RunningRunSummary?,
+    baseline: RunningComparisonBaseline?
+  ) -> [String] {
+    var missing: [String] = []
+    if preceding == nil { missing.append("No preceding Comparable Run is available") }
+    if baseline == nil {
+      missing.append("Four preceding Comparable Runs are required for the median")
+    }
+    if comparableHeartRate(for: reference.record) == nil {
+      missing.append("Selected run heart-rate coverage is below 80% or unavailable")
+    }
+    if let preceding, comparableHeartRate(for: preceding.record) == nil {
+      missing.append("Preceding Comparable Run heart-rate coverage is below 80% or unavailable")
+    }
+    if baseline != nil, baseline?.heartRateBeatsPerMinute == nil {
+      missing.append(
+        "Median heart-rate comparison requires at least 80% coverage for all five runs")
+    }
+    return missing
   }
 
   private func explanation(
