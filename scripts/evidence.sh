@@ -9,8 +9,17 @@ import platform
 import subprocess
 from pathlib import Path
 
+subprocess_environment = os.environ.copy()
+# Apple's Python launcher can inject the Command Line Tools SDKROOT even when
+# full Xcode is selected. Let Swift choose the SDK paired with its compiler.
+subprocess_environment.pop("SDKROOT", None)
+
 def output(*command: str) -> str:
-    return subprocess.check_output(command, text=True).strip()
+    return subprocess.check_output(
+        command,
+        env=subprocess_environment,
+        text=True,
+    ).strip()
 
 acceptance_result = subprocess.run(["python3", "scripts/check-acceptance.py"]).returncode
 if acceptance_result != 0:
