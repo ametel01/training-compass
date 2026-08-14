@@ -74,11 +74,17 @@ public enum UnifiedTrainingEventLinkState: String, Codable, Equatable, Sendable 
 
 public enum TrainingEventDisagreement: Codable, Equatable, Sendable {
   case localDate(session: String, health: String)
+  case missingHealthProvenance
+  case linkConflict(healthKitUUID: String, sessionIDs: [String])
 
   public var message: String {
     switch self {
     case .localDate(let session, let health):
       "Session date \(session) differs from Health date \(health)."
+    case .missingHealthProvenance:
+      "Health Workout source provenance is unavailable."
+    case .linkConflict(let healthKitUUID, let sessionIDs):
+      "HealthKit UUID \(healthKitUUID) has conflicting active links: \(sessionIDs.joined(separator: ", "))."
     }
   }
 }
@@ -134,7 +140,8 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
     link: HealthWorkoutLinkFact? = nil,
     linkState: UnifiedTrainingEventLinkState,
     lastSuccessfulReconciliation: Date? = nil,
-    reconciliationContext: String? = nil
+    reconciliationContext: String? = nil,
+    additionalDisagreements: [TrainingEventDisagreement] = []
   ) {
     self.id = id
     self.localDate = localDate
@@ -145,17 +152,19 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
     self.linkState = linkState
     self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
     self.reconciliationContext = reconciliationContext
+    var disagreements: [TrainingEventDisagreement] = []
     if let session, let healthWorkout,
       session.session.intendedDate.iso8601String != healthWorkout.localDate
     {
-      self.disagreements = [
+      disagreements.append(
         .localDate(
           session: session.session.intendedDate.iso8601String,
-          health: healthWorkout.localDate)
-      ]
-    } else {
-      self.disagreements = []
+          health: healthWorkout.localDate))
     }
+    if let healthWorkout, !HealthWorkoutProvenance(workout: healthWorkout).isAvailable {
+      disagreements.append(.missingHealthProvenance)
+    }
+    self.disagreements = disagreements + additionalDisagreements
   }
 
   public var sourceBadges: [TrainingEventSource] {
@@ -195,6 +204,14 @@ public protocol TrainingEventLinkRepository: Sendable {
     expectedLinkedAt: Date,
     unlinkedAt: Date
   ) async throws -> HealthWorkoutLinkFact
+  /// Marks every active link for a local entity as historical. This is used
+  /// when a Session is corrected to a non-completed disposition so the
+  /// external Health Workout remains untouched while the association is
+  /// auditable.
+  func unlinkActiveHealthWorkoutLinkFacts(
+    forLocalEntityID localEntityID: String,
+    unlinkedAt: Date
+  ) async throws -> [HealthWorkoutLinkFact]
 }
 
 public struct TrainingEventCompletionLinkResult: Codable, Equatable, Sendable {
@@ -238,6 +255,22 @@ extension TrainingEventLinkRepository {
     unlinkedAt: Date
   ) async throws -> HealthWorkoutLinkFact {
     throw TrainingEventLinkRepositoryError.unavailable
+  }
+
+  public func unlinkActiveHealthWorkoutLinkFacts(
+    forLocalEntityID localEntityID: String,
+    unlinkedAt: Date
+  ) async throws -> [HealthWorkoutLinkFact] {
+    let active = try await loadHealthWorkoutLinkFacts(for: nil).filter {
+      $0.isActive && $0.localEntityKind == .session && $0.localEntityID == localEntityID
+    }
+    var unlinked: [HealthWorkoutLinkFact] = []
+    for link in active {
+      unlinked.append(
+        try await unlinkHealthWorkoutLinkFact(
+          id: link.id, expectedLinkedAt: link.linkedAt, unlinkedAt: unlinkedAt))
+    }
+    return unlinked
   }
 }
 
@@ -354,6 +387,21 @@ public struct TrainingEventLinkBoundary: Sendable {
       uniquingKeysWith: { _, replacement in replacement })
     let activeLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] != nil }
     let unavailableLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] == nil }
+    let linksByUUID = Dictionary(grouping: persistedLinks, by: \.healthKitUUID)
+    let linkConflictsByID = Dictionary(
+      persistedLinks.compactMap { link -> (String, TrainingEventDisagreement)? in
+        let conflictingSessionIDs = linksByUUID[link.healthKitUUID, default: []]
+          .map(\.localEntityID)
+          .reduce(into: Set<String>()) { $0.insert($1) }
+          .sorted()
+        guard conflictingSessionIDs.count > 1 else { return nil }
+        return (
+          link.id,
+          .linkConflict(
+            healthKitUUID: link.healthKitUUID,
+            sessionIDs: conflictingSessionIDs)
+        )
+      }, uniquingKeysWith: { first, _ in first })
     let linksBySessionID = Dictionary(
       activeLinks.filter { $0.localEntityKind == .session }.map { ($0.localEntityID, $0) },
       uniquingKeysWith: { first, _ in first })
@@ -396,7 +444,10 @@ public struct TrainingEventLinkBoundary: Sendable {
                 ? (formerLink == nil ? .unlinked : .formerLinkWorkoutUnavailable)
                 : .linked,
               lastSuccessfulReconciliation: checkpoint?.committedAt,
-              reconciliationContext: checkpoint?.reconciliationContext
+              reconciliationContext: checkpoint?.reconciliationContext,
+              additionalDisagreements: [link, formerLink].compactMap { $0 }.compactMap {
+                linkConflictsByID[$0.id]
+              }
             ))
         }
       }

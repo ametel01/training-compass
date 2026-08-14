@@ -137,6 +137,58 @@ final class SessionCorrectionRepositoryTests: XCTestCase {
     XCTAssertFalse(try XCTUnwrap(reopenedCycleValue).weeks[0].isFinished)
   }
 
+  func testReopenPreservesExternalLinkUntilCorrectionUnlinksItAndKeepsWorkout() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    _ = try await repository.saveTrainingCycle(
+      makeActiveCycle(), expectedBefore: nil, auditID: "cycle", occurredAt: 10,
+      action: .activated)
+    let result = RecordedSetResult(
+      id: "result", sessionID: "session", prescriptionID: "prescription",
+      result: try SetResult(weight: SetResultWeight(kg: 65), repetitions: 5), recordedAt: 15)
+    _ = try await repository.saveSetResult(
+      result, expectedBefore: nil, auditID: "result", occurredAt: 15, action: .recorded)
+    _ = try await repository.completeSession(
+      CompletedSession(sessionID: "session", confirmedAt: 20), confirmation: .confirmed)
+    let workout = HealthWorkout(
+      healthKitUUID: "external-session-workout", activityType: "traditional-strength-training",
+      startDate: Date(timeIntervalSince1970: 100), endDate: Date(timeIntervalSince1970: 160),
+      duration: 60, sourceName: "External", sourceBundleIdentifier: "com.example.external",
+      localDate: "2024-01-01", firstImportedAt: Date(timeIntervalSince1970: 15))
+    try await repository.upsertHealthWorkouts([workout], reconciliationContext: "initial")
+    let completedValue = try await repository.loadSessionCorrectionSnapshot(sessionID: "session")
+    let completed = try XCTUnwrap(completedValue)
+    let storedWorkouts = try await repository.loadHealthWorkouts()
+    let storedWorkout = try XCTUnwrap(storedWorkouts.first)
+    let link = HealthWorkoutLinkFact(
+      id: "external-link", healthKitUUID: workout.healthKitUUID,
+      localEntityKind: .session, localEntityID: "session", linkedAt: Date(timeIntervalSince1970: 25)
+    )
+    _ = try await repository.createHealthWorkoutLinkFact(
+      link, expectedSessionUpdatedAt: completed.updatedAt, expectedWorkout: storedWorkout)
+
+    let boundary = SessionLoggingBoundary(
+      repository: repository, clock: CorrectionClock(), calendar: CorrectionCalendar(),
+      uuidGenerator: CorrectionUUIDGenerator())
+    let reopened = try await boundary.reopenSession(
+      sessionID: "session", confirmation: .confirmed)
+    let preserved = try await repository.loadHealthWorkoutLinkFacts(for: nil)
+    XCTAssertEqual(preserved, [link])
+
+    let skipped = SessionCorrectionRequest(
+      sessionID: "session", status: .skipped, intendedDate: reopened.session.intendedDate,
+      primaryLiftID: reopened.session.primaryLiftID,
+      assistanceLiftID: reopened.session.assistanceLiftID)
+    _ = try await boundary.correctSession(skipped, confirmation: .confirmed)
+    let history = try await repository.loadHealthWorkoutLinkFacts(for: nil)
+    XCTAssertEqual(history.count, 1)
+    XCTAssertFalse(try XCTUnwrap(history.first).isActive)
+    let remainingWorkouts = try await repository.loadHealthWorkouts()
+    XCTAssertEqual(remainingWorkouts.map(\.healthKitUUID), [workout.healthKitUUID])
+  }
+
   func testCorrectionRequiresConfirmationAndRejectsStaleCurrentProjection() async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)

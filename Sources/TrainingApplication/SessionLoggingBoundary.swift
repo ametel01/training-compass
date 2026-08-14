@@ -797,6 +797,8 @@ public struct SessionLoggingBoundary: Sendable {
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp()
     )
+    try await unlinkExternalWorkoutIfNeeded(
+      sessionID: request.sessionID, resultingStatus: request.status)
     guard let reopened = try await activeSession(sessionID: request.sessionID) else {
       throw SessionLoggingError.unknownSession
     }
@@ -841,13 +843,16 @@ public struct SessionLoggingBoundary: Sendable {
     } else {
       current = try await correctionSnapshot(sessionID: request.sessionID)
     }
-    return try await resultRepository.applySessionCorrection(
+    let audit = try await resultRepository.applySessionCorrection(
       request,
       expectedBefore: current,
       confirmation: confirmation,
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp()
     )
+    try await unlinkExternalWorkoutIfNeeded(
+      sessionID: request.sessionID, resultingStatus: request.status)
+    return audit
   }
 
   @discardableResult
@@ -1068,6 +1073,21 @@ public struct SessionLoggingBoundary: Sendable {
 
   private func timestamp() -> Int64 {
     Int64(clock.now().timeIntervalSince1970)
+  }
+
+  private func unlinkExternalWorkoutIfNeeded(
+    sessionID: String,
+    resultingStatus: TrainingSessionStatus
+  ) async throws {
+    guard
+      resultingStatus == .scheduled || resultingStatus == .skipped
+        || resultingStatus == .unperformed,
+      let linkRepository = resultRepository as? any TrainingEventLinkRepository
+    else { return }
+    _ = try await linkRepository.unlinkActiveHealthWorkoutLinkFacts(
+      forLocalEntityID: sessionID,
+      unlinkedAt: clock.now()
+    )
   }
 }
 

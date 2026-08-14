@@ -907,6 +907,58 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  public func unlinkActiveHealthWorkoutLinkFacts(
+    forLocalEntityID localEntityID: String,
+    unlinkedAt: Date
+  ) async throws -> [HealthWorkoutLinkFact] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard unlinkedAt.timeIntervalSince1970.isFinite else {
+        throw TrainingEventLinkRepositoryError.invalidLink
+      }
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+                 linked_during_completion, write_back_disposition
+          FROM health_workout_link_facts
+          WHERE local_entity_kind = ? AND local_entity_id = ? AND unlinked_at IS NULL
+          ORDER BY linked_at, id
+          """,
+        arguments: [TrainingEventLocalEntityKind.session.rawValue, localEntityID]
+      )
+      let links = try rows.map { row -> HealthWorkoutLinkFact in
+        guard
+          let localEntityKind = TrainingEventLocalEntityKind(rawValue: row["local_entity_kind"]),
+          let disposition = TrainingEventWriteBackDisposition(
+            rawValue: row["write_back_disposition"])
+        else { throw TrainingEventLinkRepositoryError.invalidLink }
+        let linkedAt = Date(timeIntervalSince1970: row["linked_at"] as Double)
+        guard unlinkedAt >= linkedAt else {
+          throw TrainingEventLinkRepositoryError.invalidLink
+        }
+        return HealthWorkoutLinkFact(
+          id: row["id"], healthKitUUID: row["healthkit_uuid"],
+          localEntityKind: localEntityKind, localEntityID: row["local_entity_id"],
+          linkedAt: linkedAt,
+          linkedDuringCompletion: row["linked_during_completion"],
+          writeBackDisposition: disposition,
+          unlinkedAt: unlinkedAt
+        )
+      }
+      try db.execute(
+        sql:
+          "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE local_entity_kind = ? AND local_entity_id = ? AND unlinked_at IS NULL",
+        arguments: [
+          unlinkedAt.timeIntervalSince1970,
+          TrainingEventLocalEntityKind.session.rawValue,
+          localEntityID,
+        ]
+      )
+      return links
+    }
+  }
+
   public func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
@@ -1538,12 +1590,28 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       let oldSessionIDs = Set(existingForID?.weeks.flatMap(\.sessions).map(\.id) ?? [])
       let newSessionIDs = Set(cycle.weeks.flatMap(\.sessions).map(\.id))
       for removedID in oldSessionIDs.subtracting(newSessionIDs) {
+        // A removed local Session cannot continue to own an active external
+        // link. Keep the row as historical evidence rather than deleting it.
+        try db.execute(
+          sql:
+            "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE local_entity_kind = ? AND local_entity_id = ? AND unlinked_at IS NULL",
+          arguments: [occurredAt, TrainingEventLocalEntityKind.session.rawValue, removedID]
+        )
         try db.execute(
           sql: "DELETE FROM session_projections WHERE session_id = ? AND cycle_id = ?",
           arguments: [removedID, cycle.id]
         )
       }
       for session in cycle.weeks.flatMap(\.sessions) {
+        if session.status == .skipped || session.status == .unperformed {
+          // Skipped and Unperformed are explicit local dispositions. They
+          // sever an external association but never mutate the Health object.
+          try db.execute(
+            sql:
+              "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE local_entity_kind = ? AND local_entity_id = ? AND unlinked_at IS NULL",
+            arguments: [occurredAt, TrainingEventLocalEntityKind.session.rawValue, session.id]
+          )
+        }
         if session.status == .unperformed {
           // The v7 projection CHECK constraint intentionally predates the
           // Unperformed terminal history state. Removing its projection lets
@@ -2151,6 +2219,18 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         }
       }
 
+      if request.status == .scheduled || request.status == .skipped
+        || request.status == .unperformed
+      {
+        // Keep the association as an auditable historical fact while the
+        // local Session moves away from completed work.
+        try db.execute(
+          sql:
+            "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE local_entity_kind = ? AND local_entity_id = ? AND unlinked_at IS NULL",
+          arguments: [occurredAt, TrainingEventLocalEntityKind.session.rawValue, request.sessionID]
+        )
+      }
+
       try db.execute(
         sql: "DELETE FROM set_results WHERE session_id = ?", arguments: [request.sessionID])
       try db.execute(
@@ -2577,7 +2657,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         rawValue: row["write_back_disposition"] as String)
       let unlinkedAt = row["unlinked_at"] as Double?
       guard !id.isEmpty, !healthKitUUID.isEmpty, localEntityKind == .session,
-        completedSessionIDs.contains(localEntityID), linkedAt.isFinite,
+        sessionIDs.contains(localEntityID), linkedAt.isFinite,
         unlinkedAt?.isFinite ?? true, unlinkedAt.map({ $0 >= linkedAt }) ?? true,
         disposition != nil,
         linkedDuringCompletion
