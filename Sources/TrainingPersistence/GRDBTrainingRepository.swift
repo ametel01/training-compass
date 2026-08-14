@@ -2,6 +2,19 @@ import Foundation
 import GRDB
 import TrainingApplication
 
+private enum ApplicationAcceptanceScenario {
+  case empty
+  case eventLinking
+
+  init?(environmentValue: String?) {
+    switch environmentValue {
+    case "empty": self = .empty
+    case "event-linking": self = .eventLinking
+    default: return nil
+    }
+  }
+}
+
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
   TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
   TrainingEventLinkRepository
@@ -12,9 +25,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   private let erasurePhaseObserver: any TrainingErasurePhaseObserver
   private let erasurePreferences: any TrainingErasurePreferences
   private let temporaryExportDirectory: URL
-  private let trainingEventAcceptanceScenarioRequested: Bool
+  private let applicationAcceptanceScenario: ApplicationAcceptanceScenario?
   private var stores: TrainingStores?
-  private var hasPreparedTrainingEventAcceptanceScenario = false
+  private var hasPreparedApplicationAcceptanceScenario = false
 
   public init(
     root: URL,
@@ -31,7 +44,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     self.erasurePhaseObserver = erasurePhaseObserver
     self.erasurePreferences = erasurePreferences
     self.temporaryExportDirectory = temporaryExportDirectory
-    self.trainingEventAcceptanceScenarioRequested = false
+    self.applicationAcceptanceScenario = nil
   }
 
   private init(applicationRoot root: URL) {
@@ -42,8 +55,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     self.erasurePreferences = FoundationTrainingErasurePreferences()
     self.temporaryExportDirectory = FileManager.default.temporaryDirectory
       .appending(path: "TrainingCompassExports", directoryHint: .isDirectory)
-    self.trainingEventAcceptanceScenarioRequested =
-      ProcessInfo.processInfo.environment["TRAINING_COMPASS_UI_SCENARIO"] == "event-linking"
+    self.applicationAcceptanceScenario = ApplicationAcceptanceScenario(
+      environmentValue: ProcessInfo.processInfo.environment["TRAINING_COMPASS_UI_SCENARIO"])
   }
 
   public static func applicationRepository(root: URL) -> GRDBTrainingRepository {
@@ -55,14 +68,20 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try recoverPendingErasure()
       stores = try bootstrapper.open(in: root)
     }
-    guard trainingEventAcceptanceScenarioRequested,
-      !hasPreparedTrainingEventAcceptanceScenario
+    guard let applicationAcceptanceScenario,
+      !hasPreparedApplicationAcceptanceScenario
     else { return }
-    hasPreparedTrainingEventAcceptanceScenario = true
+    hasPreparedApplicationAcceptanceScenario = true
     do {
-      try await seedTrainingEventAcceptanceScenario(now: Date())
+      switch applicationAcceptanceScenario {
+      case .empty:
+        try await eraseAllData(progress: nil)
+        try await prepareStores()
+      case .eventLinking:
+        try await seedTrainingEventAcceptanceScenario(now: Date())
+      }
     } catch {
-      hasPreparedTrainingEventAcceptanceScenario = false
+      hasPreparedApplicationAcceptanceScenario = false
       throw error
     }
   }

@@ -5,8 +5,14 @@ final class TrainingCompassUITests: XCTestCase {
     continueAfterFailure = false
   }
 
-  func testLaunchShowsPreDataFourDestinationShell() throws {
+  private func cleanApp() -> XCUIApplication {
     let app = XCUIApplication()
+    app.launchEnvironment["TRAINING_COMPASS_UI_SCENARIO"] = "empty"
+    return app
+  }
+
+  func testLaunchShowsPreDataFourDestinationShell() throws {
+    let app = cleanApp()
     app.launch()
 
     XCTAssertTrue(app.staticTexts["Nothing scheduled today"].waitForExistence(timeout: 15))
@@ -51,7 +57,7 @@ final class TrainingCompassUITests: XCTestCase {
   }
 
   func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() throws {
-    let app = XCUIApplication()
+    let app = cleanApp()
     app.launch()
 
     app.tabBars.buttons["TMs"].tap()
@@ -77,7 +83,7 @@ final class TrainingCompassUITests: XCTestCase {
   }
 
   func testHealthFoundationNavigationAndConfirmedRebuildControls() throws {
-    let app = XCUIApplication()
+    let app = cleanApp()
     app.launch()
 
     app.tabBars.buttons["Health"].tap()
