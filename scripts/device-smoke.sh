@@ -2,8 +2,8 @@
 set -euo pipefail
 
 milestone=${1:-}
-if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" ]]; then
-  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events" >&2
+if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" ]]; then
+  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights" >&2
   exit 2
 fi
 
@@ -16,6 +16,10 @@ fi
 if [[ "$milestone" == "unified-events" ]]; then
   checklist="documentation/developer/reference/unified-events-device-checklist.md"
   evidence_name="unified-events"
+fi
+if [[ "$milestone" == "training-insights" ]]; then
+  checklist="documentation/developer/reference/training-insights-device-checklist.md"
+  evidence_name="training-insights"
 fi
 cat "$checklist"
 
@@ -85,6 +89,18 @@ check_schemas = {
             "UNIFIED_LOCAL_AVAILABILITY": "localAvailability",
             "UNIFIED_PRIVACY": "privacy",
             "UNIFIED_INSIGHTS_HIDDEN": "unfinishedInsightsHidden",
+        },
+    ),
+    "training-insights": (
+        "trainingInsightsChecks",
+        {
+            "INSIGHTS_EXPLANATIONS": "explanationsReachable",
+            "INSIGHTS_RECOMPUTATION": "sourceSafeRecomputation",
+            "INSIGHTS_NEUTRAL_LANGUAGE": "neutralLanguage",
+            "INSIGHTS_SINGLE_COUNT": "linkedSingleCount",
+            "INSIGHTS_LOCAL_AVAILABILITY": "localAvailability",
+            "INSIGHTS_PERFORMANCE_BUDGET": "performanceBudget",
+            "INSIGHTS_PRIOR_DATA": "priorDataContinuity",
         },
     ),
 }

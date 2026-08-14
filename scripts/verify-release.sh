@@ -3,9 +3,9 @@ set -euo pipefail
 
 milestone=${1:-gate-0}
 case "$milestone" in
-  gate-0|health-foundation|unified-events) ;;
+  gate-0|health-foundation|unified-events|training-insights) ;;
   *)
-    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events" >&2
+    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights" >&2
     exit 2
     ;;
 esac
@@ -63,5 +63,18 @@ if milestone == "unified-events":
         or route_result not in {"verified", "notAvailable"}
     ):
         raise SystemExit("Release verification refused: Unified Events checks are incomplete.")
+if milestone == "training-insights":
+    checks = record.get("trainingInsightsChecks", {})
+    required = {
+        "explanationsReachable",
+        "sourceSafeRecomputation",
+        "neutralLanguage",
+        "linkedSingleCount",
+        "localAvailability",
+        "performanceBudget",
+        "priorDataContinuity",
+    }
+    if not all(checks.get(key) is True for key in required):
+        raise SystemExit("Release verification refused: Training and Running Insights checks are incomplete.")
 PY
 echo "${milestone} release protocol passed."

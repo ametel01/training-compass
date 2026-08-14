@@ -614,11 +614,19 @@ private struct StrengthProgressView: View {
           }
 
           Section("e1RM Summary") {
-            ProgressMetric(label: "Latest", observation: progress.latest)
-            ProgressMetric(label: "Previous", observation: progress.previous)
-            ProgressMetric(label: "Cycle best", observation: progress.cycleBest)
-            LabeledContent(
-              "Trailing 90-day direction", value: progress.trailing90DayDirection.displayName)
+            ProgressMetric(
+              label: "Latest", observation: progress.latest, explanation: progress.explanation)
+            ProgressMetric(
+              label: "Previous", observation: progress.previous, explanation: progress.explanation)
+            ProgressMetric(
+              label: "Cycle best", observation: progress.cycleBest,
+              explanation: progress.explanation)
+            NavigationLink {
+              InsightExplanationDetailView(explanation: progress.explanation)
+            } label: {
+              LabeledContent(
+                "Trailing 90-day direction", value: progress.trailing90DayDirection.displayName)
+            }
           }
 
           if let context = progress.currentTrainingMaxContext {
@@ -644,7 +652,8 @@ private struct StrengthProgressView: View {
             } else {
               ForEach(visible) { observation in
                 NavigationLink {
-                  ProgressSourceDetailView(observation: observation)
+                  ProgressSourceDetailView(
+                    observation: observation, explanation: progress.explanation)
                 } label: {
                   VStack(alignment: .leading, spacing: 3) {
                     HStack {
@@ -898,11 +907,27 @@ private struct StrengthProgressView: View {
                 "Immediately preceding Comparable Run: \(preceding.record.localDate.iso8601String)"
               )
               .font(.subheadline)
-              Text(comparison.pace.statement)
-              Text(comparison.duration.statement)
-              Text(comparison.distance.statement)
+              NavigationLink {
+                InsightExplanationDetailView(explanation: comparison.explanation)
+              } label: {
+                Text(comparison.pace.statement)
+              }
+              NavigationLink {
+                InsightExplanationDetailView(explanation: comparison.explanation)
+              } label: {
+                Text(comparison.duration.statement)
+              }
+              NavigationLink {
+                InsightExplanationDetailView(explanation: comparison.explanation)
+              } label: {
+                Text(comparison.distance.statement)
+              }
               if comparison.heartRate.isAvailable {
-                Text(comparison.heartRate.statement)
+                NavigationLink {
+                  InsightExplanationDetailView(explanation: comparison.explanation)
+                } label: {
+                  Text(comparison.heartRate.statement)
+                }
               } else {
                 Text("Heart-rate comparison unavailable below 80% coverage.")
                   .foregroundStyle(.secondary)
@@ -915,21 +940,37 @@ private struct StrengthProgressView: View {
               Text("Four-run median uses \(baseline.runIDs.count) preceding Comparable Runs.")
                 .font(.caption)
               if let medianPace = comparison.medianPace {
-                Text("Median pace: \(medianPace.statement)")
+                NavigationLink {
+                  InsightExplanationDetailView(explanation: comparison.explanation)
+                } label: {
+                  Text("Median pace: \(medianPace.statement)")
+                }
               }
               if let medianDuration = comparison.medianDuration {
-                Text("Median duration: \(medianDuration.statement)")
+                NavigationLink {
+                  InsightExplanationDetailView(explanation: comparison.explanation)
+                } label: {
+                  Text("Median duration: \(medianDuration.statement)")
+                }
               }
               if let medianDistance = comparison.medianDistance {
-                Text("Median distance: \(medianDistance.statement)")
+                NavigationLink {
+                  InsightExplanationDetailView(explanation: comparison.explanation)
+                } label: {
+                  Text("Median distance: \(medianDistance.statement)")
+                }
               }
               if let medianHeartRate = comparison.medianHeartRate {
-                Text(
-                  medianHeartRate.isAvailable
-                    ? "Median heart rate: \(medianHeartRate.statement)"
-                    : "Median heart-rate comparison unavailable below 80% coverage."
-                )
-                .foregroundStyle(medianHeartRate.isAvailable ? .primary : .secondary)
+                NavigationLink {
+                  InsightExplanationDetailView(explanation: comparison.explanation)
+                } label: {
+                  Text(
+                    medianHeartRate.isAvailable
+                      ? "Median heart rate: \(medianHeartRate.statement)"
+                      : "Median heart-rate comparison unavailable below 80% coverage."
+                  )
+                  .foregroundStyle(medianHeartRate.isAvailable ? .primary : .secondary)
+                }
               }
             } else {
               Text("Four-run median appears after four preceding Comparable Runs.")
@@ -950,38 +991,68 @@ private struct StrengthProgressView: View {
           }
           .accessibilityIdentifier("progress.running.show-history")
         }
-        LabeledContent(
-          "Trailing seven-day runs",
-          value: runningPerformance.volume.count.currentValue.formatted(
-            .number.precision(.fractionLength(0))))
-        LabeledContent(
-          "Run count vs median",
-          value: comparisonValue(
-            current: runningPerformance.volume.count.currentValue,
-            median: runningPerformance.volume.count.comparisonMedian,
-            suffix: " runs"))
-        LabeledContent(
-          "Available duration",
-          value: String(
-            format: "%.1f min", runningPerformance.volume.availableDuration.currentValue / 60))
-        LabeledContent(
-          "Duration vs median",
-          value: comparisonValue(
-            current: runningPerformance.volume.availableDuration.currentValue / 60,
-            median: runningPerformance.volume.availableDuration.comparisonMedian.map { $0 / 60 },
-            suffix: " min"))
-        LabeledContent(
-          "Available distance",
-          value: String(
-            format: "%.1f km", runningPerformance.volume.availableDistance.currentValue / 1_000))
-        LabeledContent(
-          "Distance vs median",
-          value: comparisonValue(
-            current: runningPerformance.volume.availableDistance.currentValue / 1_000,
-            median: runningPerformance.volume.availableDistance.comparisonMedian.map {
-              $0 / 1_000
-            },
-            suffix: " km"))
+        NavigationLink {
+          InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
+        } label: {
+          LabeledContent(
+            "Trailing seven-day runs",
+            value: runningPerformance.volume.count.currentValue.formatted(
+              .number.precision(.fractionLength(0))))
+        }
+        NavigationLink {
+          InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
+        } label: {
+          LabeledContent(
+            "Run count vs median",
+            value: comparisonValue(
+              current: runningPerformance.volume.count.currentValue,
+              median: runningPerformance.volume.count.comparisonMedian,
+              suffix: " runs"))
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDuration.explanation)
+        } label: {
+          LabeledContent(
+            "Available duration",
+            value: String(
+              format: "%.1f min", runningPerformance.volume.availableDuration.currentValue / 60))
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDuration.explanation)
+        } label: {
+          LabeledContent(
+            "Duration vs median",
+            value: comparisonValue(
+              current: runningPerformance.volume.availableDuration.currentValue / 60,
+              median: runningPerformance.volume.availableDuration.comparisonMedian.map {
+                $0 / 60
+              },
+              suffix: " min"))
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDistance.explanation)
+        } label: {
+          LabeledContent(
+            "Available distance",
+            value: String(
+              format: "%.1f km", runningPerformance.volume.availableDistance.currentValue / 1_000))
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDistance.explanation)
+        } label: {
+          LabeledContent(
+            "Distance vs median",
+            value: comparisonValue(
+              current: runningPerformance.volume.availableDistance.currentValue / 1_000,
+              median: runningPerformance.volume.availableDistance.comparisonMedian.map {
+                $0 / 1_000
+              },
+              suffix: " km"))
+        }
         NavigationLink {
           InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
         } label: {
@@ -1187,9 +1258,10 @@ private struct InsightExplanationDetailView: View {
       }
       Section("Source and coverage") {
         Text(explanation.sourceCoverage)
-        if let lastReconciliation = explanation.lastReconciliation {
-          LabeledContent("Last reconciliation", value: lastReconciliation)
-        }
+        LabeledContent(
+          "Last reconciliation", value: explanation.lastReconciliation ?? "Not provided by source")
+        LabeledContent(
+          "Configuration", value: explanation.configuration ?? "No additional configuration")
       }
       if !explanation.includedRecordIDs.isEmpty {
         Section("Included records") {
@@ -1475,6 +1547,11 @@ private struct HeartRateZoneDetailView: View {
           .font(.caption2)
           .foregroundStyle(.secondary)
         }
+        NavigationLink {
+          InsightExplanationDetailView(explanation: projection.explanation)
+        } label: {
+          Label("Explain Heart-Rate Zone calculation", systemImage: "info.circle")
+        }
         Text(
           "Only source-observed intervals are counted. Gaps over 60 seconds and workout edges remain unavailable."
         )
@@ -1695,6 +1772,7 @@ private struct HealthWorkoutEnrichmentView: View {
 
 private struct ProgressSourceDetailView: View {
   let observation: E1RMObservation
+  let explanation: InsightExplanation
 
   var body: some View {
     List {
@@ -1709,6 +1787,13 @@ private struct ProgressSourceDetailView: View {
         LabeledContent("Date", value: observation.date.iso8601String)
         LabeledContent("Correction", value: observation.sourceLink.correctionState.displayName)
       }
+      Section("Insight Explanation") {
+        NavigationLink {
+          InsightExplanationDetailView(explanation: explanation)
+        } label: {
+          Label("Explain this e1RM point", systemImage: "info.circle")
+        }
+      }
     }
     .navigationTitle("Progress Source")
   }
@@ -1717,12 +1802,13 @@ private struct ProgressSourceDetailView: View {
 private struct ProgressMetric: View {
   let label: String
   let observation: E1RMObservation?
+  let explanation: InsightExplanation
 
   var body: some View {
-    if let observation {
-      LabeledContent(label, value: observation.displayValue)
-    } else {
-      LabeledContent(label, value: "—")
+    NavigationLink {
+      InsightExplanationDetailView(explanation: explanation)
+    } label: {
+      LabeledContent(label, value: observation?.displayValue ?? "—")
     }
   }
 }

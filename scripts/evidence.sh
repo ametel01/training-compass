@@ -47,6 +47,7 @@ def device_evidence(milestone: str) -> dict:
 gate_zero_evidence = device_evidence("gate-0")
 health_foundation_evidence = device_evidence("health-foundation")
 unified_events_evidence = device_evidence("unified-events")
+training_insights_evidence = device_evidence("training-insights")
 automated_pass = acceptance_result == 0 and all(
     os.environ.get(name) == "pass"
     for name in ("VERIFY_RESULT", "MIGRATION_RESULT", "PRIVACY_RESULT", "UI_RESULT")
@@ -89,6 +90,21 @@ unified_events_accepted = (
     and unified_checks.get("routeOnDemand") in {"verified", "notAvailable"}
     and automated_pass
 )
+training_insights_checks = training_insights_evidence.get("trainingInsightsChecks", {})
+required_training_insights_checks = {
+    "explanationsReachable",
+    "sourceSafeRecomputation",
+    "neutralLanguage",
+    "linkedSingleCount",
+    "localAvailability",
+    "performanceBudget",
+    "priorDataContinuity",
+}
+training_insights_accepted = (
+    training_insights_evidence.get("result") == "pass"
+    and all(training_insights_checks.get(key) is True for key in required_training_insights_checks)
+    and automated_pass
+)
 entitlements = [str(path) for path in Path(".").rglob("*.entitlements") if ".build" not in path.parts]
 record = {
     "commands": [
@@ -101,9 +117,11 @@ record = {
         "make device-smoke MILESTONE=gate-0",
         "make device-smoke MILESTONE=health-foundation",
         "make device-smoke MILESTONE=unified-events",
+        "make device-smoke MILESTONE=training-insights",
         "make verify-release MILESTONE=gate-0",
         "make verify-release MILESTONE=health-foundation",
         "make verify-release MILESTONE=unified-events",
+        "make verify-release MILESTONE=training-insights",
         "make evidence",
     ],
     "fixtureSeed": 21571,
@@ -119,6 +137,7 @@ record = {
             "gate0": gate_zero_evidence,
             "healthFoundation": health_foundation_evidence,
             "unifiedEvents": unified_events_evidence,
+            "trainingInsights": training_insights_evidence,
         },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
@@ -144,8 +163,10 @@ record = {
         "releaseGate": "eligible" if owner_data_accepted else "blocked",
         "uiGate": automated_verdict("UI_RESULT"),
         "unifiedEventsGate": "eligible" if unified_events_accepted else "blocked",
+        "trainingInsightsGate": "eligible" if training_insights_accepted else "blocked",
     },
     "unifiedEventsAccepted": unified_events_accepted,
+    "trainingInsightsAccepted": training_insights_accepted,
     "waivers": [],
 }
 encoded = json.dumps(record, indent=2, sort_keys=True) + "\n"

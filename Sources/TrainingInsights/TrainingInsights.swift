@@ -353,8 +353,13 @@ public struct InsightExplanation: Codable, Equatable, Sendable {
       question + " Included records: " + included + ". Excluded records: " + excluded
       + ". Formula: " + formula + ". Dates: " + dateRange + ". " + roundingRule
       + " Source state: " + sourceState + ". Coverage: " + self.sourceCoverage
+      + ". Comparison baseline: "
+      + (comparisonBaseline ?? "none")
       + ". Missing data: " + (missingData.isEmpty ? "none" : missingData.joined(separator: ", "))
-      + ". Exclusions: " + details + "."
+      + ". Exclusions: " + details + ". Configuration: "
+      + (configuration ?? "none")
+      + ". Last reconciliation: "
+      + (lastReconciliation ?? "not provided by source") + "."
   }
 
   public init(from decoder: Decoder) throws {

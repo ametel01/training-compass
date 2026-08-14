@@ -16,8 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
+INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights-device-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -88,6 +89,8 @@ def main() -> int:
     errors: list[str] = []
     matrix = MATRIX.read_text()
     budgets = BUDGETS.read_text()
+    if not INSIGHTS_CHECKLIST.exists():
+        errors.append("Training and Running Insights Acceptance Device checklist is missing")
 
     rows = matrix_rows(matrix)
     sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
@@ -169,6 +172,17 @@ def main() -> int:
     for contract in required_unified_milestone_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits unified milestone contract: {contract}")
+
+    required_insight_contracts = (
+        "Every derived value is source-linked",
+        "Insight Explanation containing records, dates, coverage, rules, baseline, exclusions, missing data, configuration, and reconciliation",
+        "no score, record, goal, claim, prediction, verdict, or prescription",
+        "750-millisecond insight budget",
+        "source facts; linked events remain single-counted",
+    )
+    for contract in required_insight_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits Training and Running Insights contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

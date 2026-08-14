@@ -142,6 +142,40 @@ public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
     return zoneDurations.mapValues { $0 / coveredSeconds * 100 }
   }
 
+  /// The same source-aware explanation used by the owner-facing zone detail.
+  /// Keeping this at the projection seam ensures a workout-level derived value
+  /// cannot be displayed without a path back to its samples and coverage.
+  public var explanation: InsightExplanation {
+    let included = sourceSummaries.flatMap(\.sampleIDs)
+    let missing = unavailableIntervals.map {
+      "\($0.reason) from \($0.startDate) through \($0.endDate)"
+    }
+    let sources = sourceSummaries.map { "\($0.source) (\($0.sampleIDs.count) samples)" }
+    let coverage: String
+    if sources.isEmpty {
+      coverage = "No associated heart-rate samples were available"
+    } else {
+      coverage = "Associated heart-rate sources: \(sources.joined(separator: ", "))"
+    }
+    let maximum = maximumHeartRateBPM.map { String($0) } ?? "not configured"
+    return InsightExplanation(
+      question: "How was this workout's Heart-Rate Zone time calculated?",
+      includedRecordIDs: included,
+      excludedRecords: [],
+      formula:
+        "Assign elapsed time to the earlier associated sample when the gap is at most 60 seconds; gaps over 60 seconds and workout edges remain unavailable.",
+      dateRange:
+        "Workout interval \(intervals.first?.startDate ?? 0) through \(intervals.last?.endDate ?? totalWorkoutDurationSeconds)",
+      roundingRule:
+        "Calculations retain full precision; displayed durations and percentages are rounded for presentation.",
+      sourceState: String(describing: state),
+      sourceCoverage: coverage,
+      calculationRule:
+        "Fixed bands are 50–59%, 60–69%, 70–79%, 80–89%, and 90–100%; time above the configured maximum remains unclassified.",
+      missingData: missing,
+      configuration: "Maximum heart rate used: \(maximum) bpm.")
+  }
+
   public static func unavailable(reason: String) -> Self {
     .init(state: .unavailable(reason: reason))
   }

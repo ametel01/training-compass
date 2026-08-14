@@ -1,7 +1,8 @@
 # Training Compass release-candidate checklist
 
-Issue #22 is the approval gate for the second owner-usable milestone, and issue
-#27 approves Unified Events and Enrichment. The first owner-data milestone
+Issue #22 is the approval gate for the second owner-usable milestone, issue
+#27 approves Unified Events and Enrichment, and issue #32 approves Training and
+Running Insights. The first owner-data milestone
 remains covered by issue #16. The Acceptance Device is the owner's iPhone
 running the supported iOS release; Simulator numbers are regression signals
 only. A milestone candidate is eligible only
@@ -52,6 +53,14 @@ application container between steps:
     linked event, then verify exact-UUID rebuild reconnection, explicit unlink,
     route resource budgets, export/log/evidence privacy, local availability,
     and hidden unfinished recovery insights.
+12. Training and Running Insights: from Progress and workout detail, open the
+    explanation for e1RM, rolling facts, each activity group, every displayed
+    Heart-Rate Zone value, each running fact, all Running Volume measures, and
+    the selected-run comparison. Verify source records, dates, coverage,
+    calculation rules, baseline, exclusions, missing data, configuration, and
+    last reconciliation are reachable without leaving the displayed value;
+    verify corrections and Health revisions recompute projections without
+    changing source facts or duplicating linked Training Events.
 
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover
