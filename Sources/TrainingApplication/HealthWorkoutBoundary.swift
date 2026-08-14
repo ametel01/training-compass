@@ -1,12 +1,16 @@
 import Foundation
 
+public enum TrainingEventLocalEntityKind: String, Codable, Equatable, Sendable {
+  case session
+}
+
 /// An authoritative association between a local record and a HealthKit
 /// object. It remains outside the rebuildable mirror so a returning Health
 /// object reconnects to the same local fact without recreating history.
 public struct HealthWorkoutLinkFact: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let healthKitUUID: String
-  public let localEntityKind: String
+  public let localEntityKind: TrainingEventLocalEntityKind
   public let localEntityID: String
   public let linkedAt: Date
   public let linkedDuringCompletion: Bool
@@ -16,7 +20,7 @@ public struct HealthWorkoutLinkFact: Codable, Equatable, Sendable, Identifiable 
   public init(
     id: String,
     healthKitUUID: String,
-    localEntityKind: String,
+    localEntityKind: TrainingEventLocalEntityKind,
     localEntityID: String,
     linkedAt: Date = Date(),
     linkedDuringCompletion: Bool = false,

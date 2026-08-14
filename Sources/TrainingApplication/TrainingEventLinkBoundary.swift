@@ -69,7 +69,7 @@ public struct TrainingEventLinkingSnapshot: Codable, Equatable, Sendable {
 public enum UnifiedTrainingEventLinkState: String, Codable, Equatable, Sendable {
   case unlinked
   case linked
-  case linkedWorkoutUnavailable
+  case formerLinkWorkoutUnavailable
 }
 
 public enum TrainingEventDisagreement: Codable, Equatable, Sendable {
@@ -308,9 +308,12 @@ public struct TrainingEventLinkBoundary: Sendable {
       sessionSnapshot.completion != nil
     else { throw TrainingEventLinkError.sessionNotCompleted }
 
-    let links = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil).filter(\.isActive)
+    let workouts = try await healthRepository.loadHealthWorkouts()
+    let availableWorkoutIDs = Set(workouts.map(\.healthKitUUID))
+    let links = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil)
+      .filter { $0.isActive && availableWorkoutIDs.contains($0.healthKitUUID) }
     if let activeLink = links.first(where: {
-      $0.localEntityKind == "session" && $0.localEntityID == sessionID
+      $0.localEntityKind == .session && $0.localEntityID == sessionID
     }) {
       return TrainingEventLinkingSnapshot(
         sessionID: sessionID,
@@ -319,7 +322,8 @@ public struct TrainingEventLinkBoundary: Sendable {
       )
     }
     let linkedWorkoutIDs = Set(links.map(\.healthKitUUID))
-    let candidates = try await healthRepository.loadHealthWorkouts()
+    let candidates =
+      workouts
       .filter { workout in
         workout.sourceBundleIdentifier != Self.trainingCompassBundleIdentifier
           && !linkedWorkoutIDs.contains(workout.healthKitUUID)
@@ -342,14 +346,19 @@ public struct TrainingEventLinkBoundary: Sendable {
   public func timeline() async throws -> TrainingEventTimelineSnapshot {
     let cycles = try await cycleRepository.loadTrainingCycles()
     let workouts = try await healthRepository.loadHealthWorkouts()
-    let activeLinks = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil)
+    let persistedLinks = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil)
       .filter(\.isActive)
     let checkpoint = try? await healthRepository.loadHealthSyncCheckpoint(for: .workouts)
     let workoutsByID = Dictionary(
       workouts.map { ($0.healthKitUUID, $0) },
       uniquingKeysWith: { _, replacement in replacement })
+    let activeLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] != nil }
+    let unavailableLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] == nil }
     let linksBySessionID = Dictionary(
-      activeLinks.filter { $0.localEntityKind == "session" }.map { ($0.localEntityID, $0) },
+      activeLinks.filter { $0.localEntityKind == .session }.map { ($0.localEntityID, $0) },
+      uniquingKeysWith: { first, _ in first })
+    let unavailableLinksBySessionID = Dictionary(
+      unavailableLinks.filter { $0.localEntityKind == .session }.map { ($0.localEntityID, $0) },
       uniquingKeysWith: { first, _ in first })
     var consumedWorkoutIDs: Set<String> = []
     var events: [UnifiedTrainingEvent] = []
@@ -371,6 +380,7 @@ public struct TrainingEventLinkBoundary: Sendable {
             additionalSets: try await resultRepository.loadAdditionalSets(for: session.id)
           )
           let link = linksBySessionID[session.id]
+          let formerLink = unavailableLinksBySessionID[session.id]
           let workout = link.flatMap { workoutsByID[$0.healthKitUUID] }
           if let workout { consumedWorkoutIDs.insert(workout.healthKitUUID) }
           let completionDate = Date(timeIntervalSince1970: TimeInterval(completion.confirmedAt))
@@ -381,10 +391,10 @@ public struct TrainingEventLinkBoundary: Sendable {
               sortDate: workout?.startDate ?? completionDate,
               session: facts,
               healthWorkout: workout,
-              link: link,
+              link: link ?? formerLink,
               linkState: link == nil
-                ? .unlinked
-                : (workout == nil ? .linkedWorkoutUnavailable : .linked),
+                ? (formerLink == nil ? .unlinked : .formerLinkWorkoutUnavailable)
+                : .linked,
               lastSuccessfulReconciliation: checkpoint?.committedAt,
               reconciliationContext: checkpoint?.reconciliationContext
             ))
@@ -461,7 +471,7 @@ public struct TrainingEventLinkBoundary: Sendable {
     let activeLinks = links.filter(\.isActive)
     guard
       !activeLinks.contains(where: {
-        $0.localEntityKind == "session" && $0.localEntityID == sessionID
+        $0.localEntityKind == .session && $0.localEntityID == sessionID
       })
     else { throw TrainingEventLinkRepositoryError.duplicateLink }
     let linkedWorkoutIDs = Set(activeLinks.map(\.healthKitUUID))
@@ -507,7 +517,7 @@ public struct TrainingEventLinkBoundary: Sendable {
     let fact = HealthWorkoutLinkFact(
       id: uuidGenerator.makeUUID().uuidString,
       healthKitUUID: candidate.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: sessionID,
       linkedAt: clock.now()
     )
@@ -549,7 +559,7 @@ public struct TrainingEventLinkBoundary: Sendable {
     let link = HealthWorkoutLinkFact(
       id: uuidGenerator.makeUUID().uuidString,
       healthKitUUID: candidate.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: sessionID,
       linkedAt: now,
       linkedDuringCompletion: true,

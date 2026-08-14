@@ -743,7 +743,7 @@ private struct UnifiedTrainingEventDetailView: View {
               ? "No Training Compass summary created"
               : "Not affected by this link"
           )
-          if link.isActive && !wasUnlinked {
+          if event.linkState == .linked && link.isActive && !wasUnlinked {
             Button("Unlink Training Event", role: .destructive) {
               showingUnlinkConfirmation = true
             }
@@ -845,7 +845,7 @@ private struct UnifiedTrainingEventDetailView: View {
     switch event.linkState {
     case .unlinked: "Unlinked"
     case .linked: "Linked one-to-one"
-    case .linkedWorkoutUnavailable: "Linked · Health Workout currently unavailable"
+    case .formerLinkWorkoutUnavailable: "Former link · Health Workout currently unavailable"
     }
   }
 

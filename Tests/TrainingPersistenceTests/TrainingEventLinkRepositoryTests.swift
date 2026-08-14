@@ -45,7 +45,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "link-1",
       healthKitUUID: workout1.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session-1",
       linkedAt: Date(timeIntervalSince1970: 30)
     )
@@ -62,7 +62,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
         HealthWorkoutLinkFact(
           id: "same-session",
           healthKitUUID: workout2.healthKitUUID,
-          localEntityKind: "session",
+          localEntityKind: .session,
           localEntityID: "session-1"
         ),
         expectedSessionUpdatedAt: session1Version,
@@ -78,7 +78,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
         HealthWorkoutLinkFact(
           id: "same-workout",
           healthKitUUID: workout1.healthKitUUID,
-          localEntityKind: "session",
+          localEntityKind: .session,
           localEntityID: "session-2"
         ),
         expectedSessionUpdatedAt: session2Version,
@@ -104,7 +104,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
     let relinked = HealthWorkoutLinkFact(
       id: "link-2",
       healthKitUUID: workout1.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session-1",
       linkedAt: Date(timeIntervalSince1970: 50)
     )
@@ -140,7 +140,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "completion-link",
       healthKitUUID: workout.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session-1",
       linkedAt: Date(timeIntervalSince1970: 20),
       linkedDuringCompletion: true,
@@ -161,6 +161,56 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
     let durableLinks = try await restarted.loadHealthWorkoutLinkFacts(for: nil)
     XCTAssertEqual(durableCompletion, completion)
     XCTAssertEqual(durableLinks, [link])
+  }
+
+  func testMissingExternalWorkoutBecomesHistoryWhenOwnerChoosesReplacement() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(
+        path: "training-event-replacement-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    _ = try await repository.saveTrainingCycle(
+      makeLinkingCycle(), expectedBefore: nil, auditID: "cycle", occurredAt: 10,
+      action: .activated)
+    _ = try await repository.completeSession(
+      CompletedSession(sessionID: "session-1", confirmedAt: 20), confirmation: .confirmed)
+    let oldWorkout = linkWorkout(id: "old-health", start: 100)
+    let replacementWorkout = linkWorkout(id: "replacement-health", start: 200)
+    try await repository.upsertHealthWorkouts(
+      [oldWorkout, replacementWorkout], reconciliationContext: "initial")
+    let storedWorkouts = try await repository.loadHealthWorkouts()
+    let storedOld = try XCTUnwrap(
+      storedWorkouts.first(where: { $0.healthKitUUID == oldWorkout.healthKitUUID }))
+    let storedReplacement = try XCTUnwrap(
+      storedWorkouts.first(where: { $0.healthKitUUID == replacementWorkout.healthKitUUID }))
+    let sessionValue = try await repository.loadSessionCorrectionSnapshot(sessionID: "session-1")
+    let session = try XCTUnwrap(sessionValue)
+    let formerLink = HealthWorkoutLinkFact(
+      id: "former-link", healthKitUUID: oldWorkout.healthKitUUID, localEntityKind: .session,
+      localEntityID: "session-1", linkedAt: Date(timeIntervalSince1970: 30))
+    _ = try await repository.createHealthWorkoutLinkFact(
+      formerLink, expectedSessionUpdatedAt: session.updatedAt, expectedWorkout: storedOld)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: [oldWorkout.healthKitUUID]),
+      stream: .workouts,
+      limits: .default
+    )
+    let replacementLink = HealthWorkoutLinkFact(
+      id: "replacement-link", healthKitUUID: replacementWorkout.healthKitUUID,
+      localEntityKind: .session, localEntityID: "session-1",
+      linkedAt: Date(timeIntervalSince1970: 40))
+
+    _ = try await repository.createHealthWorkoutLinkFact(
+      replacementLink,
+      expectedSessionUpdatedAt: session.updatedAt,
+      expectedWorkout: storedReplacement
+    )
+    let history = try await repository.loadHealthWorkoutLinkFacts(for: nil)
+
+    XCTAssertEqual(history.count, 2)
+    XCTAssertEqual(history[0].id, formerLink.id)
+    XCTAssertEqual(history[0].unlinkedAt, replacementLink.linkedAt)
+    XCTAssertEqual(history[1], replacementLink)
   }
 
   func testV12LinkArchiveRestoresWithExplicitV13Defaults() async throws {
@@ -201,7 +251,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
     let sessionValue = try await source.loadSessionCorrectionSnapshot(sessionID: "session-1")
     let session = try XCTUnwrap(sessionValue)
     let legacyLink = HealthWorkoutLinkFact(
-      id: "legacy-link", healthKitUUID: workout.healthKitUUID, localEntityKind: "session",
+      id: "legacy-link", healthKitUUID: workout.healthKitUUID, localEntityKind: .session,
       localEntityID: "session-1", linkedAt: Date(timeIntervalSince1970: 30))
     _ = try await source.createHealthWorkoutLinkFact(
       legacyLink, expectedSessionUpdatedAt: session.updatedAt, expectedWorkout: storedWorkout)

@@ -42,7 +42,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
         HealthWorkoutLinkFact(
           id: "existing-link",
           healthKitUUID: "already-linked",
-          localEntityKind: "session",
+          localEntityKind: .session,
           localEntityID: "other-session",
           linkedAt: Date(timeIntervalSince1970: 1_704_109_500)
         )
@@ -161,7 +161,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "linked-event",
       healthKitUUID: linkedWorkout.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session",
       linkedAt: Date(timeIntervalSince1970: 1_704_110_500)
     )
@@ -204,7 +204,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
       links: [
         HealthWorkoutLinkFact(
           id: "different-date-link", healthKitUUID: workout.healthKitUUID,
-          localEntityKind: "session", localEntityID: "session")
+          localEntityKind: .session, localEntityID: "session")
       ],
       checkpoint: checkpoint
     )
@@ -232,7 +232,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "link-to-remove",
       healthKitUUID: workout.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session",
       linkedAt: Date(timeIntervalSince1970: 1_704_110_500)
     )
@@ -265,7 +265,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "existing-link",
       healthKitUUID: linkedWorkout.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session",
       linkedAt: Date(timeIntervalSince1970: 1_704_110_500)
     )
@@ -317,7 +317,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     let link = HealthWorkoutLinkFact(
       id: "retained-link",
       healthKitUUID: workout.healthKitUUID,
-      localEntityKind: "session",
+      localEntityKind: .session,
       localEntityID: "session",
       linkedAt: Date(timeIntervalSince1970: 1_704_110_500)
     )
@@ -331,7 +331,17 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
 
     let absent = try await boundary.timeline()
     XCTAssertEqual(absent.aggregateCount, 1)
-    XCTAssertEqual(absent.events.first?.linkState, .linkedWorkoutUnavailable)
+    XCTAssertEqual(absent.events.first?.id, "session:session")
+    XCTAssertEqual(absent.events.first?.link, link)
+    XCTAssertEqual(absent.events.first?.linkState, .formerLinkWorkoutUnavailable)
+    await repository.replaceWorkouts([
+      makeWorkout(
+        id: "new-health", activity: "traditional-strength-training",
+        start: 1_704_108_700, localDate: "2024-01-01")
+    ])
+    let whileMissing = try await boundary.linkingSnapshot(for: "session")
+    XCTAssertNil(whileMissing.activeLink)
+    XCTAssertEqual(whileMissing.candidates.map(\.healthKitUUID), ["new-health"])
 
     await repository.replaceWorkouts([workout])
     let reconnected = try await boundary.timeline()

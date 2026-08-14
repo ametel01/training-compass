@@ -584,7 +584,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             unlinked_at = excluded.unlinked_at
           """,
         arguments: [
-          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970,
           fact.linkedDuringCompletion, fact.writeBackDisposition.rawValue,
           fact.unlinkedAt?.timeIntervalSince1970,
@@ -621,12 +621,13 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       }
       return try rows.map {
         guard
+          let localEntityKind = TrainingEventLocalEntityKind(rawValue: $0["local_entity_kind"]),
           let disposition = TrainingEventWriteBackDisposition(
             rawValue: $0["write_back_disposition"])
         else { throw TrainingEventLinkRepositoryError.invalidLink }
         return HealthWorkoutLinkFact(
           id: $0["id"], healthKitUUID: $0["healthkit_uuid"],
-          localEntityKind: $0["local_entity_kind"], localEntityID: $0["local_entity_id"],
+          localEntityKind: localEntityKind, localEntityID: $0["local_entity_id"],
           linkedAt: Date(timeIntervalSince1970: $0["linked_at"]),
           linkedDuringCompletion: $0["linked_during_completion"],
           writeBackDisposition: disposition,
@@ -641,7 +642,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     expectedSessionUpdatedAt: Int64,
     expectedWorkout: HealthWorkout
   ) async throws -> HealthWorkoutLinkFact {
-    guard fact.localEntityKind == "session", fact.isActive,
+    guard fact.localEntityKind == .session, fact.isActive,
       !fact.linkedDuringCompletion,
       fact.writeBackDisposition == .notApplicable,
       fact.healthKitUUID == expectedWorkout.healthKitUUID,
@@ -649,7 +650,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         != TrainingEventLinkBoundary.trainingCompassBundleIdentifier
     else { throw TrainingEventLinkRepositoryError.invalidLink }
 
-    let currentWorkout = try await loadHealthWorkouts().first {
+    let currentWorkouts = try await loadHealthWorkouts()
+    let currentWorkout = currentWorkouts.first {
       $0.healthKitUUID == expectedWorkout.healthKitUUID
     }
     guard currentWorkout == expectedWorkout else {
@@ -676,17 +678,28 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         ) == 1
       else { throw TrainingEventLinkRepositoryError.staleCandidate }
 
-      let duplicate =
-        try Int.fetchOne(
-          db,
-          sql: """
-            SELECT COUNT(*) FROM health_workout_link_facts
-            WHERE unlinked_at IS NULL
-              AND (healthkit_uuid = ? OR (local_entity_kind = ? AND local_entity_id = ?))
-            """,
-          arguments: [fact.healthKitUUID, fact.localEntityKind, fact.localEntityID]
-        ) ?? 0
-      guard duplicate == 0 else { throw TrainingEventLinkRepositoryError.duplicateLink }
+      let activeCollisions = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, healthkit_uuid FROM health_workout_link_facts
+          WHERE unlinked_at IS NULL
+            AND (healthkit_uuid = ? OR (local_entity_kind = ? AND local_entity_id = ?))
+          """,
+        arguments: [fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID]
+      )
+      let availableWorkoutIDs = Set(currentWorkouts.map(\.healthKitUUID))
+      guard
+        !activeCollisions.contains(where: {
+          ($0["healthkit_uuid"] as String) == fact.healthKitUUID
+            || availableWorkoutIDs.contains($0["healthkit_uuid"] as String)
+        })
+      else { throw TrainingEventLinkRepositoryError.duplicateLink }
+      for collision in activeCollisions {
+        try db.execute(
+          sql: "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE id = ?",
+          arguments: [fact.linkedAt.timeIntervalSince1970, collision["id"] as String]
+        )
+      }
 
       try db.execute(
         sql: """
@@ -696,7 +709,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
           """,
         arguments: [
-          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
           fact.writeBackDisposition.rawValue,
         ]
@@ -711,7 +724,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     expectedSessionUpdatedAt: Int64,
     expectedWorkout: HealthWorkout
   ) async throws -> TrainingEventCompletionLinkResult {
-    guard fact.localEntityKind == "session", fact.localEntityID == completion.sessionID,
+    guard fact.localEntityKind == .session, fact.localEntityID == completion.sessionID,
       fact.isActive, fact.linkedDuringCompletion,
       fact.writeBackDisposition == .suppressedExternalWorkoutLinkedAtCompletion,
       fact.healthKitUUID == expectedWorkout.healthKitUUID,
@@ -767,7 +780,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             WHERE unlinked_at IS NULL
               AND (healthkit_uuid = ? OR (local_entity_kind = ? AND local_entity_id = ?))
             """,
-          arguments: [fact.healthKitUUID, fact.localEntityKind, fact.localEntityID]
+          arguments: [fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID]
         ) ?? 0
       guard duplicate == 0 else { throw TrainingEventLinkRepositoryError.duplicateLink }
 
@@ -793,7 +806,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
           """,
         arguments: [
-          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
           fact.writeBackDisposition.rawValue,
         ]
@@ -824,6 +837,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           arguments: [id]
         ),
         Date(timeIntervalSince1970: row["linked_at"]) == expectedLinkedAt,
+        let localEntityKind = TrainingEventLocalEntityKind(rawValue: row["local_entity_kind"]),
         let disposition = TrainingEventWriteBackDisposition(
           rawValue: row["write_back_disposition"])
       else { throw TrainingEventLinkRepositoryError.staleCandidate }
@@ -834,7 +848,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       return HealthWorkoutLinkFact(
         id: row["id"],
         healthKitUUID: row["healthkit_uuid"],
-        localEntityKind: row["local_entity_kind"],
+        localEntityKind: localEntityKind,
         localEntityID: row["local_entity_id"],
         linkedAt: expectedLinkedAt,
         linkedDuringCompletion: row["linked_during_completion"],
@@ -2505,14 +2519,15 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     ) {
       let id = row["id"] as String
       let healthKitUUID = row["healthkit_uuid"] as String
-      let localEntityKind = row["local_entity_kind"] as String
+      let localEntityKind = TrainingEventLocalEntityKind(
+        rawValue: row["local_entity_kind"] as String)
       let localEntityID = row["local_entity_id"] as String
       let linkedAt = row["linked_at"] as Double
       let linkedDuringCompletion = row["linked_during_completion"] as Bool
       let disposition = TrainingEventWriteBackDisposition(
         rawValue: row["write_back_disposition"] as String)
       let unlinkedAt = row["unlinked_at"] as Double?
-      guard !id.isEmpty, !healthKitUUID.isEmpty, localEntityKind == "session",
+      guard !id.isEmpty, !healthKitUUID.isEmpty, localEntityKind == .session,
         completedSessionIDs.contains(localEntityID), linkedAt.isFinite,
         unlinkedAt?.isFinite ?? true, unlinkedAt.map({ $0 >= linkedAt }) ?? true,
         disposition != nil,

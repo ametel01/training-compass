@@ -149,7 +149,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let repository = GRDBTrainingRepository(root: root)
     let link = HealthWorkoutLinkFact(
-      id: "link-1", healthKitUUID: "returning-uuid", localEntityKind: "session",
+      id: "link-1", healthKitUUID: "returning-uuid", localEntityKind: .session,
       localEntityID: "session-1", linkedAt: Date(timeIntervalSince1970: 1_700_000_000))
     try await repository.saveHealthWorkoutLinkFact(link)
     try await repository.commitHealthWorkoutPage(
