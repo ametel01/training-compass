@@ -193,8 +193,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               (healthkit_uuid, activity_type, start_date, end_date, duration,
                source_name, source_bundle_identifier, source_product_type, source_os_version,
                device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+               running_environment,
+               elevation_meters,
                first_imported_at, reconciliation_context, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(healthkit_uuid) DO UPDATE SET
               activity_type = excluded.activity_type,
               start_date = excluded.start_date,
@@ -207,23 +209,25 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               device_name = excluded.device_name,
               device_model = excluded.device_model,
               source_timezone_identifier = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.source_timezone_identifier
                 ELSE excluded.source_timezone_identifier
               END,
               local_date = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.local_date
                 ELSE excluded.local_date
               END,
               timezone_source = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.timezone_source
                 ELSE excluded.timezone_source
               END,
+              running_environment = excluded.running_environment,
+              elevation_meters = excluded.elevation_meters,
               reconciliation_context = excluded.reconciliation_context,
               updated_at = excluded.updated_at
             """,
@@ -242,6 +246,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.sourceTimeZoneIdentifier,
             workout.localDate,
             workout.timeZoneSource.rawValue,
+            workout.runningEnvironment.rawValue,
+            workout.elevationMeters,
             workout.firstImportedAt.timeIntervalSince1970,
             workout.reconciliationContext ?? reconciliationContext,
             Date().timeIntervalSince1970,
@@ -264,6 +270,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           SELECT healthkit_uuid, activity_type, start_date, end_date, duration,
                  source_name, source_bundle_identifier, source_product_type, source_os_version,
                  device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+                 running_environment,
+                 elevation_meters,
                  first_imported_at, reconciliation_context
           FROM health_workouts ORDER BY start_date, healthkit_uuid
           """
@@ -287,6 +295,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           sourceTimeZoneIdentifier: row["source_timezone_identifier"] as String?,
           localDate: row["local_date"],
           timeZoneSource: timezoneSource,
+          runningEnvironment: RunningEnvironment(rawValue: row["running_environment"] as String)
+            ?? .unspecified,
+          elevationMeters: row["elevation_meters"] as Double?,
           firstImportedAt: Date(timeIntervalSince1970: row["first_imported_at"]),
           reconciliationContext: row["reconciliation_context"] as String?
         )
@@ -318,8 +329,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               (healthkit_uuid, activity_type, start_date, end_date, duration,
                source_name, source_bundle_identifier, source_product_type, source_os_version,
                device_name, device_model, source_timezone_identifier, local_date, timezone_source,
+               running_environment,
+               elevation_meters,
                first_imported_at, reconciliation_context, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(healthkit_uuid) DO UPDATE SET
               activity_type = excluded.activity_type,
               start_date = excluded.start_date,
@@ -332,23 +345,25 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               device_name = excluded.device_name,
               device_model = excluded.device_model,
               source_timezone_identifier = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.source_timezone_identifier
                 ELSE excluded.source_timezone_identifier
               END,
               local_date = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.local_date
                 ELSE excluded.local_date
               END,
               timezone_source = CASE
-                WHEN health_workouts.timezone_source = 'deviceAtFirstImport'
-                  AND excluded.timezone_source = 'deviceAtFirstImport'
+                WHEN health_workouts.timezone_source IN
+                  ('sourceMetadata', 'deviceAtFirstImport', 'unavailable')
                 THEN health_workouts.timezone_source
                 ELSE excluded.timezone_source
               END,
+              running_environment = excluded.running_environment,
+              elevation_meters = excluded.elevation_meters,
               reconciliation_context = excluded.reconciliation_context,
               updated_at = excluded.updated_at
             """,
@@ -367,6 +382,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.sourceTimeZoneIdentifier,
             workout.localDate,
             workout.timeZoneSource.rawValue,
+            workout.runningEnvironment.rawValue,
+            workout.elevationMeters,
             workout.firstImportedAt.timeIntervalSince1970,
             workout.reconciliationContext ?? page.reconciliationContext,
             committedAt.timeIntervalSince1970,

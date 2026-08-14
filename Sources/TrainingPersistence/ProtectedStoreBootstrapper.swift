@@ -536,6 +536,19 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("updated_at", .double).notNull()
       }
     }
+    migrator.registerMigration("reconstructible_v7_running_environment") { db in
+      try db.alter(table: "health_workouts") { table in
+        table.add(column: "running_environment", .text)
+          .notNull()
+          .defaults(to: "unspecified")
+      }
+    }
+    migrator.registerMigration("reconstructible_v8_running_elevation") { db in
+      try db.alter(table: "health_workouts") { table in
+        table.add(column: "elevation_meters", .double)
+          .check { $0 >= 0 }
+      }
+    }
     return migrator
   }
 

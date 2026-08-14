@@ -572,6 +572,7 @@ private struct StrengthProgressView: View {
 
   @State private var progress: E1RMProgress?
   @State private var rollingOverview: RollingWorkoutOverview?
+  @State private var runningPerformance: RunningPerformance?
   @State private var eventTimeline: TrainingEventTimelineSnapshot?
   @State private var selectedLiftID: String?
   @State private var showingLongerHistory = false
@@ -597,6 +598,7 @@ private struct StrengthProgressView: View {
           }
 
           rollingWorkoutOverviewSection
+          runningPerformanceSection
 
           if !progress.availableLifts.isEmpty {
             Section("Lift") {
@@ -685,6 +687,7 @@ private struct StrengthProgressView: View {
       } else {
         List {
           rollingWorkoutOverviewSection
+          runningPerformanceSection
           Section("e1RM Progress") {
             ContentUnavailableView(
               "No Progress Yet",
@@ -815,6 +818,126 @@ private struct StrengthProgressView: View {
   }
 
   @ViewBuilder
+  private var runningPerformanceSection: some View {
+    Section("Running Performance") {
+      if let runningPerformance {
+        if let selected = runningPerformance.selectedRun {
+          NavigationLink {
+            RunningRunDetailView(summary: selected)
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              HStack {
+                Text("Selected run").font(.headline)
+                Spacer()
+                Text(selected.record.localDate.iso8601String)
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+              Text(selected.record.environment.displayName)
+                .font(.subheadline)
+              Text(selected.averageRunningPace?.displayValue ?? "Average Running Pace unavailable")
+                .font(.caption)
+              Text(
+                "Distance: \(selected.record.distanceMeters.map { String(format: "%.1f m", $0) } ?? "Unavailable") · Duration: \(selected.record.durationSeconds.map { String(format: "%.1f min", $0 / 60) } ?? "Unavailable")"
+              )
+              .font(.caption2).foregroundStyle(.secondary)
+            }
+          }
+          .accessibilityIdentifier("progress.running.selected")
+        } else {
+          Text("No source-classified running Health Workouts are available.")
+            .foregroundStyle(.secondary)
+        }
+        if !runningPerformance.runs.isEmpty {
+          ForEach(runningPerformance.runs) { run in
+            NavigationLink {
+              RunningRunDetailView(summary: run)
+            } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                  Text(run.record.localDate.iso8601String).font(.subheadline.weight(.semibold))
+                  Spacer()
+                  Text(run.record.environment.displayName)
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(
+                  "\(run.averageRunningPace?.displayValue ?? "Average Running Pace unavailable") · \(run.record.distanceMeters.map { String(format: "%.1f km", $0 / 1_000) } ?? "Distance unavailable")"
+                )
+                .font(.caption)
+                Text("Source: \(run.record.source)")
+                  .font(.caption2).foregroundStyle(.secondary)
+              }
+            }
+            .accessibilityIdentifier("progress.running.run.\(run.id)")
+          }
+        }
+        LabeledContent(
+          "Trailing seven-day runs",
+          value: runningPerformance.volume.count.currentValue.formatted(
+            .number.precision(.fractionLength(0))))
+        LabeledContent(
+          "Run count vs median",
+          value: comparisonValue(
+            current: runningPerformance.volume.count.currentValue,
+            median: runningPerformance.volume.count.comparisonMedian,
+            suffix: " runs"))
+        LabeledContent(
+          "Available duration",
+          value: String(
+            format: "%.1f min", runningPerformance.volume.availableDuration.currentValue / 60))
+        LabeledContent(
+          "Duration vs median",
+          value: comparisonValue(
+            current: runningPerformance.volume.availableDuration.currentValue / 60,
+            median: runningPerformance.volume.availableDuration.comparisonMedian.map { $0 / 60 },
+            suffix: " min"))
+        LabeledContent(
+          "Available distance",
+          value: String(
+            format: "%.1f km", runningPerformance.volume.availableDistance.currentValue / 1_000))
+        LabeledContent(
+          "Distance vs median",
+          value: comparisonValue(
+            current: runningPerformance.volume.availableDistance.currentValue / 1_000,
+            median: runningPerformance.volume.availableDistance.comparisonMedian.map {
+              $0 / 1_000
+            },
+            suffix: " km"))
+        NavigationLink {
+          InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
+        } label: {
+          Label("Explain Running Volume", systemImage: "info.circle")
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDuration.explanation)
+        } label: {
+          Label("Explain Running Duration", systemImage: "info.circle")
+        }
+        NavigationLink {
+          InsightExplanationDetailView(
+            explanation: runningPerformance.volume.availableDistance.explanation)
+        } label: {
+          Label("Explain Running Distance", systemImage: "info.circle")
+        }
+        if runningPerformance.runs.count > 1 {
+          Text(
+            "Runs are listed in reverse chronology; no personal-record or inferred-performance labels are used."
+          )
+          .font(.caption).foregroundStyle(.secondary)
+        }
+      } else {
+        ProgressView("Loading running performance…")
+      }
+    }
+    .accessibilityIdentifier("progress.running-performance")
+  }
+
+  private func comparisonValue(current: Double, median: Double?, suffix: String) -> String {
+    guard let median else { return String(format: "%.1f%@ · median unavailable", current, suffix) }
+    return String(format: "%.1f%@ · median %.1f%@", current, suffix, median, suffix)
+  }
+
+  @ViewBuilder
   private var trainingEventHistorySection: some View {
     Section("Training Event History") {
       if let eventTimeline {
@@ -874,6 +997,51 @@ private struct StrengthProgressView: View {
     eventTimeline = try? await model.trainingEventLinkBoundary?.timeline()
     if eventTimeline == nil { eventTimeline = TrainingEventTimelineSnapshot(events: []) }
     rollingOverview = try? await model.rollingWorkoutOverviewBoundary?.overview()
+    runningPerformance = try? await model.runningPerformanceBoundary?.runningPerformance()
+  }
+}
+
+private struct RunningRunDetailView: View {
+  let summary: RunningRunSummary
+
+  var body: some View {
+    List {
+      Section("Run") {
+        LabeledContent("Run Date", value: summary.record.localDate.iso8601String)
+        LabeledContent("Environment", value: summary.record.environment.displayName)
+        LabeledContent("Source", value: summary.record.source)
+        LabeledContent(
+          "Duration",
+          value: summary.record.durationSeconds.map { String(format: "%.1f min", $0 / 60) }
+            ?? "Unavailable")
+        LabeledContent(
+          "Distance",
+          value: summary.record.distanceMeters.map { String(format: "%.1f m", $0) } ?? "Unavailable"
+        )
+        LabeledContent(
+          "Average Running Pace", value: summary.averageRunningPace?.displayValue ?? "Unavailable")
+        LabeledContent(
+          "Elevation",
+          value: summary.record.elevationMeters.map { String(format: "%.1f m", $0) }
+            ?? "Unavailable")
+        LabeledContent("Route", value: summary.record.routeAvailability.displayName)
+        LabeledContent(
+          "Heart-rate context",
+          value: summary.record.heartRate.averageBeatsPerMinute.map {
+            String(
+              format: "%.1f bpm (%.0f%% covered)", $0,
+              (summary.record.heartRate.coverage ?? 0) * 100)
+          } ?? "Unavailable")
+      }
+      Section("Insight Explanation") {
+        NavigationLink {
+          InsightExplanationDetailView(explanation: summary.explanation)
+        } label: {
+          Label("Explain this run", systemImage: "info.circle")
+        }
+      }
+    }
+    .navigationTitle("Run Details")
   }
 }
 

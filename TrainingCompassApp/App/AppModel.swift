@@ -33,6 +33,7 @@ final class AppModel {
   let healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary?
   let trainingEventLinkBoundary: TrainingEventLinkBoundary?
   let rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary?
+  let runningPerformanceBoundary: RunningPerformanceBoundary?
   let heartRateConfigurationBoundary: HeartRateConfigurationBoundary?
   let heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider?
 
@@ -52,6 +53,7 @@ final class AppModel {
     healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary? = nil,
     trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
     rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil,
+    runningPerformanceBoundary: RunningPerformanceBoundary? = nil,
     heartRateConfigurationBoundary: HeartRateConfigurationBoundary? = nil,
     heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider? = nil
   ) {
@@ -70,6 +72,7 @@ final class AppModel {
     self.healthWorkoutRouteBoundary = healthWorkoutRouteBoundary
     self.trainingEventLinkBoundary = trainingEventLinkBoundary
     self.rollingWorkoutOverviewBoundary = rollingWorkoutOverviewBoundary
+    self.runningPerformanceBoundary = runningPerformanceBoundary
     self.heartRateConfigurationBoundary = heartRateConfigurationBoundary
     self.heartRateZoneProvider = heartRateZoneProvider
   }
@@ -212,6 +215,15 @@ final class AppModel {
         guard let healthRepository = repository as? any HealthWorkoutRepository else { return nil }
         return RollingWorkoutOverviewBoundary(
           repository: healthRepository,
+          clock: dependencies.clock,
+          calendar: dependencies.calendar,
+          zoneProvider: HealthWorkoutHeartRateZoneProvider(configurationRepository: repository))
+      }(),
+      runningPerformanceBoundary: {
+        guard let healthRepository = repository as? any HealthWorkoutRepository else { return nil }
+        return RunningPerformanceBoundary(
+          repository: healthRepository,
+          routeRepository: repository as? any HealthWorkoutRouteRepository,
           clock: dependencies.clock,
           calendar: dependencies.calendar,
           zoneProvider: HealthWorkoutHeartRateZoneProvider(configurationRepository: repository))

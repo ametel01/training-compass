@@ -424,6 +424,8 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       let source: HealthWorkoutTimeZoneSource =
         timeZone == nil ? .deviceAtFirstImport : .sourceMetadata
       let localDate = Self.localDate(for: workout.startDate, timeZoneIdentifier: timeZoneIdentifier)
+      let runningEnvironment = Self.runningEnvironment(from: workout.metadata)
+      let elevationMeters = Self.elevationMeters(from: workout.metadata)
       return HealthWorkout(
         healthKitUUID: workout.uuid.uuidString,
         activityType: String(workout.workoutActivityType.rawValue),
@@ -440,8 +442,52 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         sourceTimeZoneIdentifier: timeZoneIdentifier,
         localDate: localDate,
         timeZoneSource: source,
+        runningEnvironment: runningEnvironment,
+        elevationMeters: elevationMeters,
         reconciliationContext: "foreground-initial"
       )
+    }
+
+    private static func runningEnvironment(from metadata: [String: Any]?) -> RunningEnvironment {
+      let explicitValues = [
+        metadata?["runningEnvironment"],
+        metadata?["RunningEnvironment"],
+        metadata?["HKRunningEnvironment"],
+        metadata?[HKMetadataKeyIndoorWorkout],
+      ].compactMap { $0 }
+      for value in explicitValues {
+        if let text = value as? String {
+          switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+          case "outdoor": return .outdoor
+          case "indoor": return .indoor
+          case "treadmill": return .treadmill
+          case "unspecified": return .unspecified
+          default: continue
+          }
+        }
+      }
+      if let indoor = metadata?[HKMetadataKeyIndoorWorkout] as? Bool {
+        return indoor ? .indoor : .outdoor
+      }
+      if let number = metadata?[HKMetadataKeyIndoorWorkout] as? NSNumber {
+        return number.boolValue ? .indoor : .outdoor
+      }
+      return .unspecified
+    }
+
+    private static func elevationMeters(from metadata: [String: Any]?) -> Double? {
+      guard let value = metadata?[HKMetadataKeyElevationAscended] else { return nil }
+      #if canImport(HealthKit)
+        if let quantity = value as? HKQuantity {
+          let meters = quantity.doubleValue(for: .meter())
+          return meters.isFinite && meters >= 0 ? meters : nil
+        }
+      #endif
+      if let number = value as? NSNumber {
+        let meters = number.doubleValue
+        return meters.isFinite && meters >= 0 ? meters : nil
+      }
+      return nil
     }
 
     private static func readTypes(_ type: HealthReadType) -> [HKObjectType] {

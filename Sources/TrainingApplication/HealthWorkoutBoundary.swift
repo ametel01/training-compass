@@ -134,6 +134,8 @@ public enum HealthWorkoutTimeZoneSource: String, Codable, Equatable, Sendable {
   }
 }
 
+public typealias HealthWorkoutEnvironment = RunningEnvironment
+
 /// A privacy-safe, reconstructible representation of one HealthKit workout.
 /// The HealthKit UUID is the mirror identity; source and device fields are
 /// optional because older HealthKit objects do not always provide them.
@@ -152,6 +154,10 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
   public let sourceTimeZoneIdentifier: String?
   public let localDate: String
   public let timeZoneSource: HealthWorkoutTimeZoneSource
+  /// Source-owned running context.  Unspecified is retained when Health did
+  /// not provide an environment rather than inferred from the activity name.
+  public let runningEnvironment: RunningEnvironment
+  public let elevationMeters: Double?
   public let firstImportedAt: Date
   public let reconciliationContext: String?
 
@@ -172,6 +178,8 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
     sourceTimeZoneIdentifier: String? = nil,
     localDate: String? = nil,
     timeZoneSource: HealthWorkoutTimeZoneSource = .unavailable,
+    runningEnvironment: RunningEnvironment = .unspecified,
+    elevationMeters: Double? = nil,
     firstImportedAt: Date = Date(),
     reconciliationContext: String? = nil
   ) {
@@ -192,8 +200,131 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
     self.localDate =
       localDate ?? Self.localDate(for: startDate, timeZoneIdentifier: sourceTimeZoneIdentifier)
     self.timeZoneSource = timeZoneSource
+    self.runningEnvironment = runningEnvironment
+    self.elevationMeters =
+      elevationMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
     self.firstImportedAt = firstImportedAt
     self.reconciliationContext = reconciliationContext
+  }
+
+  /// Source-compatible initializer retained for callers that predate the
+  /// running environment field.
+  public init(
+    healthKitUUID: String,
+    activityType: String,
+    startDate: Date,
+    endDate: Date,
+    duration: TimeInterval,
+    sourceName: String? = nil,
+    sourceBundleIdentifier: String? = nil,
+    sourceProductType: String? = nil,
+    sourceOSVersion: String? = nil,
+    deviceName: String? = nil,
+    deviceModel: String? = nil,
+    sourceTimeZoneIdentifier: String? = nil,
+    localDate: String? = nil,
+    timeZoneSource: HealthWorkoutTimeZoneSource = .unavailable,
+    firstImportedAt: Date = Date(),
+    reconciliationContext: String? = nil
+  ) {
+    self.init(
+      healthKitUUID: healthKitUUID,
+      activityType: activityType,
+      startDate: startDate,
+      endDate: endDate,
+      duration: duration,
+      sourceName: sourceName,
+      sourceBundleIdentifier: sourceBundleIdentifier,
+      sourceProductType: sourceProductType,
+      sourceOSVersion: sourceOSVersion,
+      deviceName: deviceName,
+      deviceModel: deviceModel,
+      sourceTimeZoneIdentifier: sourceTimeZoneIdentifier,
+      localDate: localDate,
+      timeZoneSource: timeZoneSource,
+      runningEnvironment: .unspecified,
+      elevationMeters: nil,
+      firstImportedAt: firstImportedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public init(
+    healthKitUUID: String,
+    activityType: String,
+    startDate: Date,
+    endDate: Date,
+    duration: TimeInterval,
+    sourceName: String? = nil,
+    sourceBundleIdentifier: String? = nil,
+    sourceProductType: String? = nil,
+    sourceOSVersion: String? = nil,
+    deviceName: String? = nil,
+    deviceModel: String? = nil,
+    sourceTimeZoneIdentifier: String? = nil,
+    localDate: String? = nil,
+    timeZoneSource: HealthWorkoutTimeZoneSource = .unavailable,
+    environment: RunningEnvironment,
+    elevationMeters: Double? = nil,
+    firstImportedAt: Date = Date(),
+    reconciliationContext: String? = nil
+  ) {
+    self.init(
+      healthKitUUID: healthKitUUID,
+      activityType: activityType,
+      startDate: startDate,
+      endDate: endDate,
+      duration: duration,
+      sourceName: sourceName,
+      sourceBundleIdentifier: sourceBundleIdentifier,
+      sourceProductType: sourceProductType,
+      sourceOSVersion: sourceOSVersion,
+      deviceName: deviceName,
+      deviceModel: deviceModel,
+      sourceTimeZoneIdentifier: sourceTimeZoneIdentifier,
+      localDate: localDate,
+      timeZoneSource: timeZoneSource,
+      runningEnvironment: environment,
+      elevationMeters: elevationMeters,
+      firstImportedAt: firstImportedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public var environment: RunningEnvironment { runningEnvironment }
+  public var sourceEnvironment: RunningEnvironment { runningEnvironment }
+
+  private enum CodingKeys: String, CodingKey {
+    case healthKitUUID, activityType, startDate, endDate, duration
+    case sourceName, sourceBundleIdentifier, sourceProductType, sourceOSVersion
+    case deviceName, deviceModel, sourceTimeZoneIdentifier, localDate, timeZoneSource
+    case runningEnvironment, elevationMeters, firstImportedAt, reconciliationContext
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      healthKitUUID: try container.decode(String.self, forKey: .healthKitUUID),
+      activityType: try container.decode(String.self, forKey: .activityType),
+      startDate: try container.decode(Date.self, forKey: .startDate),
+      endDate: try container.decode(Date.self, forKey: .endDate),
+      duration: try container.decode(TimeInterval.self, forKey: .duration),
+      sourceName: try container.decodeIfPresent(String.self, forKey: .sourceName),
+      sourceBundleIdentifier: try container.decodeIfPresent(
+        String.self, forKey: .sourceBundleIdentifier),
+      sourceProductType: try container.decodeIfPresent(String.self, forKey: .sourceProductType),
+      sourceOSVersion: try container.decodeIfPresent(String.self, forKey: .sourceOSVersion),
+      deviceName: try container.decodeIfPresent(String.self, forKey: .deviceName),
+      deviceModel: try container.decodeIfPresent(String.self, forKey: .deviceModel),
+      sourceTimeZoneIdentifier: try container.decodeIfPresent(
+        String.self, forKey: .sourceTimeZoneIdentifier),
+      localDate: try container.decode(String.self, forKey: .localDate),
+      timeZoneSource: try container.decode(
+        HealthWorkoutTimeZoneSource.self, forKey: .timeZoneSource),
+      runningEnvironment: try container.decodeIfPresent(
+        RunningEnvironment.self, forKey: .runningEnvironment) ?? .unspecified,
+      elevationMeters: try container.decodeIfPresent(Double.self, forKey: .elevationMeters),
+      firstImportedAt: try container.decode(Date.self, forKey: .firstImportedAt),
+      reconciliationContext: try container.decodeIfPresent(
+        String.self, forKey: .reconciliationContext))
   }
 
   private static func localDate(for date: Date, timeZoneIdentifier: String?) -> String {

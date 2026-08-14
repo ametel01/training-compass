@@ -99,11 +99,11 @@ guard
     "health_rebuild_state", "health_workout_enrichment", "health_workout_routes",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v6")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v8")
 }
 
 print(
-  "Authoritative v14 and reconstructible v6 migration interruption, retry, and idempotence passed.")
+  "Authoritative v14 and reconstructible v8 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {
