@@ -183,6 +183,10 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     XCTAssertEqual(linkedEvent.session?.sessionID, "session")
     XCTAssertEqual(linkedEvent.healthWorkout?.healthKitUUID, "linked-health")
     XCTAssertEqual(linkedEvent.sourceBadges, [.localTraining, .health])
+    XCTAssertEqual(linkedEvent.healthCoverage, .unknown)
+    XCTAssertEqual(linkedEvent.healthWorkoutEnrichment?.heartRate.state, .loading)
+    XCTAssertEqual(linkedEvent.healthWorkoutEnrichment?.distance.state, .loading)
+    XCTAssertEqual(linkedEvent.healthWorkoutEnrichment?.activeEnergy.state, .loading)
   }
 
   func testLinkedEventExposesReconciliationAndSourceDisagreementWithoutOverwritingEitherFact()
@@ -220,6 +224,58 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     )
     XCTAssertEqual(event.lastSuccessfulReconciliation, checkpoint.committedAt)
     XCTAssertEqual(event.reconciliationContext, checkpoint.reconciliationContext)
+  }
+
+  func testUnifiedLinkedViewRetainsWorkoutSourceAndPartialEnrichmentContext() async throws {
+    let workout = makeWorkout(
+      id: "enriched-linked", activity: "running",
+      start: 1_704_108_600, localDate: "2024-01-01")
+    let checkedAt = Date(timeIntervalSince1970: 1_704_196_000)
+    let enrichment = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .failed(code: "heart-rate-query-failed"),
+      distance: .available(
+        value: 5_000,
+        unit: .meters,
+        provenance: HealthSampleProvenance(sourceName: "External"),
+        checkedAt: checkedAt,
+        reconciliationContext: "distance-success"
+      ),
+      activeEnergy: .notAvailableFromHealth(
+        checkedAt: checkedAt,
+        reconciliationContext: "energy-success"
+      )
+    )
+    let repository = TrainingEventTestRepository(
+      cycles: [makeCycle(status: .completed)],
+      completions: [CompletedSession(sessionID: "session", confirmedAt: 1_704_110_400)],
+      workouts: [workout],
+      links: [
+        HealthWorkoutLinkFact(
+          id: "enriched-link", healthKitUUID: workout.healthKitUUID,
+          localEntityKind: .session, localEntityID: "session")
+      ],
+      checkpoint: HealthSyncCheckpoint(
+        stream: .workouts,
+        anchor: "limited-anchor",
+        hasLimitedHistory: true,
+        reconciliationContext: "limited-history",
+        committedAt: checkedAt
+      ),
+      enrichments: [workout.healthKitUUID: enrichment]
+    )
+
+    let timeline = try await makeBoundary(repository: repository).timeline()
+    let event = try XCTUnwrap(timeline.events.first)
+
+    XCTAssertEqual(event.sourceBadges, [.localTraining, .health])
+    XCTAssertEqual(event.healthWorkout?.sourceName, "External")
+    XCTAssertEqual(event.healthCoverage, .limitedHistory)
+    XCTAssertEqual(event.healthWorkoutEnrichment, enrichment)
+    XCTAssertEqual(event.healthWorkoutEnrichment?.heartRate.state, .failed)
+    XCTAssertEqual(
+      event.healthWorkoutEnrichment?.distance.reconciliationContext, "distance-success")
+    XCTAssertEqual(event.healthWorkoutEnrichment?.activeEnergy.state, .notAvailableFromHealth)
   }
 
   func testExplicitUnlinkRestoresTwoEventsWithoutDeletingExternalWorkout() async throws {
@@ -481,6 +537,7 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
   private var workouts: [HealthWorkout]
   private var links: [HealthWorkoutLinkFact]
   private let checkpoint: HealthSyncCheckpoint?
+  private let enrichments: [String: HealthWorkoutEnrichment]
 
   var currentLinks: [HealthWorkoutLinkFact] { links }
   var currentWorkouts: [HealthWorkout] { workouts }
@@ -490,13 +547,15 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
     completions: [CompletedSession],
     workouts: [HealthWorkout],
     links: [HealthWorkoutLinkFact] = [],
-    checkpoint: HealthSyncCheckpoint? = nil
+    checkpoint: HealthSyncCheckpoint? = nil,
+    enrichments: [String: HealthWorkoutEnrichment] = [:]
   ) {
     self.cycles = cycles
     self.completions = completions
     self.workouts = workouts
     self.links = links
     self.checkpoint = checkpoint
+    self.enrichments = enrichments
   }
 
   func loadTrainingCycles() async throws -> [TrainingCycle] { cycles }
@@ -526,6 +585,10 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
   }
 
   func loadHealthWorkouts() async throws -> [HealthWorkout] { workouts }
+
+  func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
+  { enrichments[healthKitUUID] }
 
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
   {

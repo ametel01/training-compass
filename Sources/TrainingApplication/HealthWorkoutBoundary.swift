@@ -50,6 +50,7 @@ public enum TrainingEventWriteBackDisposition: String, Codable, Equatable, Senda
 public enum HealthReadType: String, CaseIterable, Codable, Equatable, Sendable {
   case workouts
   case heartRate
+  case distance
   case activeEnergy
   case sleep
   case restingHeartRate
@@ -59,6 +60,7 @@ public enum HealthReadType: String, CaseIterable, Codable, Equatable, Sendable {
     switch self {
     case .workouts: "Health Workouts"
     case .heartRate: "Workout heart rate"
+    case .distance: "Workout distance"
     case .activeEnergy: "Active energy"
     case .sleep: "Sleep"
     case .restingHeartRate: "Resting heart rate"
@@ -81,7 +83,8 @@ public struct HealthAuthorizationRequest: Codable, Equatable, Sendable {
 
   public static let core = HealthAuthorizationRequest(
     readTypes: [
-      .workouts, .heartRate, .activeEnergy, .sleep, .restingHeartRate, .heartRateVariability,
+      .workouts, .heartRate, .distance, .activeEnergy, .sleep, .restingHeartRate,
+      .heartRateVariability,
     ],
     writeTypes: []
   )
@@ -204,6 +207,272 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
   }
 }
 
+public enum HealthWorkoutEnrichmentState: String, Codable, Equatable, Sendable {
+  case loading
+  case available
+  case notAvailableFromHealth
+  case failed
+
+  public var displayName: String {
+    switch self {
+    case .loading: "Loading"
+    case .available: "Available"
+    case .notAvailableFromHealth: "Not available from Health"
+    case .failed: "Update failed"
+    }
+  }
+}
+
+public struct HealthSampleProvenance: Codable, Equatable, Sendable {
+  public let sourceName: String?
+  public let sourceBundleIdentifier: String?
+  public let sourceProductType: String?
+  public let sourceOSVersion: String?
+  public let deviceName: String?
+  public let deviceModel: String?
+
+  public init(
+    sourceName: String? = nil,
+    sourceBundleIdentifier: String? = nil,
+    sourceProductType: String? = nil,
+    sourceOSVersion: String? = nil,
+    deviceName: String? = nil,
+    deviceModel: String? = nil
+  ) {
+    self.sourceName = sourceName
+    self.sourceBundleIdentifier = sourceBundleIdentifier
+    self.sourceProductType = sourceProductType
+    self.sourceOSVersion = sourceOSVersion
+    self.deviceName = deviceName
+    self.deviceModel = deviceModel
+  }
+
+  public var displayName: String {
+    sourceName ?? sourceProductType ?? deviceName ?? sourceBundleIdentifier ?? "Source unavailable"
+  }
+}
+
+/// A source-owned observed interval. No interval is synthesized between
+/// samples or extended to the workout edges.
+public struct HealthWorkoutHeartRateSample: Codable, Equatable, Sendable, Identifiable {
+  public let id: String
+  public let startDate: Date
+  public let endDate: Date
+  public let beatsPerMinute: Double
+  public let provenance: HealthSampleProvenance
+
+  public init(
+    id: String,
+    startDate: Date,
+    endDate: Date,
+    beatsPerMinute: Double,
+    provenance: HealthSampleProvenance = .init()
+  ) {
+    precondition(!id.isEmpty)
+    precondition(endDate >= startDate)
+    precondition(beatsPerMinute > 0 && beatsPerMinute.isFinite)
+    self.id = id
+    self.startDate = startDate
+    self.endDate = endDate
+    self.beatsPerMinute = beatsPerMinute
+    self.provenance = provenance
+  }
+}
+
+public struct HealthWorkoutHeartRateDetail: Codable, Equatable, Sendable {
+  public let state: HealthWorkoutEnrichmentState
+  public let samples: [HealthWorkoutHeartRateSample]
+  public let lastSuccessfulCheck: Date?
+  public let reconciliationContext: String?
+  public let failureCode: String?
+
+  private init(
+    state: HealthWorkoutEnrichmentState,
+    samples: [HealthWorkoutHeartRateSample] = [],
+    lastSuccessfulCheck: Date? = nil,
+    reconciliationContext: String? = nil,
+    failureCode: String? = nil
+  ) {
+    self.state = state
+    self.samples = samples.sorted {
+      if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
+      return $0.id < $1.id
+    }
+    self.lastSuccessfulCheck = lastSuccessfulCheck
+    self.reconciliationContext = reconciliationContext
+    self.failureCode = failureCode
+  }
+
+  public static let loading = HealthWorkoutHeartRateDetail(state: .loading)
+
+  public static func available(
+    samples: [HealthWorkoutHeartRateSample],
+    checkedAt: Date,
+    reconciliationContext: String
+  ) -> Self {
+    guard !samples.isEmpty else {
+      return .notAvailableFromHealth(
+        checkedAt: checkedAt, reconciliationContext: reconciliationContext)
+    }
+    return .init(
+      state: .available,
+      samples: samples,
+      lastSuccessfulCheck: checkedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public static func notAvailableFromHealth(
+    checkedAt: Date,
+    reconciliationContext: String
+  ) -> Self {
+    .init(
+      state: .notAvailableFromHealth,
+      lastSuccessfulCheck: checkedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public static func failed(code: String) -> Self {
+    .init(state: .failed, failureCode: code)
+  }
+
+  fileprivate func preservingLastSuccess(from cached: Self?) -> Self {
+    guard state == .failed, let cached else { return self }
+    return .init(
+      state: .failed,
+      samples: cached.samples,
+      lastSuccessfulCheck: cached.lastSuccessfulCheck,
+      reconciliationContext: cached.reconciliationContext,
+      failureCode: failureCode)
+  }
+}
+
+public enum HealthWorkoutQuantityUnit: String, Codable, Equatable, Sendable {
+  case meters
+  case kilocalories
+}
+
+public struct HealthWorkoutQuantity: Codable, Equatable, Sendable {
+  public let value: Double
+  public let unit: HealthWorkoutQuantityUnit
+  public let provenance: HealthSampleProvenance
+
+  public init(
+    value: Double,
+    unit: HealthWorkoutQuantityUnit,
+    provenance: HealthSampleProvenance = .init()
+  ) {
+    precondition(value > 0 && value.isFinite)
+    self.value = value
+    self.unit = unit
+    self.provenance = provenance
+  }
+}
+
+public struct HealthWorkoutQuantityDetail: Codable, Equatable, Sendable {
+  public let state: HealthWorkoutEnrichmentState
+  public let quantity: HealthWorkoutQuantity?
+  public let lastSuccessfulCheck: Date?
+  public let reconciliationContext: String?
+  public let failureCode: String?
+
+  private init(
+    state: HealthWorkoutEnrichmentState,
+    quantity: HealthWorkoutQuantity? = nil,
+    lastSuccessfulCheck: Date? = nil,
+    reconciliationContext: String? = nil,
+    failureCode: String? = nil
+  ) {
+    self.state = state
+    self.quantity = quantity
+    self.lastSuccessfulCheck = lastSuccessfulCheck
+    self.reconciliationContext = reconciliationContext
+    self.failureCode = failureCode
+  }
+
+  public static let loading = HealthWorkoutQuantityDetail(state: .loading)
+
+  public static func available(
+    value: Double,
+    unit: HealthWorkoutQuantityUnit,
+    provenance: HealthSampleProvenance = .init(),
+    checkedAt: Date,
+    reconciliationContext: String
+  ) -> Self {
+    guard value > 0, value.isFinite else {
+      return .notAvailableFromHealth(
+        checkedAt: checkedAt, reconciliationContext: reconciliationContext)
+    }
+    return .init(
+      state: .available,
+      quantity: .init(value: value, unit: unit, provenance: provenance),
+      lastSuccessfulCheck: checkedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public static func notAvailableFromHealth(
+    checkedAt: Date,
+    reconciliationContext: String
+  ) -> Self {
+    .init(
+      state: .notAvailableFromHealth,
+      lastSuccessfulCheck: checkedAt,
+      reconciliationContext: reconciliationContext)
+  }
+
+  public static func failed(code: String) -> Self {
+    .init(state: .failed, failureCode: code)
+  }
+
+  fileprivate func preservingLastSuccess(from cached: Self?) -> Self {
+    guard state == .failed, let cached else { return self }
+    return .init(
+      state: .failed,
+      quantity: cached.quantity,
+      lastSuccessfulCheck: cached.lastSuccessfulCheck,
+      reconciliationContext: cached.reconciliationContext,
+      failureCode: failureCode)
+  }
+}
+
+public struct HealthWorkoutEnrichment: Codable, Equatable, Sendable, Identifiable {
+  public let healthKitUUID: String
+  public let heartRate: HealthWorkoutHeartRateDetail
+  public let distance: HealthWorkoutQuantityDetail
+  public let activeEnergy: HealthWorkoutQuantityDetail
+
+  public var id: String { healthKitUUID }
+
+  public init(
+    healthKitUUID: String,
+    heartRate: HealthWorkoutHeartRateDetail,
+    distance: HealthWorkoutQuantityDetail,
+    activeEnergy: HealthWorkoutQuantityDetail
+  ) {
+    precondition(!healthKitUUID.isEmpty)
+    self.healthKitUUID = healthKitUUID
+    self.heartRate = heartRate
+    self.distance = distance
+    self.activeEnergy = activeEnergy
+  }
+
+  public static func loading(healthKitUUID: String) -> Self {
+    .init(
+      healthKitUUID: healthKitUUID,
+      heartRate: .loading,
+      distance: .loading,
+      activeEnergy: .loading)
+  }
+
+  public func preservingFailedDetails(from cached: Self?) -> Self {
+    guard cached?.healthKitUUID == healthKitUUID else { return self }
+    return .init(
+      healthKitUUID: healthKitUUID,
+      heartRate: heartRate.preservingLastSuccess(from: cached?.heartRate),
+      distance: distance.preservingLastSuccess(from: cached?.distance),
+      activeEnergy: activeEnergy.preservingLastSuccess(from: cached?.activeEnergy))
+  }
+}
+
 /// The source badge shown wherever an imported workout is presented.  It is
 /// deliberately separate from the activity type so a Health workout cannot be
 /// mistaken for a locally recorded 5/3/1 Session.
@@ -246,6 +515,7 @@ public struct TrainingEvent: Codable, Equatable, Identifiable, Sendable {
   public let timeZoneSource: HealthWorkoutTimeZoneSource
   public let reconciliationContext: String?
   public let lastSuccessfulReconciliation: Date?
+  public let healthCoverage: HealthStreamCoverage
   /// Reserved for the explicit linking slice. It is nil for every event in
   /// this issue, making the no-automatic-link rule observable at the seam.
   public let localSessionID: String?
@@ -253,7 +523,8 @@ public struct TrainingEvent: Codable, Equatable, Identifiable, Sendable {
   public init(
     workout: HealthWorkout,
     reconciliationContext: String? = nil,
-    lastSuccessfulReconciliation: Date? = nil
+    lastSuccessfulReconciliation: Date? = nil,
+    healthCoverage: HealthStreamCoverage = .unknown
   ) {
     self.id = workout.healthKitUUID
     self.kind = .healthWorkout
@@ -274,6 +545,7 @@ public struct TrainingEvent: Codable, Equatable, Identifiable, Sendable {
     self.timeZoneSource = workout.timeZoneSource
     self.reconciliationContext = reconciliationContext ?? workout.reconciliationContext
     self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
+    self.healthCoverage = healthCoverage
     self.localSessionID = nil
   }
 
@@ -356,15 +628,18 @@ public enum HealthWorkoutPresentationState: String, Codable, Equatable, Sendable
 public struct HealthWorkoutHistoryEntry: Codable, Equatable, Identifiable, Sendable {
   public let event: TrainingEvent
   public let provenance: HealthWorkoutProvenance
+  public let enrichment: HealthWorkoutEnrichment
   public let state: HealthWorkoutPresentationState
 
   public init(
     event: TrainingEvent,
     provenance: HealthWorkoutProvenance,
+    enrichment: HealthWorkoutEnrichment? = nil,
     state: HealthWorkoutPresentationState
   ) {
     self.event = event
     self.provenance = provenance
+    self.enrichment = enrichment ?? .loading(healthKitUUID: event.healthKitUUID)
     self.state = state
   }
 
@@ -462,6 +737,7 @@ public struct HealthSyncFact: Codable, Equatable, Sendable, Identifiable {
 public enum HealthSyncStream: String, Codable, Equatable, Sendable, CaseIterable {
   case workouts
   case heartRate
+  case distance
   case activeEnergy
   case sleep
   case restingHeartRate
@@ -471,6 +747,7 @@ public enum HealthSyncStream: String, Codable, Equatable, Sendable, CaseIterable
     switch type {
     case .workouts: self = .workouts
     case .heartRate: self = .heartRate
+    case .distance: self = .distance
     case .activeEnergy: self = .activeEnergy
     case .sleep: self = .sleep
     case .restingHeartRate: self = .restingHeartRate
@@ -482,6 +759,7 @@ public enum HealthSyncStream: String, Codable, Equatable, Sendable, CaseIterable
     switch self {
     case .workouts: .workouts
     case .heartRate: .heartRate
+    case .distance: .distance
     case .activeEnergy: .activeEnergy
     case .sleep: .sleep
     case .restingHeartRate: .restingHeartRate
@@ -728,6 +1006,7 @@ public protocol HealthWorkoutClient: HealthKitClient {
   func fetchHealthPage(
     for stream: HealthSyncStream, after pageToken: String?
   ) async throws -> HealthWorkoutPage
+  func fetchWorkoutEnrichment(for workout: HealthWorkout) async -> HealthWorkoutEnrichment?
 }
 
 extension HealthWorkoutClient {
@@ -745,6 +1024,10 @@ extension HealthWorkoutClient {
   ) async throws -> HealthWorkoutPage {
     guard stream == .workouts else { throw HealthSyncError.unavailable }
     return try await fetchWorkoutPage(after: pageToken)
+  }
+
+  public func fetchWorkoutEnrichment(for workout: HealthWorkout) async -> HealthWorkoutEnrichment? {
+    nil
   }
 }
 
@@ -775,6 +1058,9 @@ public protocol HealthWorkoutRepository: Sendable {
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
     -> HealthMirrorContentSnapshot
   func loadHealthWorkoutDeletionUUIDs() async throws -> [String]
+  func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws
+  func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
   func loadHealthRebuildState() async throws -> HealthRebuildState?
   func beginHealthRebuild() async throws
   func updateHealthRebuildState(_ state: HealthRebuildState) async throws
@@ -816,6 +1102,12 @@ extension HealthWorkoutRepository {
   }
 
   public func loadHealthWorkoutDeletionUUIDs() async throws -> [String] { [] }
+
+  public func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {}
+
+  public func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
+  { nil }
 
   public func loadHealthRebuildState() async throws -> HealthRebuildState? {
     throw HealthSyncError.unavailable
@@ -1025,6 +1317,14 @@ public actor HealthWorkoutImportBoundary {
 
     var workoutsByUUID: [String: HealthWorkout] = [:]
     for workout in workouts { workoutsByUUID[workout.healthKitUUID] = workout }
+    var enrichmentsByUUID: [String: HealthWorkoutEnrichment] = [:]
+    for workout in workoutsByUUID.values {
+      if let enrichment = try? await repository.loadHealthWorkoutEnrichment(
+        for: workout.healthKitUUID)
+      {
+        enrichmentsByUUID[workout.healthKitUUID] = enrichment
+      }
+    }
     let events = workoutsByUUID.values
       .sorted {
         if $0.startDate != $1.startDate { return $0.startDate > $1.startDate }
@@ -1040,9 +1340,11 @@ public actor HealthWorkoutImportBoundary {
           event: TrainingEvent(
             workout: workout,
             reconciliationContext: context,
-            lastSuccessfulReconciliation: lastSuccessful
+            lastSuccessfulReconciliation: lastSuccessful,
+            healthCoverage: workoutStatus?.coverage ?? .unknown
           ),
           provenance: provenance,
+          enrichment: enrichmentsByUUID[workout.healthKitUUID],
           state: entryState
         )
       }
@@ -1336,6 +1638,21 @@ public actor HealthSyncCoordinator {
                 isComplete: fetchToken == nil, state: state))
           }
         } while fetchToken != nil
+        if stream == .workouts {
+          // Re-query every current workout after an incremental workout page,
+          // including an empty one. Associated samples may arrive or be
+          // deleted without HealthKit replacing the workout object itself.
+          for workout in try await repository.loadHealthWorkouts() {
+            guard
+              let queried = await client.fetchWorkoutEnrichment(for: workout),
+              queried.healthKitUUID == workout.healthKitUUID
+            else { continue }
+            let cached = try await repository.loadHealthWorkoutEnrichment(
+              for: workout.healthKitUUID)
+            try await repository.saveHealthWorkoutEnrichment(
+              queried.preservingFailedDetails(from: cached))
+          }
+        }
         let mirror = try? await repository.loadHealthMirrorContent(for: stream)
         let mirroredContent = mirror?.availability ?? .unknown
         let status = HealthStreamStatus(

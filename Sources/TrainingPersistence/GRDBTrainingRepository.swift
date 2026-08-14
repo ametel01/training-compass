@@ -384,6 +384,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           arguments: [uuid]
         )
         try db.execute(
+          sql: "DELETE FROM health_workout_enrichment WHERE healthkit_uuid = ?",
+          arguments: [uuid]
+        )
+        try db.execute(
           sql: """
             INSERT INTO health_workout_deletions
               (healthkit_uuid, deleted_at, reconciliation_context)
@@ -497,7 +501,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       let table: String
       switch stream {
       case .workouts: table = "health_workouts"
-      case .heartRate, .activeEnergy, .sleep, .restingHeartRate, .heartRateVariability:
+      case .heartRate, .distance, .activeEnergy, .sleep, .restingHeartRate,
+        .heartRateVariability:
         // Recovery streams do not yet have a mirror table.  Returning nil is
         // distinct from a successful empty query and keeps status honest.
         return -1
@@ -515,6 +520,53 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         sql:
           "SELECT healthkit_uuid FROM health_workout_deletions ORDER BY deleted_at DESC, healthkit_uuid"
       )
+    }
+  }
+
+  public func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {
+    let stores = try await readyStores()
+    let encoded = String(
+      decoding: try JSONEncoder().encode(enrichment),
+      as: UTF8.self
+    )
+    try await stores.reconstructible.write { db in
+      let workoutExists =
+        try Bool.fetchOne(
+          db,
+          sql: "SELECT EXISTS(SELECT 1 FROM health_workouts WHERE healthkit_uuid = ?)",
+          arguments: [enrichment.healthKitUUID]
+        ) ?? false
+      guard workoutExists else { return }
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_enrichment (healthkit_uuid, enrichment_json, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(healthkit_uuid) DO UPDATE SET
+            enrichment_json = excluded.enrichment_json,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [
+          enrichment.healthKitUUID,
+          encoded,
+          Date().timeIntervalSince1970,
+        ]
+      )
+    }
+  }
+
+  public func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
+  {
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      guard
+        let encoded = try String.fetchOne(
+          db,
+          sql: "SELECT enrichment_json FROM health_workout_enrichment WHERE healthkit_uuid = ?",
+          arguments: [healthKitUUID]
+        )
+      else { return nil }
+      return try JSONDecoder().decode(HealthWorkoutEnrichment.self, from: Data(encoded.utf8))
     }
   }
 
@@ -567,6 +619,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     try await stores.reconstructible.write { db in
       // Only reconstructible Health state is discarded. The authoritative
       // store (sessions, results, audits, and future link facts) is untouched.
+      try db.execute(sql: "DELETE FROM health_workout_enrichment")
       try db.execute(sql: "DELETE FROM health_workouts")
       try db.execute(sql: "DELETE FROM health_workout_deletions")
       try db.execute(sql: "DELETE FROM health_sync_facts")
