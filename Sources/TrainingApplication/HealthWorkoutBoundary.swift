@@ -9,20 +9,36 @@ public struct HealthWorkoutLinkFact: Codable, Equatable, Sendable, Identifiable 
   public let localEntityKind: String
   public let localEntityID: String
   public let linkedAt: Date
+  public let linkedDuringCompletion: Bool
+  public let writeBackDisposition: TrainingEventWriteBackDisposition
+  public let unlinkedAt: Date?
 
   public init(
     id: String,
     healthKitUUID: String,
     localEntityKind: String,
     localEntityID: String,
-    linkedAt: Date = Date()
+    linkedAt: Date = Date(),
+    linkedDuringCompletion: Bool = false,
+    writeBackDisposition: TrainingEventWriteBackDisposition = .notApplicable,
+    unlinkedAt: Date? = nil
   ) {
     self.id = id
     self.healthKitUUID = healthKitUUID
     self.localEntityKind = localEntityKind
     self.localEntityID = localEntityID
     self.linkedAt = linkedAt
+    self.linkedDuringCompletion = linkedDuringCompletion
+    self.writeBackDisposition = writeBackDisposition
+    self.unlinkedAt = unlinkedAt
   }
+
+  public var isActive: Bool { unlinkedAt == nil }
+}
+
+public enum TrainingEventWriteBackDisposition: String, Codable, Equatable, Sendable {
+  case notApplicable
+  case suppressedExternalWorkoutLinkedAtCompletion
 }
 
 /// The read surface requested by the first Health connection.  These are
@@ -762,7 +778,6 @@ public protocol HealthWorkoutRepository: Sendable {
   func estimateHealthRebuildStorage(
     policy: HealthRebuildStoragePolicy
   ) async throws -> HealthRebuildStorageEstimate
-  func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws
   func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
     -> [HealthWorkoutLinkFact]
 }
@@ -818,10 +833,6 @@ extension HealthWorkoutRepository {
     policy: HealthRebuildStoragePolicy
   ) async throws -> HealthRebuildStorageEstimate {
     try await DefaultHealthRebuildStorageProvider().estimateHealthRebuildStorage(policy: policy)
-  }
-
-  public func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws {
-    throw HealthSyncError.unavailable
   }
 
   public func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws

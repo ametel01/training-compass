@@ -128,4 +128,66 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Health Data Rebuild"].exists)
   }
 
+  func testExplicitTrainingEventLinkingShowsWarningDualSourceDetailAndUnlink() throws {
+    let app = XCUIApplication()
+    app.launchEnvironment["TRAINING_COMPASS_UI_SCENARIO"] = "event-linking"
+    app.launch()
+
+    XCTAssertTrue(
+      app.buttons["today.training-event.session:ui-session"].waitForExistence(timeout: 15)
+    )
+    let likely = app.buttons["training-event.candidate.ui-likely"]
+    let unusual = app.buttons["training-event.candidate.ui-unusual"]
+    for _ in 0..<8 {
+      if likely.exists, unusual.exists { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(likely.waitForExistence(timeout: 10))
+    XCTAssertTrue(unusual.exists)
+
+    unusual.tap()
+    XCTAssertTrue(
+      app.sheets.staticTexts["Confirm unusual Training Event match?"].waitForExistence(
+        timeout: 5))
+    XCTAssertTrue(app.sheets.buttons["Confirm Unusual Match"].exists)
+    app.sheets.buttons["Confirm Unusual Match"].tap()
+    for _ in 0..<8 { app.swipeDown() }
+    let linkedEvent = app.buttons.matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "today.training-event.training-event:")
+    ).firstMatch
+    XCTAssertTrue(linkedEvent.waitForExistence(timeout: 10))
+    linkedEvent.tap()
+
+    XCTAssertTrue(app.navigationBars["Training Event"].waitForExistence(timeout: 5))
+    let sessionAuthority = app.staticTexts["5/3/1 Session · Training Compass authoritative"]
+    let healthAuthority = app.staticTexts["Health Workout · HealthKit authoritative"]
+    let noOverwrite = app.staticTexts["Neither source is silently overwritten."]
+    var sawSessionAuthority = sessionAuthority.exists
+    var sawHealthAuthority = healthAuthority.exists
+    var sawNoOverwrite = noOverwrite.exists
+    for _ in 0..<8 {
+      if sawSessionAuthority, sawHealthAuthority, sawNoOverwrite { break }
+      app.swipeUp()
+      sawSessionAuthority = sawSessionAuthority || sessionAuthority.exists
+      sawHealthAuthority = sawHealthAuthority || healthAuthority.exists
+      sawNoOverwrite = sawNoOverwrite || noOverwrite.exists
+    }
+    XCTAssertTrue(sawSessionAuthority)
+    XCTAssertTrue(sawHealthAuthority)
+    XCTAssertTrue(sawNoOverwrite)
+    let unlink = app.buttons["training-event.unlink"]
+    for _ in 0..<8 {
+      if unlink.exists { break }
+      app.swipeDown()
+    }
+    XCTAssertTrue(unlink.exists)
+    unlink.tap()
+    XCTAssertTrue(app.sheets.buttons["Confirm Unlink"].waitForExistence(timeout: 5))
+    app.sheets.buttons["Confirm Unlink"].tap()
+    let unlinkedState = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS %@", "Unlinked")
+    ).firstMatch
+    XCTAssertTrue(unlinkedState.waitForExistence(timeout: 5))
+  }
+
 }

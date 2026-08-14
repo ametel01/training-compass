@@ -4,6 +4,9 @@ Run this checklist on the same paired, recently unlocked iPhone used for the
 Gate 0 owner-data record. Do not erase the app container between the prior
 milestone and this milestone. HealthKit wait time is external-system latency;
 record only the app-controlled result and the privacy-safe evidence fields.
+This checklist records the issue #22 foundation baseline. Issue #23 supersedes
+only its former no-linking boundary; current candidates must also run the
+[Training Event linking checklist](training-event-linking-device-checklist.md).
 
 1. Build and install the Release configuration in place, then confirm that
    existing Training Maxes, Sessions, audit history, and export/import actions
@@ -35,10 +38,12 @@ record only the app-controlled result and the privacy-safe evidence fields.
    checkpoints. Cancel once, then confirm and verify incremental progress,
    protected local training availability, and exact-UUID reconnection when the
    source workout returns.
-10. Inspect the app container after the run. Verify complete file protection on
-    both stores, backup exclusion for reconstructible Health data, no workout
-    payloads in logs or export-by-default output, and no unfinished linking,
-    enrichment, insight, recovery-guidance, route, or Write-back controls.
+10. For the issue #22 baseline record, inspect the app container after the run.
+    Verify complete file protection on both stores, backup exclusion for
+    reconstructible Health data, no workout payloads in logs or
+    export-by-default output, and no unfinished enrichment, insight,
+    recovery-guidance, route, or Write-back controls. The absence of linking
+    controls applies to that recorded baseline and is superseded by issue #23.
 
 Record a pass or fail with device model, iOS version, coarse operation
 measurements, and the booleans for authorization, anchored queries, observer

@@ -3,7 +3,8 @@ import GRDB
 import TrainingApplication
 
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
-  TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding
+  TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
+  TrainingEventLinkRepository
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -564,23 +565,29 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     try await stores.authoritative.write(Self.regenerateProjections)
   }
 
-  public func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws {
+  func saveHealthWorkoutLinkFact(_ fact: HealthWorkoutLinkFact) async throws {
     let stores = try await readyStores()
     try await stores.authoritative.write { db in
       try db.execute(
         sql: """
           INSERT INTO health_workout_link_facts
-            (id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at)
-          VALUES (?, ?, ?, ?, ?)
+            (id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+             linked_during_completion, write_back_disposition, unlinked_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             healthkit_uuid = excluded.healthkit_uuid,
             local_entity_kind = excluded.local_entity_kind,
             local_entity_id = excluded.local_entity_id,
-            linked_at = excluded.linked_at
+            linked_at = excluded.linked_at,
+            linked_during_completion = excluded.linked_during_completion,
+            write_back_disposition = excluded.write_back_disposition,
+            unlinked_at = excluded.unlinked_at
           """,
         arguments: [
           fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970,
+          fact.linkedDuringCompletion, fact.writeBackDisposition.rawValue,
+          fact.unlinkedAt?.timeIntervalSince1970,
         ]
       )
     }
@@ -596,7 +603,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         rows = try Row.fetchAll(
           db,
           sql: """
-            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at
+            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+                   linked_during_completion, write_back_disposition, unlinked_at
             FROM health_workout_link_facts WHERE healthkit_uuid = ? ORDER BY linked_at, id
             """,
           arguments: [healthKitUUID]
@@ -605,18 +613,234 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         rows = try Row.fetchAll(
           db,
           sql: """
-            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at
+            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+                   linked_during_completion, write_back_disposition, unlinked_at
             FROM health_workout_link_facts ORDER BY linked_at, id
             """
         )
       }
-      return rows.map {
-        HealthWorkoutLinkFact(
+      return try rows.map {
+        guard
+          let disposition = TrainingEventWriteBackDisposition(
+            rawValue: $0["write_back_disposition"])
+        else { throw TrainingEventLinkRepositoryError.invalidLink }
+        return HealthWorkoutLinkFact(
           id: $0["id"], healthKitUUID: $0["healthkit_uuid"],
           localEntityKind: $0["local_entity_kind"], localEntityID: $0["local_entity_id"],
-          linkedAt: Date(timeIntervalSince1970: $0["linked_at"])
+          linkedAt: Date(timeIntervalSince1970: $0["linked_at"]),
+          linkedDuringCompletion: $0["linked_during_completion"],
+          writeBackDisposition: disposition,
+          unlinkedAt: ($0["unlinked_at"] as Double?).map(Date.init(timeIntervalSince1970:))
         )
       }
+    }
+  }
+
+  public func createHealthWorkoutLinkFact(
+    _ fact: HealthWorkoutLinkFact,
+    expectedSessionUpdatedAt: Int64,
+    expectedWorkout: HealthWorkout
+  ) async throws -> HealthWorkoutLinkFact {
+    guard fact.localEntityKind == "session", fact.isActive,
+      !fact.linkedDuringCompletion,
+      fact.writeBackDisposition == .notApplicable,
+      fact.healthKitUUID == expectedWorkout.healthKitUUID,
+      expectedWorkout.sourceBundleIdentifier
+        != TrainingEventLinkBoundary.trainingCompassBundleIdentifier
+    else { throw TrainingEventLinkRepositoryError.invalidLink }
+
+    let currentWorkout = try await loadHealthWorkouts().first {
+      $0.healthKitUUID == expectedWorkout.healthKitUUID
+    }
+    guard currentWorkout == expectedWorkout else {
+      throw TrainingEventLinkRepositoryError.staleCandidate
+    }
+
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+            SELECT status, updated_at FROM session_projections
+            WHERE session_id = ?
+            """,
+          arguments: [fact.localEntityID]
+        ),
+        (row["status"] as String) == TrainingSessionStatus.completed.rawValue,
+        (row["updated_at"] as Int64) == expectedSessionUpdatedAt,
+        try Int.fetchOne(
+          db,
+          sql: "SELECT COUNT(*) FROM session_completions WHERE session_id = ?",
+          arguments: [fact.localEntityID]
+        ) == 1
+      else { throw TrainingEventLinkRepositoryError.staleCandidate }
+
+      let duplicate =
+        try Int.fetchOne(
+          db,
+          sql: """
+            SELECT COUNT(*) FROM health_workout_link_facts
+            WHERE unlinked_at IS NULL
+              AND (healthkit_uuid = ? OR (local_entity_kind = ? AND local_entity_id = ?))
+            """,
+          arguments: [fact.healthKitUUID, fact.localEntityKind, fact.localEntityID]
+        ) ?? 0
+      guard duplicate == 0 else { throw TrainingEventLinkRepositoryError.duplicateLink }
+
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_link_facts
+            (id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+             linked_during_completion, write_back_disposition, unlinked_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+          """,
+        arguments: [
+          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
+          fact.writeBackDisposition.rawValue,
+        ]
+      )
+      return fact
+    }
+  }
+
+  public func completeSessionAndCreateHealthWorkoutLinkFact(
+    completion: CompletedSession,
+    fact: HealthWorkoutLinkFact,
+    expectedSessionUpdatedAt: Int64,
+    expectedWorkout: HealthWorkout
+  ) async throws -> TrainingEventCompletionLinkResult {
+    guard fact.localEntityKind == "session", fact.localEntityID == completion.sessionID,
+      fact.isActive, fact.linkedDuringCompletion,
+      fact.writeBackDisposition == .suppressedExternalWorkoutLinkedAtCompletion,
+      fact.healthKitUUID == expectedWorkout.healthKitUUID,
+      expectedWorkout.sourceBundleIdentifier
+        != TrainingEventLinkBoundary.trainingCompassBundleIdentifier
+    else { throw TrainingEventLinkRepositoryError.invalidLink }
+
+    let currentWorkout = try await loadHealthWorkouts().first {
+      $0.healthKitUUID == expectedWorkout.healthKitUUID
+    }
+    guard currentWorkout == expectedWorkout else {
+      throw TrainingEventLinkRepositoryError.staleCandidate
+    }
+
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard let active = try Self.trainingCycle(from: db, state: .active),
+        let session = active.weeks.flatMap(\.sessions).first(where: {
+          $0.id == completion.sessionID
+        }),
+        !session.status.isTerminal,
+        let projection = try Row.fetchOne(
+          db,
+          sql: "SELECT updated_at FROM session_projections WHERE session_id = ?",
+          arguments: [completion.sessionID]
+        ),
+        (projection["updated_at"] as Int64) == expectedSessionUpdatedAt
+      else { throw TrainingEventLinkRepositoryError.staleCandidate }
+
+      let resultIDs = try Set(
+        String.fetchAll(
+          db,
+          sql: "SELECT prescription_id FROM set_results WHERE session_id = ?",
+          arguments: [completion.sessionID]
+        ))
+      let omittedIDs = try Set(
+        String.fetchAll(
+          db,
+          sql: "SELECT prescription_id FROM omitted_sets WHERE session_id = ?",
+          arguments: [completion.sessionID]
+        ))
+      guard
+        session.prescriptions.allSatisfy({
+          resultIDs.contains($0.id) || omittedIDs.contains($0.id)
+        })
+      else { throw SessionLoggingError.incompleteSession }
+
+      let duplicate =
+        try Int.fetchOne(
+          db,
+          sql: """
+            SELECT COUNT(*) FROM health_workout_link_facts
+            WHERE unlinked_at IS NULL
+              AND (healthkit_uuid = ? OR (local_entity_kind = ? AND local_entity_id = ?))
+            """,
+          arguments: [fact.healthKitUUID, fact.localEntityKind, fact.localEntityID]
+        ) ?? 0
+      guard duplicate == 0 else { throw TrainingEventLinkRepositoryError.duplicateLink }
+
+      try db.execute(
+        sql: "INSERT INTO session_completions (session_id, confirmed_at) VALUES (?, ?)",
+        arguments: [completion.sessionID, completion.confirmedAt]
+      )
+      try Self.upsertSessionProjection(
+        db,
+        cycleID: active.id,
+        session: session,
+        status: .completed,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        updatedAt: completion.confirmedAt
+      )
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_link_facts
+            (id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+             linked_during_completion, write_back_disposition, unlinked_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+          """,
+        arguments: [
+          fact.id, fact.healthKitUUID, fact.localEntityKind, fact.localEntityID,
+          fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
+          fact.writeBackDisposition.rawValue,
+        ]
+      )
+      return TrainingEventCompletionLinkResult(completion: completion, link: fact)
+    }
+  }
+
+  public func unlinkHealthWorkoutLinkFact(
+    id: String,
+    expectedLinkedAt: Date,
+    unlinkedAt: Date
+  ) async throws -> HealthWorkoutLinkFact {
+    guard unlinkedAt >= expectedLinkedAt else {
+      throw TrainingEventLinkRepositoryError.invalidLink
+    }
+    let stores = try await readyStores()
+    return try await stores.authoritative.write { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+            SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+                   linked_during_completion, write_back_disposition
+            FROM health_workout_link_facts
+            WHERE id = ? AND unlinked_at IS NULL
+            """,
+          arguments: [id]
+        ),
+        Date(timeIntervalSince1970: row["linked_at"]) == expectedLinkedAt,
+        let disposition = TrainingEventWriteBackDisposition(
+          rawValue: row["write_back_disposition"])
+      else { throw TrainingEventLinkRepositoryError.staleCandidate }
+      try db.execute(
+        sql: "UPDATE health_workout_link_facts SET unlinked_at = ? WHERE id = ?",
+        arguments: [unlinkedAt.timeIntervalSince1970, id]
+      )
+      return HealthWorkoutLinkFact(
+        id: row["id"],
+        healthKitUUID: row["healthkit_uuid"],
+        localEntityKind: row["local_entity_kind"],
+        localEntityID: row["local_entity_id"],
+        linkedAt: expectedLinkedAt,
+        linkedDuringCompletion: row["linked_during_completion"],
+        writeBackDisposition: disposition,
+        unlinkedAt: unlinkedAt
+      )
     }
   }
 
@@ -2123,10 +2347,18 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         .map { $0["name"] as String }
       let expected = Set(schemaColumns)
       for record in table.records {
-        guard Set(record.fields.keys) == expected else {
+        let provided = Set(record.fields.keys)
+        let legacyColumns = legacyImportColumns[table.name] ?? []
+        guard provided == expected || provided == expected.subtracting(legacyColumns) else {
           throw TrainingImportError.incompleteArchive("columns in \(table.name)")
         }
-        let orderedValues = schemaColumns.map { databaseValue(record.fields[$0]!) }
+        let orderedValues = schemaColumns.map { column in
+          databaseValue(
+            record.fields[column]
+              ?? legacyImportDefault(table: table.name, column: column)
+              ?? .null
+          )
+        }
         let placeholders = Array(repeating: "?", count: schemaColumns.count).joined(separator: ", ")
         let quotedColumns = schemaColumns.map(quoteIdentifier).joined(separator: ", ")
         try db.execute(
@@ -2255,9 +2487,40 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         throw TrainingImportError.invalidRelationship("additional set")
       }
     }
-    for row in try Row.fetchAll(db, sql: "SELECT session_id FROM session_completions") {
-      guard sessionIDs.contains(row["session_id"]) else {
+    let completedSessionIDs = Set(
+      try String.fetchAll(db, sql: "SELECT session_id FROM session_completions")
+    )
+    for sessionID in completedSessionIDs {
+      guard sessionIDs.contains(sessionID) else {
         throw TrainingImportError.invalidRelationship("session completion")
+      }
+    }
+    for row in try Row.fetchAll(
+      db,
+      sql: """
+        SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+               linked_during_completion, write_back_disposition, unlinked_at
+        FROM health_workout_link_facts
+        """
+    ) {
+      let id = row["id"] as String
+      let healthKitUUID = row["healthkit_uuid"] as String
+      let localEntityKind = row["local_entity_kind"] as String
+      let localEntityID = row["local_entity_id"] as String
+      let linkedAt = row["linked_at"] as Double
+      let linkedDuringCompletion = row["linked_during_completion"] as Bool
+      let disposition = TrainingEventWriteBackDisposition(
+        rawValue: row["write_back_disposition"] as String)
+      let unlinkedAt = row["unlinked_at"] as Double?
+      guard !id.isEmpty, !healthKitUUID.isEmpty, localEntityKind == "session",
+        completedSessionIDs.contains(localEntityID), linkedAt.isFinite,
+        unlinkedAt?.isFinite ?? true, unlinkedAt.map({ $0 >= linkedAt }) ?? true,
+        disposition != nil,
+        linkedDuringCompletion
+          ? disposition == .suppressedExternalWorkoutLinkedAtCompletion
+          : disposition == .notApplicable
+      else {
+        throw TrainingImportError.invalidRelationship("training event link")
       }
     }
     for row in try Row.fetchAll(db, sql: "SELECT proposal_json FROM training_max_proposals") {
@@ -2318,6 +2581,26 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "session_correction_audit", "training_max_proposals", "training_max_history",
     "health_workout_link_facts",
   ]
+
+  private static let legacyImportColumns: [String: Set<String>] = [
+    "health_workout_link_facts": [
+      "linked_during_completion", "write_back_disposition", "unlinked_at",
+    ]
+  ]
+
+  private static func legacyImportDefault(
+    table: String,
+    column: String
+  ) -> TrainingExportJSONValue? {
+    guard table == "health_workout_link_facts" else { return nil }
+    switch column {
+    case "linked_during_completion": return .boolean(false)
+    case "write_back_disposition":
+      return .string(TrainingEventWriteBackDisposition.notApplicable.rawValue)
+    case "unlinked_at": return .null
+    default: return nil
+    }
+  }
 
   public func sessionCorrectionAuditHistory(for sessionID: String) async throws
     -> [SessionCorrectionAuditEntry]

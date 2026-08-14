@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import TrainingApplication
 
 public final class TrainingStores: @unchecked Sendable {
   public let authoritative: DatabaseQueue
@@ -427,6 +428,26 @@ public struct ProtectedStoreBootstrapper: Sendable {
         on: "health_workout_link_facts",
         columns: ["healthkit_uuid", "linked_at"]
       )
+    }
+    migrator.registerMigration("authoritative_v13_training_event_links") { db in
+      try db.alter(table: "health_workout_link_facts") { table in
+        table.add(column: "linked_during_completion", .boolean).notNull().defaults(to: false)
+        table.add(column: "write_back_disposition", .text).notNull()
+          .defaults(to: TrainingEventWriteBackDisposition.notApplicable.rawValue)
+        table.add(column: "unlinked_at", .double)
+      }
+      try db.execute(
+        sql: """
+          CREATE UNIQUE INDEX health_workout_link_facts_active_uuid
+          ON health_workout_link_facts (healthkit_uuid)
+          WHERE unlinked_at IS NULL
+          """)
+      try db.execute(
+        sql: """
+          CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
+          ON health_workout_link_facts (local_entity_kind, local_entity_id)
+          WHERE unlinked_at IS NULL
+          """)
     }
     return migrator
   }

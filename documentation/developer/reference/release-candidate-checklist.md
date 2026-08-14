@@ -1,4 +1,4 @@
-# Health Workout Foundation release-candidate checklist
+# Training Compass release-candidate checklist
 
 Issue #22 is the approval gate for the second owner-usable milestone. The
 first owner-data milestone remains covered by issue #16. The
@@ -35,6 +35,12 @@ application container between steps:
    Status, run Refresh Health Data, and open the confirmed Health Data Rebuild
    action. Verify that local Today, Cycle, Progress, TMs, export, import, and
    erasure remain usable throughout.
+9. Training Event linking: complete a Session with multiple external workout
+   candidates, confirm an unusual match, inspect both source authorities and
+   reconciliation context in the single-count detail, reject duplicate and
+   stale confirmations, exercise exact-UUID reconnection, then explicitly
+   unlink. Repeat by linking during completion and verify the no-Write-back
+   disposition.
 
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover
@@ -105,6 +111,9 @@ thermal state, operation name, duration, coarse record/byte counts, and a
 pass/fail verdict. For the Health foundation also record whether authorization,
 anchored queries, observer registration, foreground refresh, lock/unlock
 recovery, protected storage, and backup exclusion were verified. The validated
-measurement JSON contains only the named coarse budget values and
+Training Event linking record also contains only pass/fail booleans for
+ranking, warning acknowledgement, duplicate and stale rejection, single-count
+projection, exact-UUID reconnection, unlinking, and Write-back suppression. The
+validated measurement JSON contains only the named coarse budget values and
 `interruptionRecovery`; never record owner measurements, dates, identifiers,
 routes, or free-text notes.

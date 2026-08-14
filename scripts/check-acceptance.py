@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 
-REQUIRED_SOURCES = range(1, 23)
+REQUIRED_SOURCES = range(1, 24)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -126,6 +126,16 @@ def main() -> int:
     for contract in required_health_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits Health foundation contract: {contract}")
+
+    required_training_event_contracts = (
+        "no candidate is preselected",
+        "one authoritative link between stable identities",
+        "The pair is counted once",
+        "no-silent-overwrite contract",
+    )
+    for contract in required_training_event_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits Training Event contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

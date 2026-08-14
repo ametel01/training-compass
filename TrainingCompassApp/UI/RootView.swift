@@ -503,7 +503,7 @@ private struct StrengthProgressView: View {
   let model: AppModel
 
   @State private var progress: E1RMProgress?
-  @State private var healthHistory: HealthWorkoutHistorySnapshot?
+  @State private var eventTimeline: TrainingEventTimelineSnapshot?
   @State private var selectedLiftID: String?
   @State private var showingLongerHistory = false
   @State private var errorMessage: String?
@@ -559,7 +559,7 @@ private struct StrengthProgressView: View {
             }
           }
 
-          healthHistorySection
+          trainingEventHistorySection
 
           Section("History") {
             let visible =
@@ -621,7 +621,7 @@ private struct StrengthProgressView: View {
                 "Complete an eligible normal-week Primary Plus Set to see e1RM progress.")
             )
           }
-          healthHistorySection
+          trainingEventHistorySection
         }
         .refreshable { await reload() }
       }
@@ -655,48 +655,52 @@ private struct StrengthProgressView: View {
   }
 
   @ViewBuilder
-  private var healthHistorySection: some View {
-    Section("Health-only Training Events") {
-      if let healthHistory {
-        if healthHistory.events.isEmpty {
-          Text(healthHistory.state.displayName)
+  private var trainingEventHistorySection: some View {
+    Section("Training Event History") {
+      if let eventTimeline {
+        if eventTimeline.events.isEmpty {
+          Text("No completed Sessions or Health Workouts yet.")
             .foregroundStyle(.secondary)
         } else {
-          ForEach(healthHistory.events) { entry in
+          ForEach(eventTimeline.events) { event in
             NavigationLink {
-              HealthWorkoutHistoryDetailView(entry: entry)
+              UnifiedTrainingEventDetailView(event: event, model: model)
             } label: {
               VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                  Text(entry.event.activityType).font(.headline)
+                  Text(trainingEventTitle(event)).font(.headline)
                   Spacer()
-                  Text(entry.event.sourceBadge)
+                  Text(event.sourceBadges.map(\.displayName).joined(separator: " + "))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
                 }
-                Text(
-                  "\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min"
-                )
-                .font(.caption)
-                Text(
-                  "Source: \(entry.provenance.displayName) · \(entry.provenance.detailLabel)"
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                if let context = entry.event.reconciliationContext {
+                Text(event.localDate)
+                  .font(.caption)
+                if event.linkState == .linked {
+                  Text("Linked one-to-one · counted once")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                if let context = event.reconciliationContext {
                   Text("Last reconciliation: \(context)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
               }
             }
-            .accessibilityIdentifier("progress.health-event.\(entry.id)")
+            .accessibilityIdentifier("progress.training-event.\(event.id)")
           }
         }
       } else {
-        ProgressView("Loading Health history…")
+        ProgressView("Loading Training Event history…")
       }
     }
+  }
+
+  private func trainingEventTitle(_ event: UnifiedTrainingEvent) -> String {
+    if event.session != nil, event.healthWorkout != nil { return "Linked Training Event" }
+    if event.session != nil { return "5/3/1 Session" }
+    return event.healthWorkout?.activityType ?? "Health Workout"
   }
 
   private func reload() async {
@@ -707,8 +711,152 @@ private struct StrengthProgressView: View {
       progress = nil
       errorMessage = String(describing: error)
     }
-    healthHistory = try? await model.healthWorkoutImportBoundary?.healthWorkoutHistory()
-    if healthHistory == nil { healthHistory = HealthWorkoutHistorySnapshot(state: .unavailable) }
+    eventTimeline = try? await model.trainingEventLinkBoundary?.timeline()
+    if eventTimeline == nil { eventTimeline = TrainingEventTimelineSnapshot(events: []) }
+  }
+}
+
+private struct UnifiedTrainingEventDetailView: View {
+  let event: UnifiedTrainingEvent
+  let model: AppModel
+
+  @State private var showingUnlinkConfirmation = false
+  @State private var wasUnlinked = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    List {
+      Section("Training Event") {
+        LabeledContent("Link state", value: wasUnlinked ? "Unlinked" : linkStateLabel)
+        LabeledContent(
+          "Sources",
+          value: event.sourceBadges.map(\.displayName).joined(separator: " + ")
+        )
+        if let link = event.link {
+          LabeledContent("Link identity", value: link.id)
+          LabeledContent("Session identity", value: link.localEntityID)
+          LabeledContent("HealthKit UUID", value: link.healthKitUUID)
+          LabeledContent(
+            "Write-back",
+            value: link.writeBackDisposition
+              == .suppressedExternalWorkoutLinkedAtCompletion
+              ? "No Training Compass summary created"
+              : "Not affected by this link"
+          )
+          if link.isActive && !wasUnlinked {
+            Button("Unlink Training Event", role: .destructive) {
+              showingUnlinkConfirmation = true
+            }
+            .accessibilityIdentifier("training-event.unlink")
+          }
+        }
+      }
+
+      if let session = event.session {
+        Section("5/3/1 Session · Training Compass authoritative") {
+          LabeledContent("Status", value: session.session.status.rawValue)
+          LabeledContent("Intended date", value: session.session.intendedDate.iso8601String)
+          LabeledContent("Primary Lift", value: session.session.primaryLiftID)
+          LabeledContent("Assistance Lift", value: session.session.assistanceLiftID)
+          LabeledContent("Completed", value: String(session.completion.confirmedAt))
+          LabeledContent("Set Results", value: "\(session.results.count)")
+          LabeledContent("Omitted Sets", value: "\(session.omissions.count)")
+          LabeledContent("Additional Sets", value: "\(session.additionalSets.count)")
+        }
+      }
+
+      if let workout = event.healthWorkout {
+        let provenance = HealthWorkoutProvenance(workout: workout)
+        Section("Health Workout · HealthKit authoritative") {
+          LabeledContent("Activity", value: workout.activityType)
+          LabeledContent("Health date", value: workout.localDate)
+          LabeledContent("Start", value: workout.startDate.formatted())
+          LabeledContent("End", value: workout.endDate.formatted())
+          LabeledContent("Duration", value: "\(Int(workout.duration / 60)) min")
+          LabeledContent("HealthKit UUID", value: workout.healthKitUUID)
+        }
+        Section("Available Health Provenance") {
+          LabeledContent("Source", value: provenance.displayName)
+          LabeledContent("Details", value: provenance.detailLabel)
+          LabeledContent("Timezone", value: workout.timeZoneSource.displayName)
+        }
+      } else if event.link != nil {
+        Section("Health Workout") {
+          Text("The exact linked HealthKit UUID is not currently available in the mirror.")
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      Section("Disagreements") {
+        if event.disagreements.isEmpty {
+          Text("No disagreement is available for comparable source-owned facts.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(Array(event.disagreements.enumerated()), id: \.offset) { _, disagreement in
+            Text(disagreement.message)
+          }
+        }
+        Text("Neither source is silently overwritten.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Section("Reconciliation") {
+        if let context = event.reconciliationContext {
+          LabeledContent("Context", value: context)
+        } else {
+          LabeledContent("Context", value: "Unavailable")
+        }
+        if let date = event.lastSuccessfulReconciliation {
+          LabeledContent("Last successful check", value: date.formatted())
+        } else {
+          LabeledContent("Last successful check", value: "Unavailable")
+        }
+      }
+    }
+    .navigationTitle("Training Event")
+    .accessibilityIdentifier("training-event.detail")
+    .confirmationDialog(
+      "Unlink this Training Event?",
+      isPresented: $showingUnlinkConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Confirm Unlink", role: .destructive) { Task { await unlink() } }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "The Session and external Health Workout will appear as two Training Events. Neither record is deleted."
+      )
+    }
+    .alert(
+      "Could not update Training Event",
+      isPresented: Binding(
+        get: { errorMessage != nil },
+        set: { if !$0 { errorMessage = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(errorMessage ?? "Try again.")
+    }
+  }
+
+  private var linkStateLabel: String {
+    switch event.linkState {
+    case .unlinked: "Unlinked"
+    case .linked: "Linked one-to-one"
+    case .linkedWorkoutUnavailable: "Linked · Health Workout currently unavailable"
+    }
+  }
+
+  private func unlink() async {
+    guard let link = event.link, let boundary = model.trainingEventLinkBoundary else { return }
+    do {
+      _ = try await boundary.unlink(link, confirmation: .confirmed)
+      wasUnlinked = true
+    } catch {
+      errorMessage = "The link changed before confirmation. Reload and try again."
+    }
   }
 }
 
@@ -785,7 +933,12 @@ private struct TodayView: View {
   let model: AppModel
 
   @State private var today: TodaySessionSnapshot?
-  @State private var todayHealthEvents: [HealthWorkoutHistoryEntry] = []
+  @State private var todayEvents: [UnifiedTrainingEvent] = []
+  @State private var linkingSnapshot: TrainingEventLinkingSnapshot?
+  @State private var selectedCompletionCandidateID: String?
+  @State private var pendingCandidate: TrainingEventLinkCandidate?
+  @State private var pendingCandidateLinksDuringCompletion = false
+  @State private var showingUnusualMatchConfirmation = false
   @State private var weightText: [String: String] = [:]
   @State private var repetitionsText: [String: String] = [:]
   @State private var additionalLiftID = ""
@@ -822,13 +975,13 @@ private struct TodayView: View {
           }
 
           Section("Today’s Training Events") {
-            if todayHealthEvents.isEmpty {
-              Text("No imported Health Workouts for this local date.")
+            if todayEvents.isEmpty {
+              Text("No completed Sessions or imported Health Workouts for this local date.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             } else {
-              ForEach(todayHealthEvents) { entry in
-                TodayHealthWorkoutRow(entry: entry)
+              ForEach(todayEvents) { event in
+                TodayTrainingEventRow(event: event, model: model)
               }
             }
           }
@@ -945,7 +1098,9 @@ private struct TodayView: View {
                 }
               }
             }
+            trainingEventLinkControls
           } else if today.state == .readyToComplete {
+            completionLinkPicker
             Section {
               Button("Complete Session") { showingCompletionConfirmation = true }
                 .buttonStyle(.borderedProminent)
@@ -960,18 +1115,18 @@ private struct TodayView: View {
       } else {
         List {
           Section("Today’s Training Events") {
-            if todayHealthEvents.isEmpty {
+            if todayEvents.isEmpty {
               ContentUnavailableView {
                 Label("Nothing scheduled today", systemImage: "checkmark.circle")
               } description: {
                 Text(
-                  "No local Session is planned. Imported Health Workouts for today remain available separately."
+                  "No local Session or imported Health Workout is available for today."
                 )
                 .multilineTextAlignment(.center)
               }
             } else {
-              ForEach(todayHealthEvents) { entry in
-                TodayHealthWorkoutRow(entry: entry)
+              ForEach(todayEvents) { event in
+                TodayTrainingEventRow(event: event, model: model)
               }
             }
           }
@@ -999,10 +1154,164 @@ private struct TodayView: View {
       isPresented: $showingCompletionConfirmation,
       titleVisibility: .visible
     ) {
-      Button("Confirm Completion") { Task { await complete() } }
+      Button("Confirm Completion") { Task { await beginCompletion() } }
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Completion records the planned-versus-actual work and every set disposition.")
+    }
+    .confirmationDialog(
+      "Confirm unusual Training Event match?",
+      isPresented: $showingUnusualMatchConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Confirm Unusual Match") {
+        guard let candidate = pendingCandidate else { return }
+        Task {
+          await performLink(
+            candidate,
+            duringCompletion: pendingCandidateLinksDuringCompletion,
+            confirmation: .confirmedUnusualMatch
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) { pendingCandidate = nil }
+    } message: {
+      Text(
+        pendingCandidate?.warnings.map(\.message).joined(separator: " ")
+          ?? "Review both sources before linking.")
+    }
+  }
+
+  @ViewBuilder
+  private var trainingEventLinkControls: some View {
+    if let activeLink = linkingSnapshot?.activeLink {
+      Section("Training Event Link") {
+        Label("Linked one-to-one", systemImage: "link")
+          .foregroundStyle(.tint)
+        LabeledContent("HealthKit UUID", value: activeLink.healthKitUUID)
+        Text("Open the linked Training Event above to inspect both sources or unlink it.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    } else if let candidates = linkingSnapshot?.candidates, !candidates.isEmpty {
+      Section("Link External Health Workout") {
+        Text(
+          "Choose explicitly. Ranking is advisory and Training Compass never links automatically."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        ForEach(candidates) { candidate in
+          Button {
+            startLink(candidate, duringCompletion: false)
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(candidate.workout.activityType)
+              Text(candidateLabel(candidate))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              if candidate.requiresWarningAcknowledgement {
+                Label(
+                  "Unusual match · confirmation required", systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+              }
+            }
+          }
+          .accessibilityIdentifier("training-event.candidate.\(candidate.id)")
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var completionLinkPicker: some View {
+    if let candidates = linkingSnapshot?.candidates, !candidates.isEmpty {
+      Section("External Health Workout (Optional)") {
+        Picker("Link when completing", selection: $selectedCompletionCandidateID) {
+          Text("Do not link").tag(Optional<String>.none)
+          ForEach(candidates) { candidate in
+            Text(
+              "\(candidate.workout.activityType) · \(candidate.workout.localDate)\(candidate.requiresWarningAcknowledgement ? " · Warning" : "")"
+            )
+            .tag(Optional(candidate.id))
+          }
+        }
+        .accessibilityIdentifier("training-event.completion-candidate")
+        Text(
+          "Every currently unlinked external workout remains selectable; no candidate is preselected."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func candidateLabel(_ candidate: TrainingEventLinkCandidate) -> String {
+    let minutes = Int(candidate.timingDifference / 60)
+    return
+      "\(candidate.workout.localDate) · \(Int(candidate.workout.duration / 60)) min · \(minutes) min from completion"
+  }
+
+  private func startLink(
+    _ candidate: TrainingEventLinkCandidate,
+    duringCompletion: Bool
+  ) {
+    if candidate.requiresWarningAcknowledgement {
+      pendingCandidate = candidate
+      pendingCandidateLinksDuringCompletion = duringCompletion
+      showingUnusualMatchConfirmation = true
+    } else {
+      Task {
+        await performLink(
+          candidate,
+          duringCompletion: duringCompletion,
+          confirmation: .confirmed
+        )
+      }
+    }
+  }
+
+  private func beginCompletion() async {
+    guard let candidateID = selectedCompletionCandidateID,
+      let candidate = linkingSnapshot?.candidates.first(where: { $0.id == candidateID })
+    else {
+      await completeWithoutLink()
+      return
+    }
+    startLink(candidate, duringCompletion: true)
+  }
+
+  private func performLink(
+    _ candidate: TrainingEventLinkCandidate,
+    duringCompletion: Bool,
+    confirmation: TrainingEventLinkConfirmation
+  ) async {
+    guard let boundary = model.trainingEventLinkBoundary,
+      let sessionID = today?.session.id
+    else { return }
+    do {
+      if duringCompletion {
+        _ = try await boundary.completeSession(
+          linking: candidate,
+          to: sessionID,
+          confirmation: confirmation
+        )
+      } else {
+        _ = try await boundary.confirmLink(
+          candidate,
+          to: sessionID,
+          confirmation: confirmation
+        )
+      }
+      pendingCandidate = nil
+      selectedCompletionCandidateID = nil
+      await reload()
+    } catch TrainingEventLinkError.staleCandidate {
+      errorMessage = "The Session or Health Workout changed. Review the candidates again."
+      await reload()
+    } catch {
+      errorMessage = "The Training Event link could not be saved."
     }
   }
 
@@ -1027,11 +1336,23 @@ private struct TodayView: View {
     do {
       today = try await model.sessionLoggingBoundary.today()
       let date = today?.intendedDate ?? TrainingDate(date: Date())
-      todayHealthEvents =
-        (try? await model.healthWorkoutImportBoundary?.todayHealthWorkouts(on: date)) ?? []
+      todayEvents =
+        (try? await model.trainingEventLinkBoundary?.timeline(on: date).events) ?? []
+      if let today, let boundary = model.trainingEventLinkBoundary {
+        if today.state == .completed {
+          linkingSnapshot = try? await boundary.linkingSnapshot(for: today.session.id)
+        } else if today.state == .readyToComplete {
+          linkingSnapshot = try? await boundary.completionLinkingSnapshot(for: today.session.id)
+        } else {
+          linkingSnapshot = nil
+        }
+      } else {
+        linkingSnapshot = nil
+      }
     } catch {
       today = nil
-      todayHealthEvents = []
+      todayEvents = []
+      linkingSnapshot = nil
       errorMessage = String(describing: error)
     }
   }
@@ -1074,7 +1395,7 @@ private struct TodayView: View {
     } catch { errorMessage = String(describing: error) }
   }
 
-  private func complete() async {
+  private func completeWithoutLink() async {
     do {
       _ = try await model.sessionLoggingBoundary.confirmSession(sessionID: today?.session.id ?? "")
       await reload()
@@ -1139,31 +1460,50 @@ private struct TodayView: View {
   }
 }
 
-private struct TodayHealthWorkoutRow: View {
-  let entry: HealthWorkoutHistoryEntry
+private struct TodayTrainingEventRow: View {
+  let event: UnifiedTrainingEvent
+  let model: AppModel
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack {
-        Label("Health Workout", systemImage: "heart.text.square")
-          .font(.headline)
-        Spacer()
-        Text(entry.state.displayName)
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(
-            entry.state == .unavailableProvenance ? Color.orange : Color.accentColor)
+    NavigationLink {
+      UnifiedTrainingEventDetailView(event: event, model: model)
+    } label: {
+      VStack(alignment: .leading, spacing: 3) {
+        HStack {
+          Label(title, systemImage: icon)
+            .font(.headline)
+          Spacer()
+          Text(event.sourceBadges.map(\.displayName).joined(separator: " + "))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.tint)
+        }
+        if let workout = event.healthWorkout {
+          Text(workout.activityType).font(.subheadline)
+          Text("\(workout.localDate) · \(Int(workout.duration / 60)) min")
+            .font(.caption)
+        } else if let session = event.session {
+          Text(session.session.intendedDate.iso8601String).font(.caption)
+        }
+        if event.linkState == .linked {
+          Text("Linked one-to-one · counted once")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
       }
-      Text(entry.event.activityType)
-        .font(.subheadline)
-      Text(
-        "\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min"
-      )
-      .font(.caption)
-      Text(entry.provenance.displayName)
-        .font(.caption2)
-        .foregroundStyle(.secondary)
     }
-    .accessibilityIdentifier("today.health-workout.\(entry.id)")
+    .accessibilityIdentifier("today.training-event.\(event.id)")
+  }
+
+  private var title: String {
+    if event.session != nil, event.healthWorkout != nil { return "Linked Training Event" }
+    if event.session != nil { return "5/3/1 Session" }
+    return "Health Workout"
+  }
+
+  private var icon: String {
+    event.session != nil && event.healthWorkout != nil
+      ? "link"
+      : (event.session != nil ? "figure.strengthtraining.traditional" : "heart.text.square")
   }
 }
 
