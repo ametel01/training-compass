@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -48,8 +49,18 @@ for module, allowed in ALLOWED_IMPORTS.items():
             if imported not in allowed:
                 errors.append(f"{source.relative_to(ROOT)} imports forbidden module {imported}")
 
+swift_environment = os.environ.copy()
+# Apple's Python launcher can inject the Command Line Tools SDKROOT even when
+# xcode-select points at full Xcode. Let Swift resolve the SDK from the active
+# developer directory so the compiler and SDK stay paired.
+swift_environment.pop("SDKROOT", None)
 package = json.loads(
-    subprocess.check_output(["swift", "package", "dump-package"], cwd=ROOT, text=True)
+    subprocess.check_output(
+        ["swift", "package", "dump-package"],
+        cwd=ROOT,
+        env=swift_environment,
+        text=True,
+    )
 )
 for dependency in package["dependencies"]:
     if set(dependency) != {"sourceControl"}:
