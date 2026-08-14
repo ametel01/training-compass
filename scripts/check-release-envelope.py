@@ -24,6 +24,9 @@ LIMITS = {
     "exportImportStagingP95S": ("<=", 30),
     "backgroundSliceS": ("<=", 20),
     "storageAvailableMiB": (">=", 500),
+    "healthReconciliationP95S": ("<=", 60),
+    "healthRebuildP95S": ("<=", 60),
+    "healthForegroundPeakMiB": ("<=", 250),
 }
 
 

@@ -58,6 +58,35 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
     #endif
   }
 
+  public func registerWorkoutObserver(
+    onInvalidation: @escaping @Sendable () async -> Void
+  ) async throws {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable() else { return }
+      let sampleType = HKObjectType.workoutType()
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        let query = HKObserverQuery(sampleType: sampleType, predicate: nil) {
+          _, completion, _ in
+          completion()
+          Task { await onInvalidation() }
+        }
+        store.execute(query)
+        store.enableBackgroundDelivery(for: sampleType, frequency: .hourly) { success, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if success {
+            continuation.resume(returning: ())
+          } else {
+            continuation.resume(throwing: HealthKitAdapterError.observerRegistrationFailed)
+          }
+        }
+      }
+    #else
+      throw HealthKitAdapterError.unavailable
+    #endif
+  }
+
   public func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
     #if canImport(HealthKit)
       guard HKHealthStore.isHealthDataAvailable() else {
@@ -173,3 +202,8 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
 }
 
 public enum HealthKitAdapterModule {}
+
+public enum HealthKitAdapterError: Error, Equatable, Sendable {
+  case unavailable
+  case observerRegistrationFailed
+}

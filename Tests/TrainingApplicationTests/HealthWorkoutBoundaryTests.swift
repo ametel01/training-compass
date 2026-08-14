@@ -159,6 +159,91 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertTrue(loaded.isEmpty)
   }
 
+  func testCoordinatorFollowsAnchoredPaginationWhenLegacyPageTokenIsAbsent() async throws {
+    let client = AnchoredHealthClient(pages: [
+      HealthWorkoutPage(
+        workouts: [fixture("first")], anchor: "anchor-1", reconciliationContext: "page-1"),
+      HealthWorkoutPage(
+        workouts: [fixture("second")], anchor: nil, reconciliationContext: "page-2"),
+    ])
+    let repository = MultiStreamRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts],
+      authorization: .init(state: .authorized)
+    )
+
+    let result = try await coordinator.foreground()
+
+    XCTAssertEqual(result.pagesCommitted, 2)
+    let requestedAnchors = await client.requestedAnchors
+    let values = await repository.values.map(\.healthKitUUID)
+    XCTAssertEqual(requestedAnchors, [nil, "anchor-1"])
+    XCTAssertEqual(Set(values), ["first", "second"])
+  }
+
+  func testCoordinatorRejectsOversizedBatchBeforeCommit() async throws {
+    let client = AnchoredHealthClient(pages: [
+      HealthWorkoutPage(workouts: [fixture("one"), fixture("two")])
+    ])
+    let repository = MultiStreamRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      limits: HealthSyncBatchLimits(maxRecords: 1),
+      requestedStreams: [.workouts],
+      authorization: .init(state: .authorized)
+    )
+
+    let result = try await coordinator.foreground()
+
+    XCTAssertEqual(result.pagesCommitted, 0)
+    XCTAssertNotNil(result.streamStatuses.first?.failure)
+    let committedStreams = await repository.committedStreams
+    let values = await repository.values
+    XCTAssertTrue(committedStreams.isEmpty)
+    XCTAssertTrue(values.isEmpty)
+  }
+
+  func testCoordinatorCommitsIndependentStreamAnchorsAndFacts() async throws {
+    let client = IndependentStreamsHealthClient()
+    let repository = MultiStreamRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts, .sleep],
+      authorization: .init(state: .authorized)
+    )
+
+    let result = try await coordinator.foreground()
+
+    XCTAssertEqual(result.streamStatuses.count, 2)
+    let checkpoints = await repository.checkpoints
+    let committedStreams = await repository.committedStreams
+    let facts = await repository.facts.map(\.healthKitUUID)
+    XCTAssertNil(checkpoints[.workouts]?.anchor)
+    XCTAssertNil(checkpoints[.sleep]?.anchor)
+    XCTAssertEqual(checkpoints[.workouts]?.reconciliationContext, "workouts")
+    XCTAssertEqual(checkpoints[.sleep]?.reconciliationContext, "sleep")
+    XCTAssertEqual(Set(committedStreams), [.workouts, .sleep])
+    XCTAssertEqual(facts, ["sleep-fact"])
+  }
+
+  func testRegisterHealthObserverUsesAuthorizedClientAndCoalescedObserverTrigger() async throws {
+    let client = ObserverHealthClient()
+    let boundary = HealthWorkoutImportBoundary(
+      client: client,
+      repository: MultiStreamRepository(),
+      authorization: .init(state: .authorized)
+    )
+
+    try await boundary.registerHealthObserver()
+
+    let didRegister = await client.didRegister
+    XCTAssertTrue(didRegister)
+  }
+
   func testCoordinatorPreservesCachedStateOnPartialFailureAndRecovers() async throws {
     let client = FlakyHealthClient(workout: fixture("cached"))
     let repository = SyncRepository()
@@ -357,6 +442,85 @@ private actor FakeHealthClient: HealthWorkoutClient {
   }
 }
 
+private actor AnchoredHealthClient: HealthWorkoutClient {
+  let pages: [HealthWorkoutPage]
+  private(set) var index = 0
+  private(set) var requestedAnchors: [String?] = []
+
+  init(pages: [HealthWorkoutPage]) { self.pages = pages }
+
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot { .init(state: .authorized, requested: request) }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    try await fetchHealthPage(for: .workouts, after: pageToken)
+  }
+
+  func fetchHealthPage(
+    for stream: HealthSyncStream, after pageToken: String?
+  ) async throws -> HealthWorkoutPage {
+    requestedAnchors.append(pageToken)
+    defer { index += 1 }
+    return pages[min(index, pages.count - 1)]
+  }
+}
+
+private actor IndependentStreamsHealthClient: HealthWorkoutClient {
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot { .init(state: .authorized, requested: request) }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    try await fetchHealthPage(for: .workouts, after: pageToken)
+  }
+
+  func fetchHealthPage(
+    for stream: HealthSyncStream, after pageToken: String?
+  ) async throws -> HealthWorkoutPage {
+    switch stream {
+    case .workouts:
+      return HealthWorkoutPage(
+        workouts: [], anchor: pageToken == nil ? "workouts-anchor" : nil,
+        reconciliationContext: "workouts")
+    case .sleep:
+      return HealthWorkoutPage(
+        workouts: [], anchor: pageToken == nil ? "sleep-anchor" : nil,
+        reconciliationContext: "sleep",
+        streamFacts: pageToken == nil
+          ? [HealthSyncFact(id: "sleep-fact", kind: .added, healthKitUUID: "sleep-fact")]
+          : [])
+    default:
+      return HealthWorkoutPage(workouts: [], reconciliationContext: stream.rawValue)
+    }
+  }
+}
+
+private actor ObserverHealthClient: HealthWorkoutClient {
+  private(set) var didRegister = false
+
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot { .init(state: .authorized, requested: request) }
+
+  func registerWorkoutObserver(
+    onInvalidation: @escaping @Sendable () async -> Void
+  ) async throws {
+    didRegister = true
+    await onInvalidation()
+  }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    HealthWorkoutPage(workouts: [], reconciliationContext: "observer")
+  }
+}
+
 private actor FakeHealthRepository: HealthWorkoutRepository {
   private(set) var committed: [HealthWorkout] = []
 
@@ -366,6 +530,50 @@ private actor FakeHealthRepository: HealthWorkoutRepository {
   }
 
   func loadHealthWorkouts() async throws -> [HealthWorkout] { committed }
+}
+
+private actor MultiStreamRepository: HealthWorkoutRepository {
+  private(set) var values: [HealthWorkout] = []
+  private(set) var checkpoints: [HealthSyncStream: HealthSyncCheckpoint] = [:]
+  private(set) var committedStreams: [HealthSyncStream] = []
+  private(set) var facts: [HealthSyncFact] = []
+
+  func upsertHealthWorkouts(
+    _ workouts: [HealthWorkout], reconciliationContext: String
+  ) async throws {
+    values.append(contentsOf: workouts)
+  }
+
+  func loadHealthWorkouts() async throws -> [HealthWorkout] { values }
+
+  func commitHealthWorkoutPage(
+    _ page: HealthWorkoutPage,
+    stream: HealthSyncStream,
+    limits: HealthSyncBatchLimits
+  ) async throws {
+    try limits.validate(page: page)
+    committedStreams.append(stream)
+    if stream == .workouts {
+      values.append(contentsOf: page.workouts)
+    }
+    facts.append(contentsOf: page.streamFacts)
+    checkpoints[stream] = HealthSyncCheckpoint(
+      stream: stream,
+      anchor: page.nextAnchor,
+      hasLimitedHistory: page.hasLimitedHistory,
+      reconciliationContext: page.reconciliationContext
+    )
+  }
+
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
+    -> HealthSyncCheckpoint?
+  { checkpoints[stream] }
+
+  func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
+    -> HealthMirrorContentSnapshot
+  {
+    .init(stream: stream, recordCount: stream == .workouts ? values.count : nil)
+  }
 }
 
 private actor ProgressCollector {

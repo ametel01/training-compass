@@ -193,6 +193,15 @@ private struct HealthView: View {
     }
     .navigationTitle("Health Data Status")
     .accessibilityIdentifier("health.destination")
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Button("Refresh Health Data") {
+          Task { await refreshHealthData() }
+        }
+        .disabled(isImporting || model.healthWorkoutImportBoundary == nil)
+        .accessibilityIdentifier("health.refresh-data.toolbar")
+      }
+    }
     .task(id: "\(model.phase)-\(scenePhase)") {
       guard model.phase == .ready, let boundary = model.healthWorkoutImportBoundary else { return }
       authorization = await boundary.authorizationSnapshot()
@@ -202,6 +211,7 @@ private struct HealthView: View {
         (try? await boundary.healthWorkoutHistory())
         ?? HealthWorkoutHistorySnapshot(state: .unavailable)
       if scenePhase == .active, authorization.state == .authorized {
+        try? await boundary.registerHealthObserver()
         await refreshHealthData()
       }
     }
@@ -226,7 +236,10 @@ private struct HealthView: View {
       authorization = try await boundary.connectHealth()
       await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
-      if authorization.state == .authorized { await importWorkouts() }
+      if authorization.state == .authorized {
+        try? await boundary.registerHealthObserver()
+        await importWorkouts()
+      }
     } catch {
       errorMessage =
         "Health did not complete the connection request. Local training is still available."

@@ -701,6 +701,9 @@ public struct HealthSyncResult: Codable, Equatable, Sendable {
 public protocol HealthWorkoutClient: HealthKitClient {
   func requestHealthAuthorization(_ request: HealthAuthorizationRequest) async throws
     -> HealthAuthorizationSnapshot
+  func registerWorkoutObserver(
+    onInvalidation: @escaping @Sendable () async -> Void
+  ) async throws
   func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage
   func fetchHealthPage(
     for stream: HealthSyncStream, after pageToken: String?
@@ -708,6 +711,12 @@ public protocol HealthWorkoutClient: HealthKitClient {
 }
 
 extension HealthWorkoutClient {
+  /// Lightweight clients and deterministic test adapters may omit background
+  /// delivery. The production HealthKit adapter overrides this seam.
+  public func registerWorkoutObserver(
+    onInvalidation: @escaping @Sendable () async -> Void
+  ) async throws {}
+
   /// A client that only has the original workout seam can still participate in
   /// the status screen. Unsupported streams fail independently rather than
   /// being misrepresented as a successful empty Health result.
@@ -769,7 +778,7 @@ extension HealthWorkoutRepository {
     limits: HealthSyncBatchLimits
   ) async throws {
     try limits.validate(page: page)
-    if !page.workouts.isEmpty {
+    if stream == .workouts && !page.workouts.isEmpty {
       try await upsertHealthWorkouts(
         page.workouts, reconciliationContext: page.reconciliationContext)
     }
@@ -889,6 +898,7 @@ public actor HealthWorkoutImportBoundary {
   private let repository: any HealthWorkoutRepository
   private let coordinator: HealthSyncCoordinator
   private var authorization: HealthAuthorizationSnapshot
+  private var observerRegistered = false
 
   public init(
     client: any HealthWorkoutClient,
@@ -900,7 +910,8 @@ public actor HealthWorkoutImportBoundary {
     self.coordinator = HealthSyncCoordinator(
       client: client,
       repository: repository,
-      requestedStreams: authorization.requested.readTypes.map(HealthSyncStream.init)
+      requestedStreams: authorization.requested.readTypes.map(HealthSyncStream.init),
+      authorization: authorization
     )
     self.authorization = authorization
   }
@@ -921,6 +932,18 @@ public actor HealthWorkoutImportBoundary {
   public func postponeHealth() async {
     authorization = HealthAuthorizationSnapshot(state: .postponed, requested: .core)
     await coordinator.setAuthorization(authorization)
+  }
+
+  public func registerHealthObserver() async throws {
+    guard authorization.state == .authorized else {
+      throw HealthWorkoutImportError.authorizationRequired
+    }
+    guard !observerRegistered else { return }
+    try await client.registerWorkoutObserver { [weak self] in
+      guard let self else { return }
+      _ = try? await self.refreshHealthData(trigger: .observer)
+    }
+    observerRegistered = true
   }
 
   /// Refreshes every requested stream through the same coordinator used by
@@ -1272,18 +1295,17 @@ public actor HealthSyncCoordinator {
         repeat {
           try Task.checkCancellation()
           let page = try await client.fetchHealthPage(for: stream, after: fetchToken)
-          // The current reconstructible mirror stores workouts only. Other
-          // requested streams are still queried independently, but their
-          // records must never be written into the workout table.
-          if stream == .workouts {
-            try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
-          }
+          // Every stream page is committed through the same repository seam so
+          // its facts and anchor are durable even when that stream has no
+          // reconstructible mirror table yet. The repository decides which
+          // source-owned records belong in each mirror.
+          try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
           pages += 1
           changed += page.workouts.count
           deleted += page.deletedHealthKitUUIDs.count
           importedCount += stream == .workouts ? page.workouts.count : 0
           limited = limited || page.hasLimitedHistory
-          fetchToken = page.nextPageToken
+          fetchToken = page.nextAnchor
           checkpoint = HealthSyncCheckpoint(
             stream: stream,
             anchor: page.nextAnchor,

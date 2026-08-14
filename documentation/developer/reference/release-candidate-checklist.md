@@ -1,6 +1,7 @@
-# Local Training Core release-candidate checklist
+# Health Workout Foundation release-candidate checklist
 
-Issue #16 is the approval gate for the first owner-data milestone. The
+Issue #22 is the approval gate for the second owner-usable milestone. The
+first owner-data milestone remains covered by issue #16. The
 Acceptance Device is the owner's iPhone running the supported iOS release;
 Simulator numbers are regression signals only. A candidate is eligible only
 when the automated change, migration, UI, privacy, and acceptance-matrix gates
@@ -28,11 +29,20 @@ application container between steps:
 7. Erasure: open Full App Erasure, verify its local scope and external-copy
    warning, confirm it, relaunch, and verify the first-launch state.
 
+8. Health foundation: on the in-place install, open Health without clearing
+   local data; exercise Connect Health or the unavailable path, dismiss the
+   first-batch progress view, navigate with cached content, inspect Health Data
+   Status, run Refresh Health Data, and open the confirmed Health Data Rebuild
+   action. Verify that local Today, Cycle, Progress, TMs, export, import, and
+   erasure remain usable throughout.
+
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover
 the lifecycle permutations and injected failure points that are intentionally
-not repeated through UI automation. See the acceptance matrix for the exact
-evidence pointer for every rule and state transition.
+not repeated through UI automation. HealthKit authorization and observer
+registration are attended-device checks because Simulator cannot provide the
+system Health database. See the acceptance matrix for the exact evidence
+pointer for every rule and state transition.
 
 ## Numeric release envelope
 
@@ -57,6 +67,23 @@ HealthKit wait time is reported separately from app-controlled work.
 | Opportunistic background slice | 20 seconds |
 | Storage pause threshold | 500 MiB available |
 
+## Health reconciliation envelope
+
+HealthKit wait time is external-system latency and is recorded separately.
+Application-controlled reconciliation is bounded by the following contract;
+the limits are enforced by `HealthSyncBatchLimits` and are measured against
+the full verification data envelope below.
+
+| Health operation | Bound |
+| --- | --- |
+| Records in one anchored page | 100 records |
+| Encoded page and transaction input | 1 MiB |
+| Maximum transaction | 4 MiB |
+| Maximum transient page buffer | 8 MiB |
+| Concurrent reconciliation coordinators | 1 per installation |
+| First durable batch visibility | before the next page is requested |
+| Rebuild staging safety margin | 20% or the configured absolute margin, whichever is greater |
+
 The verification envelope is 15 years, 25,000 Health Workouts, 10,000,000
 workout heart-rate samples, 250,000 sleep intervals, 50,000 resting-heart-rate
 samples, 100,000 HRV samples, 500 Training Cycles, 10,000 Sessions, 250,000
@@ -75,6 +102,9 @@ leaving local training available.
 
 Record only device model, iOS version, battery health, available storage,
 thermal state, operation name, duration, coarse record/byte counts, and a
-pass/fail verdict. The validated measurement JSON contains only the named
-coarse budget values and `interruptionRecovery`; never record owner
-measurements, dates, identifiers, routes, or free-text notes.
+pass/fail verdict. For the Health foundation also record whether authorization,
+anchored queries, observer registration, foreground refresh, lock/unlock
+recovery, protected storage, and backup exclusion were verified. The validated
+measurement JSON contains only the named coarse budget values and
+`interruptionRecovery`; never record owner measurements, dates, identifiers,
+routes, or free-text notes.

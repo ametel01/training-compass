@@ -76,4 +76,56 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Erase All App Data"].exists)
   }
 
+  func testHealthFoundationNavigationAndConfirmedRebuildControls() throws {
+    let app = XCUIApplication()
+    app.launch()
+
+    app.tabBars.buttons["Health"].tap()
+    XCTAssertTrue(app.navigationBars["Health Data Status"].waitForExistence(timeout: 15))
+    for _ in 0..<3 { app.swipeUp() }
+    let connect = app.buttons["health.connect"]
+    let checkAccess = app.buttons["health.check-access"]
+    let refresh = app.buttons["health.refresh-data.toolbar"]
+    XCTAssertTrue(
+      connect.waitForExistence(timeout: 15) || checkAccess.waitForExistence(timeout: 15)
+        || refresh.waitForExistence(timeout: 15),
+      "Health must expose an explicit connection, access, or refresh action"
+    )
+
+    if connect.exists {
+      connect.tap()
+    } else if checkAccess.exists {
+      checkAccess.tap()
+    } else {
+      refresh.tap()
+    }
+    if app.alerts["Health connection unavailable"].waitForExistence(timeout: 5) {
+      app.alerts.buttons["OK"].tap()
+    }
+    for _ in 0..<6 {
+      if refresh.exists { break }
+      app.swipeUp()
+    }
+    XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+    refresh.tap()
+    XCTAssertTrue(app.staticTexts["Health Data Status"].exists)
+    app.tabBars.buttons["Today"].tap()
+    XCTAssertTrue(app.tabBars.buttons["Today"].exists)
+    app.tabBars.buttons["Health"].tap()
+    XCTAssertTrue(app.navigationBars["Health Data Status"].exists)
+
+    for _ in 0..<3 { app.swipeUp() }
+    XCTAssertTrue(app.buttons["health.rebuild"].waitForExistence(timeout: 5))
+    app.buttons["health.rebuild"].tap()
+    XCTAssertTrue(app.navigationBars["Health Data Rebuild"].waitForExistence(timeout: 5))
+    let rebuild = app.buttons["health.rebuild.confirm"]
+    XCTAssertTrue(rebuild.waitForExistence(timeout: 5))
+    rebuild.tap()
+    let cancel = app.sheets.buttons["Cancel"]
+    if cancel.waitForExistence(timeout: 5) {
+      cancel.tap()
+    }
+    XCTAssertTrue(app.navigationBars["Health Data Rebuild"].exists)
+  }
+
 }

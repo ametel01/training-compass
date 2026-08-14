@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 
-REQUIRED_SOURCES = range(1, 16)
+REQUIRED_SOURCES = range(1, 23)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -32,6 +32,11 @@ REQUIRED_BUDGETS = (
     "30 seconds",
     "20 seconds",
     "500 MiB",
+    "100 records",
+    "1 MiB",
+    "4 MiB",
+    "8 MiB",
+    "20%",
 )
 
 
@@ -112,8 +117,15 @@ def main() -> int:
         if budget not in budgets:
             errors.append(f"release-candidate checklist omits resolved budget {budget}")
 
-    if "Health authorization remains outside these slices" not in matrix:
-        errors.append("acceptance matrix must state that unfinished Health capabilities remain outside the Local Training Core")
+    required_health_contracts = (
+        "No-access, partial/limited-history, successful-empty, cached, and unavailable states",
+        "paginated additions, replacements, deletions, and independent stream facts",
+        "locked, later unlocked, interrupted, terminated, or a first/later reconciliation fails",
+        "HealthKit Write-back are not exposed",
+    )
+    for contract in required_health_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits Health foundation contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

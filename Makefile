@@ -12,6 +12,7 @@ help:
 	@echo "  make fixtures"
 	@echo "  make verify-migrations"
 	@echo "  make device-smoke MILESTONE=gate-0"
+	@echo "  make device-smoke MILESTONE=health-foundation"
 	@echo "  make verify-release"
 	@echo "  make evidence"
 
