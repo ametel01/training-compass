@@ -68,6 +68,9 @@ final class RollingWorkoutOverviewTests: XCTestCase {
       record("baseline-b", date: today.adding(days: -14), activityType: "Running"),
       record("baseline-c", date: today.adding(days: -21), activityType: "Running"),
       record("baseline-d", date: today.adding(days: -28), activityType: "Running"),
+      record(
+        "baseline-missing", date: today.adding(days: -34), activityType: "Running",
+        durationSeconds: nil),
     ]
 
     let overview = RollingWorkoutOverviewCalculator().calculate(
@@ -80,6 +83,9 @@ final class RollingWorkoutOverviewTests: XCTestCase {
     XCTAssertEqual(overview.totalDuration.currentValue, 2_700)
     XCTAssertTrue(
       overview.totalDuration.explanation.missingData.contains("Duration missing for ride"))
+    XCTAssertTrue(
+      overview.totalDuration.explanation.missingData.contains(
+        "Duration missing for baseline-missing"))
     XCTAssertEqual(
       overview.activityTypes.map { "\($0.activityType):\($0.metric.currentValue)" },
       ["Cycling:1.0", "Running:1.0", "Traditional Strength Training:1.0"])

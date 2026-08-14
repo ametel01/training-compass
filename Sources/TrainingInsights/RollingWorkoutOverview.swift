@@ -276,11 +276,11 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
         return total + (validDuration(for: record) ?? 0)
       }
       let missing =
-        currentRecords.compactMap { record -> String? in
+        overviewRecords.compactMap { record -> String? in
           guard case .unavailable(let reason) = record.zoneTimes else { return nil }
           return "\(record.id): \(reason)"
         }
-        + currentRecords.compactMap { record -> String? in
+        + overviewRecords.compactMap { record -> String? in
           guard case .available(let times) = record.zoneTimes,
             times.values.contains(where: { validZoneDuration($0) != nil }),
             validDuration(for: record) == nil
@@ -349,7 +349,7 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
       baseline: comparisonAvailability,
       formula:
         "Sum only positive finite Health Workout duration; missing duration affects duration only.",
-      missing: currentRecords.filter { validDuration(for: $0) == nil }.map {
+      missing: overviewRecords.filter { validDuration(for: $0) == nil }.map {
         "Duration missing for \($0.id)"
       })
     return RollingWorkoutOverview(
