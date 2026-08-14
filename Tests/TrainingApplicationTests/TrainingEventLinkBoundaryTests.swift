@@ -350,6 +350,46 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     XCTAssertEqual(reconnected.events.first?.healthWorkout, workout)
   }
 
+  func testTimelineKeepsMissingProvenanceAndConflictingLinksVisible() async throws {
+    let workout = HealthWorkout(
+      healthKitUUID: "missing-provenance",
+      activityType: "traditional-strength-training",
+      startDate: Date(timeIntervalSince1970: 1_704_108_600),
+      endDate: Date(timeIntervalSince1970: 1_704_109_600),
+      duration: 1_000,
+      localDate: "2024-01-01",
+      timeZoneSource: .unavailable
+    )
+    let firstLink = HealthWorkoutLinkFact(
+      id: "conflict-one", healthKitUUID: workout.healthKitUUID,
+      localEntityKind: .session, localEntityID: "session", linkedAt: Date(timeIntervalSince1970: 20)
+    )
+    let secondLink = HealthWorkoutLinkFact(
+      id: "conflict-two", healthKitUUID: workout.healthKitUUID,
+      localEntityKind: .session, localEntityID: "another-session",
+      linkedAt: Date(timeIntervalSince1970: 21))
+    let duplicateSessionLink = HealthWorkoutLinkFact(
+      id: "conflict-duplicate", healthKitUUID: workout.healthKitUUID,
+      localEntityKind: .session, localEntityID: "session",
+      linkedAt: Date(timeIntervalSince1970: 22))
+    let repository = TrainingEventTestRepository(
+      cycles: [makeCycle(status: .completed)],
+      completions: [CompletedSession(sessionID: "session", confirmedAt: 1_704_110_400)],
+      workouts: [workout], links: [firstLink, secondLink, duplicateSessionLink])
+
+    let events = try await makeBoundary(repository: repository).timeline().events
+    let linked = try XCTUnwrap(events.first(where: { $0.session != nil }))
+    XCTAssertTrue(
+      linked.disagreements.contains {
+        if case .linkConflict(healthKitUUID: workout.healthKitUUID, sessionIDs: let sessionIDs) = $0
+        {
+          return sessionIDs == ["another-session", "session"]
+        }
+        return false
+      })
+    XCTAssertTrue(linked.disagreements.contains(.missingHealthProvenance))
+  }
+
   private func makeBoundary(repository: TrainingEventTestRepository) -> TrainingEventLinkBoundary {
     TrainingEventLinkBoundary(
       cycleRepository: repository,

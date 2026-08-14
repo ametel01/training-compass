@@ -834,7 +834,7 @@ public struct TrainingCycleBoundary: Sendable {
       throw TrainingCycleValidationError.confirmationRequired
     }
     let preview = try await previewAbandonCycle(note: note)
-    return try await repository.saveTrainingCycle(
+    let audit = try await repository.saveTrainingCycle(
       preview.after,
       expectedBefore: preview.before,
       auditID: uuidGenerator.makeUUID().uuidString,
@@ -843,6 +843,15 @@ public struct TrainingCycleBoundary: Sendable {
       note: note,
       targetID: nil
     )
+    if let linkRepository = repository as? any TrainingEventLinkRepository {
+      for session in preview.unperformedSessions {
+        _ = try await linkRepository.unlinkActiveHealthWorkoutLinkFacts(
+          forLocalEntityID: session.id,
+          unlinkedAt: clock.now()
+        )
+      }
+    }
+    return audit
   }
 
   public func history() async throws -> [TrainingCycleHistoryEntry] {
