@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",

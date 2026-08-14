@@ -512,6 +512,7 @@ private struct StrengthProgressView: View {
   let model: AppModel
 
   @State private var progress: E1RMProgress?
+  @State private var rollingOverview: RollingWorkoutOverview?
   @State private var eventTimeline: TrainingEventTimelineSnapshot?
   @State private var selectedLiftID: String?
   @State private var showingLongerHistory = false
@@ -535,6 +536,8 @@ private struct StrengthProgressView: View {
             }
             .accessibilityIdentifier("progress.health-status")
           }
+
+          rollingWorkoutOverviewSection
 
           if !progress.availableLifts.isEmpty {
             Section("Lift") {
@@ -622,6 +625,7 @@ private struct StrengthProgressView: View {
         .refreshable { await reload() }
       } else {
         List {
+          rollingWorkoutOverviewSection
           Section("e1RM Progress") {
             ContentUnavailableView(
               "No Progress Yet",
@@ -661,6 +665,91 @@ private struct StrengthProgressView: View {
         Task { await reload() }
       }
     )
+  }
+
+  @ViewBuilder
+  private var rollingWorkoutOverviewSection: some View {
+    Section("Rolling Workout Overview") {
+      if let overview = rollingOverview {
+        Text(overview.currentWindow.displayName)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("progress.rolling-overview.window")
+        LabeledContent(
+          "Workouts",
+          value: overview.workoutCount.currentValue.formatted(.number.precision(.fractionLength(0)))
+        )
+        .accessibilityIdentifier("progress.rolling-overview.count")
+        NavigationLink {
+          InsightExplanationDetailView(explanation: overview.workoutCount.explanation)
+        } label: {
+          Label("Explain workout count", systemImage: "info.circle")
+        }
+        LabeledContent(
+          "Available duration",
+          value: String(format: "%.1f min", overview.totalDuration.currentValue / 60))
+        NavigationLink {
+          InsightExplanationDetailView(explanation: overview.totalDuration.explanation)
+        } label: {
+          Label("Explain available duration", systemImage: "info.circle")
+        }
+        if overview.comparisonAvailability == .available {
+          Text(
+            "Four-period median: \(overview.workoutCount.comparisonMedian ?? 0, specifier: "%.1f") workouts · \(overview.totalDuration.comparisonMedian.map { String(format: "%.1f min", $0 / 60) } ?? "—") duration"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        } else if case .withheld(let reason) = overview.comparisonAvailability {
+          Text("Comparison withheld: \(reason)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        if !overview.activityTypes.isEmpty {
+          ForEach(overview.activityTypes) { activity in
+            LabeledContent(
+              activity.activityType,
+              value: activity.metric.currentValue.formatted(.number.precision(.fractionLength(0))))
+            NavigationLink {
+              InsightExplanationDetailView(explanation: activity.metric.explanation)
+            } label: {
+              Label("Explain \(activity.activityType)", systemImage: "info.circle")
+            }
+          }
+        }
+        if overview.zoneMetrics.isEmpty {
+          if let explanation = overview.zoneAvailabilityExplanation {
+            Text("Heart-Rate Zone time is unavailable for this window.")
+              .foregroundStyle(.secondary)
+            NavigationLink {
+              InsightExplanationDetailView(explanation: explanation)
+            } label: {
+              Label("Explain Heart-Rate Zone coverage", systemImage: "info.circle")
+            }
+          }
+        } else {
+          ForEach(overview.zoneMetrics) { zone in
+            let coverage =
+              zone.totalWorkoutDurationSeconds > 0
+              ? zone.coveredWorkoutDurationSeconds / zone.totalWorkoutDurationSeconds * 100 : 0
+            LabeledContent(
+              "Heart rate \(zone.zone.displayName)",
+              value: String(
+                format: "%.1f min · %.0f%% covered",
+                zone.coveredSeconds / 60,
+                coverage)
+            )
+            NavigationLink {
+              InsightExplanationDetailView(explanation: zone.explanation)
+            } label: {
+              Label("Explain \(zone.zone.displayName)", systemImage: "info.circle")
+            }
+          }
+        }
+      } else {
+        ProgressView("Loading workout overview…")
+      }
+    }
+    .accessibilityIdentifier("progress.rolling-overview")
   }
 
   @ViewBuilder
@@ -722,6 +811,48 @@ private struct StrengthProgressView: View {
     }
     eventTimeline = try? await model.trainingEventLinkBoundary?.timeline()
     if eventTimeline == nil { eventTimeline = TrainingEventTimelineSnapshot(events: []) }
+    rollingOverview = try? await model.rollingWorkoutOverviewBoundary?.overview()
+  }
+}
+
+private struct InsightExplanationDetailView: View {
+  let explanation: InsightExplanation
+
+  var body: some View {
+    List {
+      Section("Question") { Text(explanation.question) }
+      Section("Calculation") {
+        Text(explanation.calculationRule)
+        LabeledContent("Dates", value: explanation.dateRange)
+        if let baseline = explanation.comparisonBaseline {
+          LabeledContent("Comparison", value: baseline)
+        }
+      }
+      Section("Source and coverage") {
+        Text(explanation.sourceCoverage)
+        if let lastReconciliation = explanation.lastReconciliation {
+          LabeledContent("Last reconciliation", value: lastReconciliation)
+        }
+      }
+      if !explanation.includedRecordIDs.isEmpty {
+        Section("Included records") {
+          ForEach(explanation.includedRecordIDs, id: \.self) { Text($0).font(.caption) }
+        }
+      }
+      if !explanation.missingData.isEmpty {
+        Section("Missing data") {
+          ForEach(explanation.missingData, id: \.self) { Text($0).font(.caption) }
+        }
+      }
+      if !explanation.exclusions.isEmpty {
+        Section("Excluded records") {
+          ForEach(explanation.exclusions) { exclusion in
+            Text("\(exclusion.recordID) · \(exclusion.reason)").font(.caption)
+          }
+        }
+      }
+    }
+    .navigationTitle("Insight Explanation")
   }
 }
 

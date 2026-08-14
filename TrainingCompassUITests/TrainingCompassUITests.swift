@@ -54,6 +54,10 @@ final class TrainingCompassUITests: XCTestCase {
     app.tabBars.buttons["Cycle"].tap()
     XCTAssertTrue(app.staticTexts["Cycle unavailable"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Calendar Change"].exists)
+
+    app.tabBars.buttons["Progress"].tap()
+    XCTAssertTrue(app.navigationBars["Progress"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Rolling Workout Overview"].waitForExistence(timeout: 15))
   }
 
   func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() throws {

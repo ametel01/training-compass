@@ -280,6 +280,64 @@ public struct InsightExplanation: Codable, Equatable, Sendable {
   public let sourceState: String
   public let text: String
 
+  public let includedDates: [String]
+  public let sourceCoverage: String
+  public let calculationRule: String
+  public let comparisonBaseline: String?
+  public let missingData: [String]
+  public let exclusions: [InsightExplanationExclusion]
+  public let lastReconciliation: String?
+  public let configuration: String?
+
+  public init(
+    question: String,
+    includedRecordIDs: [String],
+    excludedRecords: [E1RMExcludedRecord],
+    formula: String,
+    dateRange: String,
+    roundingRule: String,
+    sourceState: String,
+    includedDates: [String] = [],
+    sourceCoverage: String = "",
+    calculationRule: String? = nil,
+    comparisonBaseline: String? = nil,
+    missingData: [String] = [],
+    exclusions: [InsightExplanationExclusion] = [],
+    lastReconciliation: String? = nil,
+    configuration: String? = nil
+  ) {
+    self.question = question
+    self.includedRecordIDs = includedRecordIDs
+    self.excludedRecords = excludedRecords
+    self.formula = formula
+    self.dateRange = dateRange
+    self.roundingRule = roundingRule
+    self.sourceState = sourceState
+    self.includedDates = includedDates
+    self.sourceCoverage = sourceCoverage.isEmpty ? sourceState : sourceCoverage
+    self.calculationRule = calculationRule ?? formula
+    self.comparisonBaseline = comparisonBaseline
+    self.missingData = missingData
+    self.exclusions = exclusions
+    self.lastReconciliation = lastReconciliation
+    self.configuration = configuration
+    let included = includedRecordIDs.isEmpty ? "none" : includedRecordIDs.joined(separator: ", ")
+    let excluded =
+      excludedRecords.isEmpty
+      ? "none"
+      : excludedRecords.map { "\($0.label) [\($0.reason.displayName)]" }.joined(separator: ", ")
+    let details =
+      exclusions.isEmpty
+      ? "none"
+      : exclusions.map { "\($0.recordID) [\($0.reason)]" }.joined(separator: ", ")
+    text =
+      question + " Included records: " + included + ". Excluded records: " + excluded
+      + ". Formula: " + formula + ". Dates: " + dateRange + ". " + roundingRule
+      + " Source state: " + sourceState + ". Coverage: " + self.sourceCoverage
+      + ". Missing data: " + (missingData.isEmpty ? "none" : missingData.joined(separator: ", "))
+      + ". Exclusions: " + details + "."
+  }
+
   public init(
     question: String,
     includedRecordIDs: [String],
@@ -289,22 +347,34 @@ public struct InsightExplanation: Codable, Equatable, Sendable {
     roundingRule: String,
     sourceState: String
   ) {
-    self.question = question
-    self.includedRecordIDs = includedRecordIDs
-    self.excludedRecords = excludedRecords
-    self.formula = formula
-    self.dateRange = dateRange
-    self.roundingRule = roundingRule
-    self.sourceState = sourceState
-    let included = includedRecordIDs.isEmpty ? "none" : includedRecordIDs.joined(separator: ", ")
-    let excluded =
-      excludedRecords.isEmpty
-      ? "none"
-      : excludedRecords.map { "\($0.label) [\($0.reason.displayName)]" }.joined(separator: ", ")
-    text =
-      question + " Included records: " + included + ". Excluded records: " + excluded
-      + ". Formula: " + formula + ". Dates: " + dateRange + ". " + roundingRule
-      + " Source state: " + sourceState + "."
+    self.init(
+      question: question,
+      includedRecordIDs: includedRecordIDs,
+      excludedRecords: excludedRecords,
+      formula: formula,
+      dateRange: dateRange,
+      roundingRule: roundingRule,
+      sourceState: sourceState,
+      includedDates: [],
+      sourceCoverage: sourceState,
+      calculationRule: formula,
+      comparisonBaseline: nil,
+      missingData: [],
+      exclusions: [],
+      lastReconciliation: nil,
+      configuration: nil)
+  }
+}
+
+public struct InsightExplanationExclusion: Codable, Equatable, Identifiable, Sendable {
+  public let recordID: String
+  public let reason: String
+
+  public var id: String { "\(recordID):\(reason)" }
+
+  public init(recordID: String, reason: String) {
+    self.recordID = recordID
+    self.reason = reason
   }
 }
 

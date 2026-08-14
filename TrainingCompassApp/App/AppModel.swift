@@ -31,6 +31,7 @@ final class AppModel {
   let healthDataRebuildBoundary: HealthDataRebuildBoundary?
   let healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary?
   let trainingEventLinkBoundary: TrainingEventLinkBoundary?
+  let rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -46,7 +47,8 @@ final class AppModel {
     healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil,
     healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil,
     healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary? = nil,
-    trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil
+    trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
+    rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -62,6 +64,7 @@ final class AppModel {
     self.healthDataRebuildBoundary = healthDataRebuildBoundary
     self.healthWorkoutRouteBoundary = healthWorkoutRouteBoundary
     self.trainingEventLinkBoundary = trainingEventLinkBoundary
+    self.rollingWorkoutOverviewBoundary = rollingWorkoutOverviewBoundary
   }
 
   func prepare() async {
@@ -193,6 +196,13 @@ final class AppModel {
           clock: dependencies.clock,
           uuidGenerator: dependencies.uuidGenerator
         )
+      }(),
+      rollingWorkoutOverviewBoundary: {
+        guard let healthRepository = repository as? any HealthWorkoutRepository else { return nil }
+        return RollingWorkoutOverviewBoundary(
+          repository: healthRepository,
+          clock: dependencies.clock,
+          calendar: dependencies.calendar)
       }()
     )
   }
