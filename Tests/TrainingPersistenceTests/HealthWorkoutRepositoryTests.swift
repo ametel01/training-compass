@@ -190,6 +190,45 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertNil(deleted)
   }
 
+  func testSimplifiedRoutePersistsReconstructiblyAndWorkoutDeletionRemovesIt() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-health-route-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let workout = workout(activity: "running", source: "Watch")
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [workout]), stream: .workouts, limits: .default)
+    let route = HealthWorkoutRoute(
+      healthKitUUID: workout.healthKitUUID,
+      points: [
+        .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+        .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942),
+      ],
+      originalPointCount: 10_000,
+      sources: [
+        .init(
+          healthKitUUID: "route-source-uuid",
+          provenance: .init(
+            sourceName: "Watch", sourceBundleIdentifier: "com.example.source"))
+      ],
+      retainedAt: Date(timeIntervalSince1970: 1_700_000_900),
+      simplification: .boundedDouglasPeuckerV1,
+      reconciliationContext: "workout-route-query")
+
+    try await repository.saveHealthWorkoutRoute(route)
+    let restarted = GRDBTrainingRepository(root: root)
+    let persisted = try await restarted.loadHealthWorkoutRoute(for: workout.healthKitUUID)
+    XCTAssertEqual(persisted, route)
+
+    try await restarted.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: [workout.healthKitUUID]),
+      stream: .workouts,
+      limits: .default)
+
+    let deleted = try await restarted.loadHealthWorkoutRoute(for: workout.healthKitUUID)
+    XCTAssertNil(deleted)
+  }
+
   func testDeepRebuildClearsReconstructibleStateButRetainsAuthoritativeHealthLinkFacts()
     async throws
   {
@@ -213,16 +252,34 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
         heartRate: .loading,
         distance: .loading,
         activeEnergy: .loading))
+    try await repository.saveHealthWorkoutRoute(
+      HealthWorkoutRoute(
+        healthKitUUID: mirroredWorkout.healthKitUUID,
+        points: [
+          .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
+          .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+        ],
+        originalPointCount: 2,
+        sources: [
+          .init(
+            healthKitUUID: "route-source",
+            provenance: .init(sourceBundleIdentifier: "com.example.watch"))
+        ],
+        retainedAt: Date(timeIntervalSince1970: 1_700_000_900),
+        simplification: .boundedDouglasPeuckerV1,
+        reconciliationContext: "workout-route-query"))
 
     try await repository.beginHealthRebuild()
     let workouts = try await repository.loadHealthWorkouts()
     let enrichment = try await repository.loadHealthWorkoutEnrichment(
       for: mirroredWorkout.healthKitUUID)
     let checkpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
+    let route = try await repository.loadHealthWorkoutRoute(for: mirroredWorkout.healthKitUUID)
     let links = try await repository.loadHealthWorkoutLinkFacts(for: "returning-uuid")
     XCTAssertTrue(workouts.isEmpty)
     XCTAssertNil(enrichment)
     XCTAssertNil(checkpoint)
+    XCTAssertNil(route)
     XCTAssertEqual(links, [link])
   }
 

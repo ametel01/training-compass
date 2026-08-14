@@ -4,6 +4,7 @@ import OSLog
 import Observation
 import TrainingApplication
 import TrainingPersistence
+import UIKit
 
 @MainActor
 @Observable
@@ -28,6 +29,7 @@ final class AppModel {
   let trainingErasureBoundary: TrainingErasureBoundary?
   let healthWorkoutImportBoundary: HealthWorkoutImportBoundary?
   let healthDataRebuildBoundary: HealthDataRebuildBoundary?
+  let healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary?
   let trainingEventLinkBoundary: TrainingEventLinkBoundary?
 
   init(
@@ -43,6 +45,7 @@ final class AppModel {
     trainingErasureBoundary: TrainingErasureBoundary? = nil,
     healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil,
     healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil,
+    healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary? = nil,
     trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
@@ -57,6 +60,7 @@ final class AppModel {
     self.trainingErasureBoundary = trainingErasureBoundary
     self.healthWorkoutImportBoundary = healthWorkoutImportBoundary
     self.healthDataRebuildBoundary = healthDataRebuildBoundary
+    self.healthWorkoutRouteBoundary = healthWorkoutRouteBoundary
     self.trainingEventLinkBoundary = trainingEventLinkBoundary
   }
 
@@ -161,6 +165,15 @@ final class AppModel {
           repository: healthRepository,
           storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider())
       }(),
+      healthWorkoutRouteBoundary: {
+        guard let routeClient = dependencies.healthKit as? any HealthWorkoutRouteClient,
+          let routeRepository = repository as? any HealthWorkoutRouteRepository
+        else { return nil }
+        return HealthWorkoutRouteBoundary(
+          client: routeClient,
+          repository: routeRepository,
+          resourceProvider: DeviceHealthWorkoutRouteResourceProvider())
+      }(),
       trainingEventLinkBoundary: {
         guard let healthRepository = repository as? any HealthWorkoutRepository,
           let linkRepository = repository as? any TrainingEventLinkRepository
@@ -175,6 +188,35 @@ final class AppModel {
         )
       }()
     )
+  }
+}
+
+private actor DeviceHealthWorkoutRouteResourceProvider: HealthWorkoutRouteResourceProviding {
+  func currentRouteResources() async -> HealthWorkoutRouteResourceSnapshot {
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+      .first
+    let available =
+      (try? root?.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage) ?? Int64.max
+    let processInfo = ProcessInfo.processInfo
+    let thermalState: HealthWorkoutRouteThermalState =
+      switch processInfo.thermalState {
+      case .nominal: .nominal
+      case .fair: .fair
+      case .serious: .serious
+      case .critical: .critical
+      @unknown default: .serious
+      }
+    let batteryLevel: Double? = await MainActor.run {
+      UIDevice.current.isBatteryMonitoringEnabled = true
+      let level = UIDevice.current.batteryLevel
+      return level < 0 ? nil : Double(level)
+    }
+    return HealthWorkoutRouteResourceSnapshot(
+      availableStorageBytes: Int(min(Int64(Int.max), max(0, available))),
+      lowPowerModeEnabled: processInfo.isLowPowerModeEnabled,
+      batteryLevel: batteryLevel,
+      thermalState: thermalState)
   }
 }
 

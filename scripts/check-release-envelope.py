@@ -14,6 +14,7 @@ LIMITS = {
     "localMutationP95Ms": ("<=", 150),
     "ordinaryQueryP95Ms": ("<=", 300),
     "insightP95Ms": ("<=", 750),
+    "routeProcessingP95Ms": ("<=", 2000),
     "foregroundPeakMiB": ("<=", 250),
     "backgroundPeakMiB": ("<=", 100),
     "combinedStoresGiB": ("<=", 2),

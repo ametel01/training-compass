@@ -17,5 +17,6 @@
   "ordinaryQueryP95Ms": 1,
   "reconstructibleMigrationP95S": 1,
   "routeGeometryMiB": 1,
+  "routeProcessingP95Ms": 1,
   "storageAvailableMiB": 500
 }

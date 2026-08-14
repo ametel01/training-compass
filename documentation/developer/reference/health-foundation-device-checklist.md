@@ -7,6 +7,8 @@ record only the app-controlled result and the privacy-safe evidence fields.
 This checklist records the issue #22 foundation baseline. Issue #23 supersedes
 only its former no-linking boundary; current candidates must also run the
 [Training Event linking checklist](training-event-linking-device-checklist.md).
+Issue #26 supersedes its former no-route boundary; current candidates must also
+run the [Workout route checklist](workout-route-device-checklist.md).
 
 1. Build and install the Release configuration in place, then confirm that
    existing Training Maxes, Sessions, audit history, and export/import actions
@@ -43,7 +45,8 @@ only its former no-linking boundary; current candidates must also run the
     reconstructible Health data, no workout payloads in logs or
     export-by-default output, and no unfinished enrichment, insight,
     recovery-guidance, route, or Write-back controls. The absence of linking
-    controls applies to that recorded baseline and is superseded by issue #23.
+    and route controls applies to that recorded baseline and is superseded by
+    issues #23 and #26 respectively.
 
 Record a pass or fail with device model, iOS version, coarse operation
 measurements, and the booleans for authorization, anchored queries, observer

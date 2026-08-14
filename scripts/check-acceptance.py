@@ -17,13 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
     "150 milliseconds",
     "300 milliseconds",
     "750 milliseconds",
+    "2 seconds",
     "250 MiB",
     "100 MiB",
     "2 GiB",
@@ -145,6 +146,16 @@ def main() -> int:
     for contract in required_enrichment_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits Workout Enrichment contract: {contract}")
+
+    required_route_contracts = (
+        "No route is prefetched",
+        "at most 2,000 retained points",
+        "No partial route is represented as ready",
+        "authoritative export by default",
+    )
+    for contract in required_route_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits Workout Route contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")
