@@ -15,11 +15,18 @@ PY
 search_recursive() {
   local pattern=$1
   shift
+  local status
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@"
+    rg --hidden --no-ignore -n "$pattern" "$@" || status=$?
   else
-    grep -REn --include='*.swift' "$pattern" "$@"
+    grep -REn "$pattern" "$@" || status=$?
   fi
+  status=${status:-0}
+  if (( status > 1 )); then
+    echo "Privacy scan failed for: $*" >&2
+    exit "$status"
+  fi
+  return "$status"
 }
 
 require_pattern() {

@@ -86,6 +86,7 @@ final class AppModel {
   }
 
   static func live() -> AppModel {
+    UIDevice.current.isBatteryMonitoringEnabled = true
     let fileSystem = FoundationApplicationFileSystem()
     let repository: any TrainingRepository
     do {
@@ -214,9 +215,8 @@ private actor DeviceHealthWorkoutRouteResourceProvider: HealthWorkoutRouteResour
       @unknown default: .serious
       }
     let batteryLevel: Double? = await MainActor.run {
-      UIDevice.current.isBatteryMonitoringEnabled = true
       let level = UIDevice.current.batteryLevel
-      return level < 0 ? nil : Double(level)
+      return level < 0 ? 0 : Double(level)
     }
     return HealthWorkoutRouteResourceSnapshot(
       availableStorageBytes: Int(min(Int64(Int.max), max(0, available))),

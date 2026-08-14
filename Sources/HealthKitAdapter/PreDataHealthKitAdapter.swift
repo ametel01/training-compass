@@ -93,6 +93,8 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       else { return nil }
       let routes = try await fetchWorkoutRoutes(for: healthWorkout)
       guard !routes.isEmpty else { return nil }
+      // Every segment receives at least two points, so this guard must stay
+      // aligned with the minimum segment budget below.
       guard routes.count <= maximumRetainedPoints / 2 else {
         throw HealthKitAdapterError.tooManyRouteSegments
       }
@@ -299,7 +301,9 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
     private func routeCoordinatePages(for route: HKWorkoutRoute)
       -> AsyncThrowingStream<RouteCoordinatePage, any Error>
     {
-      AsyncThrowingStream(bufferingPolicy: .bufferingOldest(2)) { continuation in
+      // Absorb ordinary HealthKit delivery bursts while the adapter actor
+      // simplifies a page. The fixed capacity keeps this queue bounded.
+      AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
         let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
           if let error {
             continuation.finish(throwing: error)

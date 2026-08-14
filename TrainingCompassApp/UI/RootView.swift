@@ -832,6 +832,10 @@ private struct UnifiedTrainingEventDetailView: View {
     }
     .navigationTitle("Training Event")
     .accessibilityIdentifier("training-event.detail")
+    .onDisappear {
+      guard let healthKitUUID = event.healthWorkout?.healthKitUUID else { return }
+      Task { await model.healthWorkoutRouteBoundary?.cancelRoute(for: healthKitUUID) }
+    }
     .confirmationDialog(
       "Unlink this Training Event?",
       isPresented: $showingUnlinkConfirmation,
@@ -914,6 +918,11 @@ private struct HealthWorkoutHistoryDetailView: View {
       }
     }
     .navigationTitle("Health Workout")
+    .onDisappear {
+      Task {
+        await model.healthWorkoutRouteBoundary?.cancelRoute(for: entry.event.healthKitUUID)
+      }
+    }
   }
 }
 
@@ -972,9 +981,6 @@ private struct HealthWorkoutRouteView: View {
       }
     }
     .task { await load() }
-    .onDisappear {
-      Task { await model.healthWorkoutRouteBoundary?.cancelRoute(for: healthKitUUID) }
-    }
   }
 
   private var retryButton: some View {
@@ -1005,11 +1011,12 @@ private struct HealthWorkoutRoutePlot: View {
       let maximumNorth = northValues.max() ?? first.northSouthDegrees
       let minimumEast = eastValues.min() ?? first.eastWestDegrees
       let maximumEast = eastValues.max() ?? first.eastWestDegrees
-      let northSpan = max(maximumNorth - minimumNorth, .leastNonzeroMagnitude)
+      let minimumSpanDegrees = 0.000_1
+      let northSpan = max(maximumNorth - minimumNorth, minimumSpanDegrees)
       let averageNorth = (minimumNorth + maximumNorth) / 2
       let eastScale = cos(averageNorth * .pi / 180)
       let eastSpan = max(
-        (maximumEast - minimumEast) * eastScale, .leastNonzeroMagnitude)
+        (maximumEast - minimumEast) * eastScale, minimumSpanDegrees)
       let inset: CGFloat = 16
       let drawingWidth = max(1, size.width - inset * 2)
       let drawingHeight = max(1, size.height - inset * 2)
