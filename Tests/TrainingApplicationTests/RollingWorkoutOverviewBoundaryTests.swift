@@ -94,6 +94,52 @@ final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
       } == true)
   }
 
+  func testHeartRateProjectionUsesConfiguredRateAndRetainsSourceCoverage() async throws {
+    let workout = workout(id: "zones", localDate: "2026-08-15", duration: 100)
+    let repository = OverviewRepository(
+      workouts: [workout],
+      checkpoint: HealthSyncCheckpoint(
+        stream: .workouts, anchor: "anchor", reconciliationContext: "complete"),
+      enrichment: enrichment(for: workout, bpm: 100),
+      maximumHeartRate: try MaximumHeartRate(beatsPerMinute: 200))
+    let boundary = RollingWorkoutOverviewBoundary(
+      repository: repository,
+      clock: OverviewClock(),
+      calendar: OverviewCalendar(),
+      zoneProvider: HealthWorkoutHeartRateZoneProvider(configurationRepository: repository))
+
+    let overview = try await boundary.overview(
+      asOf: TrainingDate(year: 2026, month: 8, day: 15))
+
+    XCTAssertEqual(overview.maximumHeartRateBPM, 200)
+    XCTAssertEqual(
+      overview.zoneMetrics.first(where: { $0.zone == RollingWorkoutZone.zone1 })?.coveredSeconds,
+      100)
+    let zone1 = try XCTUnwrap(
+      overview.zoneMetrics.first(where: { $0.zone == RollingWorkoutZone.zone1 }))
+    XCTAssertEqual(zone1.percentOfCoveredTime, 100)
+    XCTAssertEqual(zone1.coverageOfTotalWorkoutDuration, 100)
+    XCTAssertTrue(
+      overview.zoneMetrics.first?.explanation.formula.contains("Maximum heart rate: 200") == true)
+  }
+
+  func testRawHeartRateRemainsVisibleButZonesStayUnavailableWithoutConfiguration() async throws {
+    let workout = workout(id: "unconfigured", localDate: "2026-08-15", duration: 100)
+    let repository = OverviewRepository(
+      workouts: [workout],
+      checkpoint: HealthSyncCheckpoint(
+        stream: .workouts, anchor: "anchor", reconciliationContext: "complete"),
+      enrichment: enrichment(for: workout, bpm: 100))
+    let provider = HealthWorkoutHeartRateZoneProvider(configurationRepository: repository)
+
+    let availability = await provider.zoneTimes(
+      for: workout, enrichment: enrichment(for: workout, bpm: 100))
+
+    let expected: RollingWorkoutZoneTimeAvailability =
+      .unavailable(reason: "Maximum heart rate is not configured")
+    XCTAssertEqual(availability, expected)
+  }
+
   private func workout(id: String, localDate: String, duration: TimeInterval) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: id,
@@ -104,24 +150,47 @@ final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
       localDate: localDate,
       firstImportedAt: Date(timeIntervalSince1970: 10))
   }
+
+  private func enrichment(for workout: HealthWorkout, bpm: Double) -> HealthWorkoutEnrichment {
+    HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .available(
+        samples: [
+          HealthWorkoutHeartRateSample(
+            id: "sample", startDate: workout.startDate, endDate: workout.endDate,
+            beatsPerMinute: bpm, provenance: HealthSampleProvenance(sourceName: "Watch"))
+        ],
+        checkedAt: workout.endDate,
+        reconciliationContext: "complete"),
+      distance: .notAvailableFromHealth(
+        checkedAt: workout.endDate, reconciliationContext: "complete"),
+      activeEnergy: .notAvailableFromHealth(
+        checkedAt: workout.endDate, reconciliationContext: "complete"))
+  }
 }
 
-private actor OverviewRepository: HealthWorkoutRepository {
+private actor OverviewRepository: HealthWorkoutRepository, HeartRateConfigurationRepository {
   private var workouts: [HealthWorkout]
   private let deleted: [String]
   private let checkpoint: HealthSyncCheckpoint?
   private let throwsWhenLoadingEnrichment: Bool
+  private let enrichment: HealthWorkoutEnrichment?
+  private var maximumHeartRate: MaximumHeartRate?
 
   init(
     workouts: [HealthWorkout],
     deleted: [String] = [],
     checkpoint: HealthSyncCheckpoint? = nil,
-    throwsWhenLoadingEnrichment: Bool = false
+    throwsWhenLoadingEnrichment: Bool = false,
+    enrichment: HealthWorkoutEnrichment? = nil,
+    maximumHeartRate: MaximumHeartRate? = nil
   ) {
     self.workouts = workouts
     self.deleted = deleted
     self.checkpoint = checkpoint
     self.throwsWhenLoadingEnrichment = throwsWhenLoadingEnrichment
+    self.enrichment = enrichment
+    self.maximumHeartRate = maximumHeartRate
   }
 
   func upsertHealthWorkouts(
@@ -139,7 +208,22 @@ private actor OverviewRepository: HealthWorkoutRepository {
     -> HealthWorkoutEnrichment?
   {
     if throwsWhenLoadingEnrichment { throw OverviewRepositoryError.enrichmentUnavailable }
-    return nil
+    return enrichment
+  }
+
+  func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
+    maximumHeartRate.map { HeartRateConfiguration(maximumHeartRate: $0, updatedAt: 1) }
+  }
+
+  func saveHeartRateConfiguration(
+    _ configuration: HeartRateConfiguration,
+    expectedBefore: HeartRateConfiguration?
+  ) async throws {
+    maximumHeartRate = configuration.maximumHeartRate
+  }
+
+  func deleteHeartRateConfiguration() async throws {
+    maximumHeartRate = nil
   }
 
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws

@@ -444,10 +444,18 @@ public struct ProtectedStoreBootstrapper: Sendable {
           """)
       try db.execute(
         sql: """
-          CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
-          ON health_workout_link_facts (local_entity_kind, local_entity_id)
-          WHERE unlinked_at IS NULL
+            CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
+            ON health_workout_link_facts (local_entity_kind, local_entity_id)
+            WHERE unlinked_at IS NULL
           """)
+    }
+    migrator.registerMigration("authoritative_v14_heart_rate_configuration") { db in
+      try db.create(table: "heart_rate_configuration") { table in
+        table.column("id", .integer).primaryKey()
+        table.column("maximum_heart_rate_bpm", .double).notNull()
+          .check { $0 > 0 }
+        table.column("updated_at", .integer).notNull()
+      }
     }
     return migrator
   }

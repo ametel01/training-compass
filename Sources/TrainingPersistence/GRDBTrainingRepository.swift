@@ -1078,6 +1078,63 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  public func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql:
+            "SELECT maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration WHERE id = 1"
+        )
+      else { return nil }
+      guard
+        let maximum = try? MaximumHeartRate(beatsPerMinute: row["maximum_heart_rate_bpm"] as Double)
+      else { throw HeartRateConfigurationRepositoryError.unavailable }
+      return HeartRateConfiguration(
+        maximumHeartRate: maximum, updatedAt: row["updated_at"] as Int64)
+    }
+  }
+
+  public func saveHeartRateConfiguration(
+    _ configuration: HeartRateConfiguration,
+    expectedBefore: HeartRateConfiguration?
+  ) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      let current = try Row.fetchOne(
+        db,
+        sql: "SELECT maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration WHERE id = 1"
+      ).flatMap { row -> HeartRateConfiguration? in
+        guard
+          let maximum = try? MaximumHeartRate(
+            beatsPerMinute: row["maximum_heart_rate_bpm"] as Double)
+        else { return nil }
+        return HeartRateConfiguration(
+          maximumHeartRate: maximum, updatedAt: row["updated_at"] as Int64)
+      }
+      guard current == expectedBefore else {
+        throw HeartRateConfigurationRepositoryError.staleConfiguration
+      }
+      try db.execute(
+        sql: """
+          INSERT INTO heart_rate_configuration (id, maximum_heart_rate_bpm, updated_at)
+          VALUES (1, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            maximum_heart_rate_bpm = excluded.maximum_heart_rate_bpm,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [configuration.maximumHeartRateBPM, configuration.updatedAt])
+    }
+  }
+
+  public func deleteHeartRateConfiguration() async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(sql: "DELETE FROM heart_rate_configuration")
+    }
+  }
+
   public func saveLiftConfiguration(
     _ configuration: LiftConfiguration,
     expectedBefore: LiftConfigurationSnapshot?,
@@ -2663,6 +2720,20 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     guard metadataCount == 1, metadataValid == 1 else {
       throw TrainingImportError.invariantViolation("gate zero metadata")
     }
+    let maximumHeartRateRows = try Row.fetchAll(
+      db,
+      sql: "SELECT id, maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration")
+    guard maximumHeartRateRows.count <= 1 else {
+      throw TrainingImportError.invariantViolation("maximum heart rate configuration")
+    }
+    for row in maximumHeartRateRows {
+      guard (row["id"] as Int64) == 1,
+        (try? MaximumHeartRate(beatsPerMinute: row["maximum_heart_rate_bpm"] as Double)) != nil,
+        (row["updated_at"] as Int64) >= 0
+      else {
+        throw TrainingImportError.invariantViolation("maximum heart rate configuration")
+      }
+    }
     for row in cycles {
       let cycle = try trainingCycle(from: row)
       guard cycle.id == (row["id"] as String), cycleIDs.insert(cycle.id).inserted else {
@@ -2828,7 +2899,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "lift_configuration_audit", "schedule_template_audit", "training_cycle_audit",
     "set_result_audit",
     "session_correction_audit", "training_max_proposals", "training_max_history",
-    "health_workout_link_facts",
+    "health_workout_link_facts", "heart_rate_configuration",
   ]
 
   private static let legacyImportColumns: [String: Set<String>] = [

@@ -69,6 +69,8 @@ private struct HealthView: View {
   @State private var isConnecting = false
   @State private var isImporting = false
   @State private var errorMessage: String?
+  @State private var maximumHeartRateText = ""
+  @State private var maximumHeartRate: HeartRateConfiguration?
 
   var body: some View {
     List {
@@ -119,6 +121,33 @@ private struct HealthView: View {
             .foregroundStyle(.secondary)
         } else {
           Text("Health data is unavailable on this device. Local training remains fully available.")
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      Section("Heart-Rate Zones") {
+        Text(
+          "Zones use the maximum heart rate you configure here. Raw Health heart-rate samples remain visible when no maximum is configured, but no zone time is calculated."
+        )
+        .font(.subheadline)
+        TextField("Maximum heart rate (bpm)", text: $maximumHeartRateText)
+          .keyboardType(.decimalPad)
+          .accessibilityIdentifier("health.maximum-heart-rate")
+        Button("Save Maximum Heart Rate") {
+          Task { await saveMaximumHeartRate() }
+        }
+        .disabled(model.heartRateConfigurationBoundary == nil)
+        .accessibilityIdentifier("health.maximum-heart-rate.save")
+        if let maximumHeartRate {
+          LabeledContent(
+            "Configured",
+            value: "\(String(format: "%.1f", maximumHeartRate.maximumHeartRateBPM)) bpm")
+          Button("Clear Maximum Heart Rate", role: .destructive) {
+            Task { await clearMaximumHeartRate() }
+          }
+          .accessibilityIdentifier("health.maximum-heart-rate.clear")
+        } else {
+          Text("Not configured")
             .foregroundStyle(.secondary)
         }
       }
@@ -219,6 +248,10 @@ private struct HealthView: View {
       healthHistory =
         (try? await boundary.healthWorkoutHistory())
         ?? HealthWorkoutHistorySnapshot(state: .unavailable)
+      maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
+      if let maximumHeartRate {
+        maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
+      }
       if scenePhase == .active, authorization.state == .authorized {
         try? await boundary.registerHealthObserver()
         await refreshHealthData()
@@ -353,6 +386,32 @@ private struct HealthView: View {
     case .unavailableProvenance: "questionmark.circle"
     case .unavailable: "heart.slash"
     case .available: "checkmark.circle"
+    }
+  }
+
+  private func saveMaximumHeartRate() async {
+    guard let boundary = model.heartRateConfigurationBoundary,
+      let value = Double(maximumHeartRateText.trimmingCharacters(in: .whitespacesAndNewlines))
+    else {
+      errorMessage = "Enter a positive maximum heart rate in beats per minute."
+      return
+    }
+    do {
+      maximumHeartRate = try await boundary.configure(maximumHeartRateBPM: value)
+      model.heartRateConfigurationDidChange()
+    } catch {
+      errorMessage = "Maximum heart rate must be a finite positive number."
+    }
+  }
+
+  private func clearMaximumHeartRate() async {
+    do {
+      try await model.heartRateConfigurationBoundary?.clear()
+      maximumHeartRate = nil
+      maximumHeartRateText = ""
+      model.heartRateConfigurationDidChange()
+    } catch {
+      errorMessage = "The maximum heart rate could not be cleared."
     }
   }
 }
@@ -641,7 +700,7 @@ private struct StrengthProgressView: View {
     }
     .navigationTitle("Progress")
     .accessibilityIdentifier("progress.destination")
-    .task(id: model.phase) {
+    .task(id: "\(model.phase)-\(model.heartRateConfigurationRevision)") {
       if model.phase == .ready { await reload() }
     }
     .alert(
@@ -727,16 +786,19 @@ private struct StrengthProgressView: View {
             }
           }
         } else {
+          if let maximum = overview.maximumHeartRateBPM {
+            Text("Maximum heart rate used: \(maximum, specifier: "%.1f") bpm")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
           ForEach(overview.zoneMetrics) { zone in
-            let coverage =
-              zone.totalWorkoutDurationSeconds > 0
-              ? zone.coveredWorkoutDurationSeconds / zone.totalWorkoutDurationSeconds * 100 : 0
             LabeledContent(
               "Heart rate \(zone.zone.displayName)",
               value: String(
-                format: "%.1f min · %.0f%% covered",
+                format: "%.1f min · %.1f%% of covered · %.1f%% workout",
                 zone.coveredSeconds / 60,
-                coverage)
+                zone.percentOfCoveredTime,
+                zone.coverageOfTotalWorkoutDuration)
             )
             NavigationLink {
               InsightExplanationDetailView(explanation: zone.explanation)
@@ -1034,6 +1096,11 @@ private struct HealthWorkoutHistoryDetailView: View {
         LabeledContent("Coverage", value: entry.event.healthCoverage.displayName)
       }
       HealthWorkoutEnrichmentView(enrichment: entry.enrichment)
+      HeartRateZoneDetailView(
+        startDate: entry.event.startDate,
+        endDate: entry.event.endDate,
+        enrichment: entry.enrichment,
+        provider: model.heartRateZoneProvider)
       if model.healthWorkoutRouteBoundary != nil {
         HealthWorkoutRouteView(healthKitUUID: entry.event.healthKitUUID, model: model)
       }
@@ -1053,6 +1120,84 @@ private struct HealthWorkoutHistoryDetailView: View {
       Task {
         await model.healthWorkoutRouteBoundary?.cancelRoute(for: entry.event.healthKitUUID)
       }
+    }
+  }
+}
+
+private struct HeartRateZoneDetailView: View {
+  let startDate: Date
+  let endDate: Date
+  let enrichment: HealthWorkoutEnrichment
+  let provider: HealthWorkoutHeartRateZoneProvider?
+
+  @State private var projection: HeartRateZoneProjection?
+
+  var body: some View {
+    Section("Heart-Rate Zones") {
+      if let projection {
+        if let maximum = projection.maximumHeartRateBPM {
+          LabeledContent("Maximum used", value: "\(String(format: "%.1f", maximum)) bpm")
+        }
+        ForEach(RollingWorkoutZone.allCases, id: \.self) { zone in
+          let seconds = projection.zoneDurations[zone] ?? 0
+          LabeledContent(
+            zone.displayName,
+            value: String(
+              format: "%.1f min · %.1f%% covered",
+              seconds / 60,
+              projection.zonePercentagesOfCoveredTime[zone] ?? 0)
+          )
+        }
+        LabeledContent(
+          "Covered duration",
+          value: "\(String(format: "%.1f", projection.coveredSeconds / 60)) min")
+        LabeledContent(
+          "Workout coverage",
+          value: "\(String(format: "%.1f", projection.coverageOfWorkoutPercentage))%")
+        ForEach(projection.sourceSummaries) { source in
+          Text(
+            "Source: \(source.source) · \(String(format: "%.1f", source.coveredSeconds / 60)) min"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+        if projection.unclassifiedSeconds > 0 {
+          LabeledContent(
+            "Above maximum / unclassified",
+            value: "\(String(format: "%.1f", projection.unclassifiedSeconds / 60)) min")
+        }
+        ForEach(projection.intervals) { interval in
+          Text(
+            "Interval · \(interval.source) · \(String(format: "%.1f", interval.durationSeconds / 60)) min · \(interval.zone?.displayName ?? "Above maximum")"
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        }
+        ForEach(projection.unavailableIntervals) { interval in
+          Text(
+            "Unavailable · \(interval.reason) · \(String(format: "%.1f", interval.durationSeconds / 60)) min"
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        }
+        Text(
+          "Only source-observed intervals are counted. Gaps over 60 seconds and workout edges remain unavailable."
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      } else if enrichment.heartRate.state == .available {
+        Text("Configure a positive maximum heart rate to calculate zones.")
+          .foregroundStyle(.secondary)
+      } else {
+        Text("Heart-rate zones are unavailable until associated samples are available.")
+          .foregroundStyle(.secondary)
+      }
+    }
+    .task {
+      guard let provider else { return }
+      let availability = await provider.zoneTimes(
+        startDate: startDate, endDate: endDate, enrichment: enrichment)
+      if case .projected(let result) = availability { projection = result }
     }
   }
 }

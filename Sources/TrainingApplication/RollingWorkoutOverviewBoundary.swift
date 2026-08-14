@@ -8,6 +8,66 @@ public protocol RollingWorkoutZoneProjectionProviding: Sendable {
   ) async -> RollingWorkoutZoneTimeAvailability
 }
 
+/// Bridges persisted owner configuration and source-aware Health samples into
+/// the pure TrainingInsights calculator. Configuration is read for every
+/// projection so historical workouts immediately reflect a changed maximum.
+public struct HealthWorkoutHeartRateZoneProvider: RollingWorkoutZoneProjectionProviding {
+  private let configurationRepository: any HeartRateConfigurationRepository
+
+  public init(configurationRepository: any HeartRateConfigurationRepository) {
+    self.configurationRepository = configurationRepository
+  }
+
+  public func zoneTimes(
+    for workout: HealthWorkout,
+    enrichment: HealthWorkoutEnrichment?
+  ) async -> RollingWorkoutZoneTimeAvailability {
+    await zoneTimes(
+      startDate: workout.startDate, endDate: workout.endDate, enrichment: enrichment)
+  }
+
+  public func zoneTimes(
+    startDate: Date,
+    endDate: Date,
+    enrichment: HealthWorkoutEnrichment?
+  ) async -> RollingWorkoutZoneTimeAvailability {
+    guard let enrichment else {
+      return .unavailable(reason: "Heart-rate enrichment has not been checked")
+    }
+    switch enrichment.heartRate.state {
+    case .loading:
+      return .unavailable(reason: "Heart-rate enrichment is still loading")
+    case .notAvailableFromHealth:
+      return .unavailable(reason: "Heart-rate samples are not available from Health")
+    case .failed:
+      return .unavailable(reason: "Heart-rate enrichment failed")
+    case .available:
+      break
+    }
+    guard let configuration = try? await configurationRepository.loadHeartRateConfiguration()
+    else {
+      return .unavailable(reason: "Maximum heart rate is not configured")
+    }
+    let samples = enrichment.heartRate.samples.map {
+      HeartRateSample(
+        id: $0.id,
+        startDate: $0.startDate.timeIntervalSince1970,
+        endDate: $0.endDate.timeIntervalSince1970,
+        beatsPerMinute: $0.beatsPerMinute,
+        source: $0.provenance.displayName)
+    }
+    let projection = HeartRateZoneCalculator().calculate(
+      workoutStartDate: startDate.timeIntervalSince1970,
+      workoutEndDate: endDate.timeIntervalSince1970,
+      samples: samples,
+      maximumHeartRate: configuration.maximumHeartRate)
+    switch projection.state {
+    case .available: return .projected(projection)
+    case .unavailable(let reason): return .unavailable(reason: reason)
+    }
+  }
+}
+
 public struct RollingWorkoutOverviewBoundary: Sendable {
   private let repository: any HealthWorkoutRepository
   private let clock: any Clock

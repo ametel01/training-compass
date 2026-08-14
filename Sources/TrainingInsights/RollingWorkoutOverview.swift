@@ -20,6 +20,11 @@ public struct RollingWorkoutRecord: Codable, Equatable, Sendable, Identifiable {
     self.durationSeconds = durationSeconds
     self.zoneTimes = zoneTimes
   }
+
+  public var heartRateProjection: HeartRateZoneProjection? {
+    guard case .projected(let projection) = zoneTimes else { return nil }
+    return projection
+  }
 }
 
 public enum RollingWorkoutZone: String, Codable, CaseIterable, Equatable, Sendable {
@@ -44,6 +49,7 @@ public enum RollingWorkoutZone: String, Codable, CaseIterable, Equatable, Sendab
 
 public enum RollingWorkoutZoneTimeAvailability: Codable, Equatable, Sendable {
   case available([RollingWorkoutZone: Double])
+  case projected(HeartRateZoneProjection)
   case unavailable(reason: String)
 }
 
@@ -103,6 +109,10 @@ public struct RollingWorkoutZoneMetric: Codable, Equatable, Identifiable, Sendab
   public let comparisonMedianSeconds: Double?
   public let coveredWorkoutDurationSeconds: Double
   public let totalWorkoutDurationSeconds: Double
+  public let coveredHeartRateSeconds: Double
+  public let percentOfCoveredTime: Double
+  public let coverageOfTotalWorkoutDuration: Double
+  public let maximumHeartRateBPM: Double?
   public let explanation: InsightExplanation
 
   public var id: RollingWorkoutZone { zone }
@@ -113,6 +123,10 @@ public struct RollingWorkoutZoneMetric: Codable, Equatable, Identifiable, Sendab
     comparisonMedianSeconds: Double?,
     coveredWorkoutDurationSeconds: Double,
     totalWorkoutDurationSeconds: Double,
+    coveredHeartRateSeconds: Double? = nil,
+    percentOfCoveredTime: Double? = nil,
+    coverageOfTotalWorkoutDuration: Double? = nil,
+    maximumHeartRateBPM: Double? = nil,
     explanation: InsightExplanation
   ) {
     self.zone = zone
@@ -120,6 +134,16 @@ public struct RollingWorkoutZoneMetric: Codable, Equatable, Identifiable, Sendab
     self.comparisonMedianSeconds = comparisonMedianSeconds
     self.coveredWorkoutDurationSeconds = coveredWorkoutDurationSeconds
     self.totalWorkoutDurationSeconds = totalWorkoutDurationSeconds
+    self.coveredHeartRateSeconds = coveredHeartRateSeconds ?? coveredWorkoutDurationSeconds
+    self.percentOfCoveredTime =
+      percentOfCoveredTime
+      ?? (self.coveredHeartRateSeconds > 0
+        ? coveredSeconds / self.coveredHeartRateSeconds * 100 : 0)
+    self.coverageOfTotalWorkoutDuration =
+      coverageOfTotalWorkoutDuration
+      ?? (totalWorkoutDurationSeconds > 0
+        ? self.coveredHeartRateSeconds / totalWorkoutDurationSeconds * 100 : 0)
+    self.maximumHeartRateBPM = maximumHeartRateBPM
     self.explanation = explanation
   }
 }
@@ -133,6 +157,7 @@ public struct RollingWorkoutOverview: Codable, Equatable, Sendable {
   public let activityTypes: [RollingWorkoutActivityMetric]
   public let zoneMetrics: [RollingWorkoutZoneMetric]
   public let zoneAvailabilityExplanation: InsightExplanation?
+  public let maximumHeartRateBPM: Double?
 
   public init(
     currentWindow: RollingWorkoutWindow,
@@ -142,7 +167,8 @@ public struct RollingWorkoutOverview: Codable, Equatable, Sendable {
     totalDuration: RollingWorkoutNumericMetric,
     activityTypes: [RollingWorkoutActivityMetric],
     zoneMetrics: [RollingWorkoutZoneMetric],
-    zoneAvailabilityExplanation: InsightExplanation?
+    zoneAvailabilityExplanation: InsightExplanation?,
+    maximumHeartRateBPM: Double? = nil
   ) {
     self.currentWindow = currentWindow
     self.comparisonWindows = comparisonWindows
@@ -152,6 +178,7 @@ public struct RollingWorkoutOverview: Codable, Equatable, Sendable {
     self.activityTypes = activityTypes
     self.zoneMetrics = zoneMetrics
     self.zoneAvailabilityExplanation = zoneAvailabilityExplanation
+    self.maximumHeartRateBPM = maximumHeartRateBPM
   }
 }
 
@@ -242,12 +269,12 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
             missing: [])))
     }
     let availableZoneRecords = recordsInWindows(currentWindow, comparisonWindows, records: records)
-      .compactMap {
-        if case .available = $0.zoneTimes { return $0 }
-        return nil
-      }
+      .filter { Self.zoneProjection(for: $0) != nil }
     let zones = Set<RollingWorkoutZone>(
       availableZoneRecords.flatMap { record -> [RollingWorkoutZone] in
+        if record.heartRateProjection != nil {
+          return RollingWorkoutZone.allCases
+        }
         guard case .available(let times) = record.zoneTimes else { return [] }
         return times.compactMap { element in
           element.value.isFinite && element.value > 0 ? element.key : nil
@@ -256,33 +283,46 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
     ).sorted { $0.rawValue < $1.rawValue }
     let zoneMetrics = zones.map { zone in
       let currentZoneRecords = currentRecords.filter { record in
-        guard case .available(let times) = record.zoneTimes else { return false }
-        return validZoneDuration(times[zone]) != nil
+        guard let projection = Self.zoneProjection(for: record) else { return false }
+        return validZoneDuration(projection.zoneDurations[zone]) != nil
       }
       let currentCovered = currentZoneRecords.reduce(0) { total, record in
-        guard case .available(let times) = record.zoneTimes else { return total }
-        return total + (validZoneDuration(times[zone]) ?? 0)
+        guard let projection = Self.zoneProjection(for: record) else { return total }
+        return total + (validZoneDuration(projection.zoneDurations[zone]) ?? 0)
       }
       let baselineCovered = comparisonRecords.map { period in
         period.reduce(0) { total, record in
-          guard case .available(let times) = record.zoneTimes else { return total }
-          return total + (validZoneDuration(times[zone]) ?? 0)
+          guard let projection = Self.zoneProjection(for: record) else { return total }
+          return total + (validZoneDuration(projection.zoneDurations[zone]) ?? 0)
         }
+      }
+      let coveredHeartRateSeconds = currentRecords.reduce(0) { total, record in
+        guard let projection = Self.zoneProjection(for: record) else { return total }
+        if record.heartRateProjection == nil {
+          return total + projection.zoneDurations.values.compactMap(validZoneDuration).reduce(0, +)
+        }
+        return total + projection.coveredSeconds
       }
       let coveredWorkoutDuration = currentRecords.reduce(0) { total, record in
-        guard case .available(let times) = record.zoneTimes,
-          times.values.contains(where: { validZoneDuration($0) != nil })
-        else { return total }
-        return total + (validDuration(for: record) ?? 0)
+        guard let projection = Self.zoneProjection(for: record) else { return total }
+        if record.heartRateProjection == nil {
+          return total + (validDuration(for: record) ?? 0)
+        }
+        return total + projection.coveredSeconds
       }
+      let totalWorkoutDuration = currentRecords.compactMap(validDuration).reduce(0, +)
+      let maximumHeartRateBPM = overviewRecords.compactMap {
+        $0.heartRateProjection?.maximumHeartRateBPM
+      }.first
       let missing =
         overviewRecords.compactMap { record -> String? in
-          guard case .unavailable(let reason) = record.zoneTimes else { return nil }
-          return "\(record.id): \(reason)"
+          switch record.zoneTimes {
+          case .unavailable(let reason): return "\(record.id): \(reason)"
+          case .available, .projected: return nil
+          }
         }
         + overviewRecords.compactMap { record -> String? in
-          guard case .available(let times) = record.zoneTimes,
-            times.values.contains(where: { validZoneDuration($0) != nil }),
+          guard Self.zoneProjection(for: record) != nil,
             validDuration(for: record) == nil
           else { return nil }
           return "Duration missing for \(record.id)"
@@ -293,17 +333,23 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
         comparisonMedianSeconds: comparisonAvailability == .available
           ? median(baselineCovered) : nil,
         coveredWorkoutDurationSeconds: coveredWorkoutDuration,
-        totalWorkoutDurationSeconds: currentRecords.compactMap(validDuration).reduce(0, +),
+        totalWorkoutDurationSeconds: totalWorkoutDuration,
+        coveredHeartRateSeconds: coveredHeartRateSeconds,
+        percentOfCoveredTime: coveredHeartRateSeconds > 0
+          ? currentCovered / coveredHeartRateSeconds * 100 : 0,
+        coverageOfTotalWorkoutDuration: totalWorkoutDuration > 0
+          ? coveredHeartRateSeconds / totalWorkoutDuration * 100 : 0,
+        maximumHeartRateBPM: maximumHeartRateBPM,
         explanation: explanation(
           question: "How much associated heart-rate time was in the \(zone.displayName) zone?",
           included: overviewRecords.filter { record in
-            guard case .available(let times) = record.zoneTimes else { return false }
-            return validZoneDuration(times[zone]) != nil
+            guard let projection = Self.zoneProjection(for: record) else { return false }
+            return validZoneDuration(projection.zoneDurations[zone]) != nil
           }.map(\.id),
           includedDates: Set(
             overviewRecords.compactMap { record in
-              guard case .available(let times) = record.zoneTimes,
-                validZoneDuration(times[zone]) != nil
+              guard let projection = Self.zoneProjection(for: record),
+                validZoneDuration(projection.zoneDurations[zone]) != nil
               else { return nil }
               return record.localDate.iso8601String
             }
@@ -313,7 +359,7 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
           coverage: coverage,
           baseline: comparisonAvailability,
           formula:
-            "Use only associated sample intervals supplied by Health; gaps and workout edges remain unavailable.",
+            "Use only associated sample intervals supplied by Health; gaps over 60 seconds and workout edges remain unavailable. A gap at most 60 seconds is assigned to the earlier sample. Maximum heart rate: \(maximumHeartRateBPM.map { String($0) } ?? "not configured").",
           missing: missing))
     }
     let zoneAvailabilityExplanation: InsightExplanation? =
@@ -329,8 +375,10 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
         formula:
           "Heart-Rate Zone time is shown only when a configured zone projection supplies associated samples.",
         missing: currentRecords.compactMap { record in
-          guard case .unavailable(let reason) = record.zoneTimes else { return nil }
-          return "\(record.id): \(reason)"
+          switch record.zoneTimes {
+          case .unavailable(let reason): return "\(record.id): \(reason)"
+          case .available, .projected: return nil
+          }
         })
       : nil
     let placeholderExplanation = explanation(
@@ -364,7 +412,30 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
         explanation: placeholderExplanation),
       activityTypes: activityTypes,
       zoneMetrics: zoneMetrics,
-      zoneAvailabilityExplanation: zoneAvailabilityExplanation)
+      zoneAvailabilityExplanation: zoneAvailabilityExplanation,
+      maximumHeartRateBPM: overviewRecords.compactMap {
+        $0.heartRateProjection?.maximumHeartRateBPM
+      }.first)
+  }
+
+  private static func zoneProjection(for record: RollingWorkoutRecord)
+    -> HeartRateZoneProjection?
+  {
+    switch record.zoneTimes {
+    case .projected(let projection):
+      guard case .available = projection.state else { return nil }
+      return projection
+    case .available(let times):
+      let positive = times.filter { $0.value.isFinite && $0.value > 0 }
+      guard !positive.isEmpty else { return nil }
+      return HeartRateZoneProjection(
+        state: .available,
+        zoneDurations: positive,
+        coveredSeconds: positive.values.reduce(0, +),
+        totalWorkoutDurationSeconds: record.durationSeconds ?? 0)
+    case .unavailable:
+      return nil
+    }
   }
 
   private func recordsInWindows(

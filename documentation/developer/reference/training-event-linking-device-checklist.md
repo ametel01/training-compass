@@ -7,7 +7,7 @@ HealthKit UUIDs, workout measurements, dates, or source metadata into evidence.
 
 1. Install the Release build in place. Confirm existing Training Maxes,
    Sessions, audit history, Health status, and exports remain present after the
-   authoritative v13 migration.
+   authoritative v14 migration.
 2. Complete a 5/3/1 Session with at least two unlinked external Health Workouts
    available. Verify every workout remains selectable, likely matches appear
    first, and no candidate is preselected or linked automatically.

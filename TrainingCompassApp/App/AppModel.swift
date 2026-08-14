@@ -17,6 +17,7 @@ final class AppModel {
 
   private(set) var phase: Phase = .preparing
   private(set) var isErasing = false
+  private(set) var heartRateConfigurationRevision = 0
   private let preparePreDataShell: PreparePreDataShell
   let liftConfigurationBoundary: LiftConfigurationBoundary
   let scheduleTemplateBoundary: ScheduleTemplateBoundary
@@ -32,6 +33,8 @@ final class AppModel {
   let healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary?
   let trainingEventLinkBoundary: TrainingEventLinkBoundary?
   let rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary?
+  let heartRateConfigurationBoundary: HeartRateConfigurationBoundary?
+  let heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider?
 
   init(
     preparePreDataShell: PreparePreDataShell,
@@ -48,7 +51,9 @@ final class AppModel {
     healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil,
     healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary? = nil,
     trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
-    rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil
+    rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil,
+    heartRateConfigurationBoundary: HeartRateConfigurationBoundary? = nil,
+    heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider? = nil
   ) {
     self.preparePreDataShell = preparePreDataShell
     self.liftConfigurationBoundary = liftConfigurationBoundary
@@ -65,6 +70,8 @@ final class AppModel {
     self.healthWorkoutRouteBoundary = healthWorkoutRouteBoundary
     self.trainingEventLinkBoundary = trainingEventLinkBoundary
     self.rollingWorkoutOverviewBoundary = rollingWorkoutOverviewBoundary
+    self.heartRateConfigurationBoundary = heartRateConfigurationBoundary
+    self.heartRateZoneProvider = heartRateZoneProvider
   }
 
   func prepare() async {
@@ -75,6 +82,10 @@ final class AppModel {
     } catch {
       phase = .failed
     }
+  }
+
+  func heartRateConfigurationDidChange() {
+    heartRateConfigurationRevision += 1
   }
 
   func eraseAllData() async throws {
@@ -202,8 +213,14 @@ final class AppModel {
         return RollingWorkoutOverviewBoundary(
           repository: healthRepository,
           clock: dependencies.clock,
-          calendar: dependencies.calendar)
-      }()
+          calendar: dependencies.calendar,
+          zoneProvider: HealthWorkoutHeartRateZoneProvider(configurationRepository: repository))
+      }(),
+      heartRateConfigurationBoundary: HeartRateConfigurationBoundary(
+        repository: repository,
+        clock: dependencies.clock),
+      heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider(
+        configurationRepository: repository)
     )
   }
 }

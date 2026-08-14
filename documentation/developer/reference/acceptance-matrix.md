@@ -2,8 +2,9 @@
 
 This matrix covers the protected shell, Local Training Core, Health
 reconciliation foundation, explicit Training Event links, Workout Enrichment,
-on-demand simplified routes, and the Unified Events and Enrichment milestone
-from GitHub issues #1 through #23 and #25 through #27. A row is evidence-backed only when
+on-demand simplified routes, the Unified Events and Enrichment milestone, the
+Rolling Workout Overview, and transparent Heart-Rate Zones from GitHub issues
+#1 through #23 and #25 through #29. A row is evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
 
@@ -60,6 +61,8 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #28: Present the Rolling Workout Overview | Current-window facts and comparison | Health Workouts contain local dates at both seven-day window edges and in each preceding period | Even-value medians, sparse periods, missing duration, multiple HealthKit activity types, and optional zone projections | Current facts remain visible while comparison is withheld until the complete 35-date horizon is checked; late enrichment recomputes the projection; every fact links to an Insight Explanation and no cross-activity load score is shown | Application, insights, UI | Yes | `RollingWorkoutOverviewTests`; Progress destination |
 | Issue #28: Present the Rolling Workout Overview | Identity, deletion, and source coverage | Linked, replaced, duplicate, and deleted HealthKit UUIDs are present in the mirror | Linked pairs count once, deleted UUIDs contribute nowhere, and unavailable enrichment affects only its own measure | Reconciliation checkpoint coverage and last check remain visible; current records survive a partial comparison horizon | Application, persistence, UI | No | `RollingWorkoutOverviewBoundaryTests`; `HealthWorkoutRepositoryTests` |
 | Issue #28: Present the Rolling Workout Overview | Owner-facing explanation journey | Owner opens Progress after Health data is available or incomplete | Activity-specific facts, zone coverage, missing duration, and withheld-baseline language are inspectable | Refresh recomputes the derived view from the mirror without mutating source records; the owner can open each explanation | Application, UI, device | Yes | `TrainingCompassUITests`; Progress destination; `make verify` |
+| Issue #29: Calculate transparent Heart-Rate Zones | Fixed bands and transparent sample association | Owner has imported a Health Workout with associated heart-rate samples | Every 50–59, 60–69, 70–79, 80–89, and 90–100% boundary is calculated at full precision; below-50% time is separate; gaps over 60 seconds and workout edges remain unavailable | Earlier-sample attribution applies only through a 60-second adjacent gap; samples above the configured maximum remain covered but unclassified; source provenance and interval coverage remain inspectable | Insights, application | No | `HeartRateZonesTests`; `RollingWorkoutOverviewBoundaryTests` |
+| Issue #29: Calculate transparent Heart-Rate Zones | Owner configuration and historical recalculation | Owner has raw associated samples and no maximum heart rate, then configures or changes one | Raw samples remain visible with no zones until a positive maximum is configured; changing the configuration reprojects historical samples without mutation; deleted workouts contribute no zone time | Per-workout and aggregate durations show percentage of covered time, covered duration, and coverage of total workout duration without extrapolation | Domain, persistence, application, UI | Yes | `HeartRateZonesTests`; `HeartRateConfigurationRepositoryTests`; Health maximum-heart-rate UI |
 
 ## Required scenario-variant coverage
 
@@ -97,6 +100,7 @@ must name the automated evidence that proves the boundary.
 | Issue #26 | Detail-open route becomes a persisted simplified route plot | Route authorization and queries are unreachable from import and ordinary enrichment | Unavailable, failed, cancelled, and resource-constrained results never expose partial geometry | One serialized operation lane coalesces duplicate workout identity and supports retry; deletion and rebuild clear route state | Raw pages remain adapter-private; the 2,000-point cap, authoritative-export exclusion, and privacy-safe evidence are enforced |
 | Issue #27 | Linked pair retains both explicit identities and counts once | Unusual confirmation, source disagreement, new UUID separation, and explicit unlink remain visible | Missing, failed, changed, deleted, and rebuilt enrichment or route detail never duplicates or erases local data | External deletion and rebuild preserve link intent until exact-UUID reconnection; in-place preparation preserves prior owner data | Route resource budgets, private export/log/evidence, local availability, and hidden unfinished insights gate approval |
 | Issue #28 | Current seven-date workout facts and four-period medians are calculated from local dates | Window edges, even medians, sparse history, missing duration, and separate activity types remain explicit | Incomplete Health coverage withholds only comparisons; deleted and duplicate UUIDs do not contribute | Late enrichment and reconciliation changes recalculate the derived projection without changing HealthKit identities | Each aggregate exposes source records, dates, coverage, rules, missing data, exclusions, and reconciliation through an Insight Explanation; no cross-activity load score is emitted |
+| Issue #29 | Fixed, source-aware Heart-Rate Zones use the current owner maximum | Every band edge, exactly-60-second gap, long gap, edge, above-maximum sample, and absent configuration remains explicit | Raw samples remain visible while unconfigured; deleted workouts do not contribute; incomplete workout coverage is shown rather than extrapolated | A changed maximum recalculates all visible projections from unchanged source samples | Each workout and aggregate exposes zone duration, covered duration, percentages, maximum used, source intervals, missing gaps, and explanation formula |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -119,5 +123,6 @@ Issue #27 approves explicit identity, late enrichment, and on-demand routes as
 one private and recoverable owner milestone after its cross-feature automated,
 device, resource, migration, and privacy evidence passes. Recovery Evidence and
 HealthKit Write-back are not exposed. Issue #28 adds the rolling workout
-projection on Progress while leaving Heart-Rate Zone calculation and
-maximum-heart-rate configuration to the follow-up zone milestone.
+projection on Progress. Issue #29 adds owner-configured, source-aware
+Heart-Rate Zones with explicit coverage and historical recalculation from
+unchanged Health samples.

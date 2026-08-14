@@ -4,6 +4,34 @@ public enum EquipmentUnit: String, Codable, Equatable, Sendable {
   case kilograms = "kg"
 }
 
+public enum HeartRateValidationError: Error, Codable, Equatable, Sendable {
+  case mustBePositive
+  case mustBeFinite
+}
+
+/// The owner's explicitly configured maximum heart rate.  It is deliberately
+/// separate from source-observed heart-rate samples so historical projections
+/// can be recalculated without changing those samples.
+public struct MaximumHeartRate: Codable, Equatable, Sendable {
+  public let beatsPerMinute: Double
+
+  public init(beatsPerMinute: Double) throws {
+    guard beatsPerMinute.isFinite else { throw HeartRateValidationError.mustBeFinite }
+    guard beatsPerMinute > 0 else { throw HeartRateValidationError.mustBePositive }
+    self.beatsPerMinute = beatsPerMinute
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    try self.init(beatsPerMinute: container.decode(Double.self))
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(beatsPerMinute)
+  }
+}
+
 public enum ProgressionLift: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
   case squat = "Squat"
   case deadlift = "Deadlift"
