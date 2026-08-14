@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -156,6 +156,19 @@ def main() -> int:
     for contract in required_route_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits Workout Route contract: {contract}")
+
+    required_unified_milestone_contracts = (
+        "separate local and Health events",
+        "exact-UUID reappearance",
+        "source authority, provenance, current state, and audit history",
+        "late heart rate, distance, energy, and route states",
+        "retained-point, latency, memory, storage, logging, and export privacy",
+        "local training remains usable during enrichment work",
+        "unfinished insight behavior remains hidden",
+    )
+    for contract in required_unified_milestone_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits unified milestone contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

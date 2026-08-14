@@ -1,9 +1,10 @@
 # Training Compass release-candidate checklist
 
-Issue #22 is the approval gate for the second owner-usable milestone. The
-first owner-data milestone remains covered by issue #16. The
-Acceptance Device is the owner's iPhone running the supported iOS release;
-Simulator numbers are regression signals only. A candidate is eligible only
+Issue #22 is the approval gate for the second owner-usable milestone, and issue
+#27 approves Unified Events and Enrichment. The first owner-data milestone
+remains covered by issue #16. The Acceptance Device is the owner's iPhone
+running the supported iOS release; Simulator numbers are regression signals
+only. A milestone candidate is eligible only
 when the automated change, migration, UI, privacy, and acceptance-matrix gates
 pass and the attended device record is passing.
 
@@ -28,7 +29,6 @@ application container between steps:
    files are removed.
 7. Erasure: open Full App Erasure, verify its local scope and external-copy
    warning, confirm it, relaunch, and verify the first-launch state.
-
 8. Health foundation: on the in-place install, open Health without clearing
    local data; exercise Connect Health or the unavailable path, dismiss the
    first-batch progress view, navigate with cached content, inspect Health Data
@@ -41,11 +41,17 @@ application container between steps:
    stale confirmations, exercise exact-UUID reconnection, then explicitly
    unlink. Repeat by linking during completion and verify the no-Write-back
    disposition.
-10. Workout route: confirm ordinary import and enrichment cause no route prompt
-    or query, then open a route-bearing workout detail. Exercise loading,
+10. Workout route, where a route-bearing workout is available: confirm ordinary
+    import and enrichment cause no route prompt or query, then open its detail.
+    Exercise loading,
     cancellation, retry, unavailable, failure, and ready presentation; verify
     the ready map survives relaunch and disappears when the workout is deleted
     or Health data is rebuilt.
+11. Unified milestone: retain prior owner data during the in-place install,
+    exercise missing, failed, available, changed, and deleted enrichment on a
+    linked event, then verify exact-UUID rebuild reconnection, explicit unlink,
+    route resource budgets, export/log/evidence privacy, local availability,
+    and hidden unfinished recovery insights.
 
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover

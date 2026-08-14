@@ -35,18 +35,58 @@ def automated_verdict(name: str) -> str:
     return value
 
 dependency_graph = json.loads(output("swift", "package", "show-dependencies", "--format", "json"))
-device_path = Path("evidence/device/gate-0.json")
-device_evidence = json.loads(device_path.read_text()) if device_path.exists() else {
-    "result": "missing",
-    "requiredCommand": "make device-smoke MILESTONE=gate-0",
-}
+def device_evidence(milestone: str) -> dict:
+    path = Path(f"evidence/device/{milestone}.json")
+    if path.exists():
+        return json.loads(path.read_text())
+    return {
+        "result": "missing",
+        "requiredCommand": f"make device-smoke MILESTONE={milestone}",
+    }
+
+gate_zero_evidence = device_evidence("gate-0")
+health_foundation_evidence = device_evidence("health-foundation")
+unified_events_evidence = device_evidence("unified-events")
 automated_pass = acceptance_result == 0 and all(
     os.environ.get(name) == "pass"
     for name in ("VERIFY_RESULT", "MIGRATION_RESULT", "PRIVACY_RESULT", "UI_RESULT")
 )
 owner_data_accepted = (
-    device_evidence.get("result") == "pass"
-    and device_evidence.get("ownerDataAccepted") is True
+    gate_zero_evidence.get("result") == "pass"
+    and gate_zero_evidence.get("ownerDataAccepted") is True
+    and automated_pass
+)
+health_checks = health_foundation_evidence.get("healthChecks", {})
+required_health_checks = {
+    "authorization",
+    "anchoredQueries",
+    "observerRegistration",
+    "foregroundRefresh",
+    "lockUnlockRecovery",
+    "protectedStorage",
+    "backupExclusion",
+}
+health_foundation_accepted = (
+    health_foundation_evidence.get("result") == "pass"
+    and all(health_checks.get(key) is True for key in required_health_checks)
+    and automated_pass
+)
+unified_checks = unified_events_evidence.get("unifiedEventChecks", {})
+required_unified_checks = {
+    "priorDataContinuity",
+    "linkedSingleCount",
+    "sourceDetail",
+    "lateOrUnavailableEnrichment",
+    "exactUUIDRecovery",
+    "explicitUnlink",
+    "localAvailability",
+    "privacy",
+    "unfinishedInsightsHidden",
+}
+unified_events_accepted = (
+    unified_events_evidence.get("result") == "pass"
+    and all(unified_checks.get(key) is True for key in required_unified_checks)
+    and unified_checks.get("routeOnDemand") in {"verified", "notAvailable"}
     and automated_pass
 )
 entitlements = [str(path) for path in Path(".").rglob("*.entitlements") if ".build" not in path.parts]
@@ -59,7 +99,11 @@ record = {
         "make fixtures",
         "make verify-migrations",
         "make device-smoke MILESTONE=gate-0",
-        "make verify-release",
+        "make device-smoke MILESTONE=health-foundation",
+        "make device-smoke MILESTONE=unified-events",
+        "make verify-release MILESTONE=gate-0",
+        "make verify-release MILESTONE=health-foundation",
+        "make verify-release MILESTONE=unified-events",
         "make evidence",
     ],
     "fixtureSeed": 21571,
@@ -70,10 +114,15 @@ record = {
         "releaseCandidateChecklist": "documentation/developer/reference/release-candidate-checklist.md",
         "releaseCandidateChecklistSha256": sha256("documentation/developer/reference/release-candidate-checklist.md"),
         "acceptanceContract": "pass" if acceptance_result == 0 else "fail",
-        "deviceEvidence": device_evidence,
+        "deviceEvidence": gate_zero_evidence,
+        "milestoneDeviceEvidence": {
+            "gate0": gate_zero_evidence,
+            "healthFoundation": health_foundation_evidence,
+            "unifiedEvents": unified_events_evidence,
+        },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
-        "fileAttributeVerification": device_evidence.get("result", "missing"),
+        "fileAttributeVerification": gate_zero_evidence.get("result", "missing"),
         "loggingAllowlist": ["pre_data_stores_ready", "pre_data_stores_failed"],
         "migrationVerification": automated_verdict("MIGRATION_RESULT"),
         "privacyManifest": {
@@ -82,17 +131,21 @@ record = {
         },
         "privacyVerification": automated_verdict("PRIVACY_RESULT"),
     },
+    "healthFoundationAccepted": health_foundation_accepted,
     "ownerDataAccepted": owner_data_accepted,
     "platform": platform.platform(),
     "swiftVersion": output("swift", "--version").splitlines()[0],
     "verdicts": {
         "automatedChangeGate": automated_verdict("VERIFY_RESULT"),
         "acceptanceMatrixGate": "pass" if acceptance_result == 0 else "fail",
+        "healthFoundationGate": "eligible" if health_foundation_accepted else "blocked",
         "migrationGate": automated_verdict("MIGRATION_RESULT"),
         "privacyGate": automated_verdict("PRIVACY_RESULT"),
         "releaseGate": "eligible" if owner_data_accepted else "blocked",
         "uiGate": automated_verdict("UI_RESULT"),
+        "unifiedEventsGate": "eligible" if unified_events_accepted else "blocked",
     },
+    "unifiedEventsAccepted": unified_events_accepted,
     "waivers": [],
 }
 encoded = json.dumps(record, indent=2, sort_keys=True) + "\n"

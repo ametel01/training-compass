@@ -13,7 +13,8 @@ help:
 	@echo "  make verify-migrations"
 	@echo "  make device-smoke MILESTONE=gate-0"
 	@echo "  make device-smoke MILESTONE=health-foundation"
-	@echo "  make verify-release"
+	@echo "  make device-smoke MILESTONE=unified-events"
+	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events"
 	@echo "  make evidence"
 
 bootstrap:
@@ -38,7 +39,7 @@ device-smoke:
 	@./scripts/device-smoke.sh "$(MILESTONE)"
 
 verify-release:
-	@./scripts/verify-release.sh
+	@./scripts/verify-release.sh "$(MILESTONE)"
 
 evidence:
 	@./scripts/evidence.sh

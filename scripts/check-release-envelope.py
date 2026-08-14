@@ -32,8 +32,13 @@ LIMITS = {
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: check-release-envelope.py MEASUREMENTS.json", file=sys.stderr)
+    if len(sys.argv) not in {2, 3} or (
+        len(sys.argv) == 3 and sys.argv[2] != "--route-not-available"
+    ):
+        print(
+            "Usage: check-release-envelope.py MEASUREMENTS.json [--route-not-available]",
+            file=sys.stderr,
+        )
         return 2
     path = Path(sys.argv[1])
     try:
@@ -45,8 +50,19 @@ def main() -> int:
         print("Release measurements must be a JSON object", file=sys.stderr)
         return 1
 
+    route_not_available = len(sys.argv) == 3
+    optional_route_keys = {"routeProcessingP95Ms", "routeGeometryMiB"}
+    required_limits = {
+        key: limit
+        for key, limit in LIMITS.items()
+        if not route_not_available or key not in optional_route_keys
+    }
     errors: list[str] = []
-    for key, (operator, limit) in LIMITS.items():
+    allowed_keys = set(LIMITS) | {"interruptionRecovery"}
+    unexpected_keys = sorted(set(values) - allowed_keys)
+    if unexpected_keys:
+        errors.append(f"unexpected measurement fields: {unexpected_keys}")
+    for key, (operator, limit) in required_limits.items():
         value = values.get(key)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             errors.append(f"{key} must be numeric")

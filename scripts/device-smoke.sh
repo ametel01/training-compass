@@ -2,8 +2,8 @@
 set -euo pipefail
 
 milestone=${1:-}
-if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" ]]; then
-  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation" >&2
+if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" ]]; then
+  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events" >&2
   exit 2
 fi
 
@@ -12,6 +12,10 @@ evidence_name="gate-0"
 if [[ "$milestone" == "health-foundation" ]]; then
   checklist="documentation/developer/reference/health-foundation-device-checklist.md"
   evidence_name="health-foundation"
+fi
+if [[ "$milestone" == "unified-events" ]]; then
+  checklist="documentation/developer/reference/unified-events-device-checklist.md"
+  evidence_name="unified-events"
 fi
 cat "$checklist"
 
@@ -29,22 +33,10 @@ fi
 : "${IOS_VERSION:?IOS_VERSION is required}"
 if [[ "$RESULT" == "pass" ]]; then
   : "${MEASUREMENTS_FILE:?MEASUREMENTS_FILE is required for a passing release record}"
-  python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE"
-  if [[ "$milestone" == "health-foundation" ]]; then
-    for check in \
-      HEALTH_AUTHORIZATION \
-      HEALTH_ANCHORED_QUERIES \
-      HEALTH_OBSERVER_REGISTRATION \
-      HEALTH_FOREGROUND_REFRESH \
-      HEALTH_LOCK_UNLOCK_RECOVERY \
-      HEALTH_PROTECTED_STORAGE \
-      HEALTH_BACKUP_EXCLUSION; do
-      value=${!check:?$check is required for a passing Health foundation record}
-      [[ "$value" == "true" ]] || {
-        echo "$check must be true for a passing Health foundation record." >&2
-        exit 2
-      }
-    done
+  if [[ "$milestone" == "unified-events" && "${UNIFIED_ROUTE_ON_DEMAND:-}" == "not_available" ]]; then
+    python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available
+  else
+    python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE"
   fi
 fi
 
@@ -68,16 +60,57 @@ record = {
 }
 if measurements_path:
     record["measurements"] = json.loads(Path(measurements_path).read_text())
-if milestone == "health-foundation":
-    record["healthChecks"] = {
-        "authorization": os.environ.get("HEALTH_AUTHORIZATION") == "true",
-        "anchoredQueries": os.environ.get("HEALTH_ANCHORED_QUERIES") == "true",
-        "observerRegistration": os.environ.get("HEALTH_OBSERVER_REGISTRATION") == "true",
-        "foregroundRefresh": os.environ.get("HEALTH_FOREGROUND_REFRESH") == "true",
-        "lockUnlockRecovery": os.environ.get("HEALTH_LOCK_UNLOCK_RECOVERY") == "true",
-        "protectedStorage": os.environ.get("HEALTH_PROTECTED_STORAGE") == "true",
-        "backupExclusion": os.environ.get("HEALTH_BACKUP_EXCLUSION") == "true",
+check_schemas = {
+    "health-foundation": (
+        "healthChecks",
+        {
+            "HEALTH_AUTHORIZATION": "authorization",
+            "HEALTH_ANCHORED_QUERIES": "anchoredQueries",
+            "HEALTH_OBSERVER_REGISTRATION": "observerRegistration",
+            "HEALTH_FOREGROUND_REFRESH": "foregroundRefresh",
+            "HEALTH_LOCK_UNLOCK_RECOVERY": "lockUnlockRecovery",
+            "HEALTH_PROTECTED_STORAGE": "protectedStorage",
+            "HEALTH_BACKUP_EXCLUSION": "backupExclusion",
+        },
+    ),
+    "unified-events": (
+        "unifiedEventChecks",
+        {
+            "UNIFIED_PRIOR_DATA": "priorDataContinuity",
+            "UNIFIED_LINKED_EVENT": "linkedSingleCount",
+            "UNIFIED_SOURCE_DETAIL": "sourceDetail",
+            "UNIFIED_ENRICHMENT": "lateOrUnavailableEnrichment",
+            "UNIFIED_EXACT_UUID_RECOVERY": "exactUUIDRecovery",
+            "UNIFIED_UNLINK": "explicitUnlink",
+            "UNIFIED_LOCAL_AVAILABILITY": "localAvailability",
+            "UNIFIED_PRIVACY": "privacy",
+            "UNIFIED_INSIGHTS_HIDDEN": "unfinishedInsightsHidden",
+        },
+    ),
+}
+if milestone in check_schemas:
+    group, fields = check_schemas[milestone]
+    if result == "pass":
+        for environment_name in fields:
+            value = os.environ.get(environment_name)
+            if value is None:
+                raise SystemExit(f"{environment_name} is required for a passing {milestone} record")
+            if value != "true":
+                raise SystemExit(f"{environment_name} must be true for a passing {milestone} record")
+    record[group] = {
+        output_name: os.environ.get(environment_name) == "true"
+        for environment_name, output_name in fields.items()
     }
+if milestone == "unified-events":
+    route_result = os.environ.get("UNIFIED_ROUTE_ON_DEMAND")
+    if result == "pass" and route_result not in {"true", "not_available"}:
+        raise SystemExit(
+            "UNIFIED_ROUTE_ON_DEMAND must be true or not_available for a passing unified-events record"
+        )
+    record["unifiedEventChecks"]["routeOnDemand"] = {
+        "true": "verified",
+        "not_available": "notAvailable",
+    }.get(route_result, "failed")
 Path(f"evidence/device/{evidence_name}.json").write_text(
     json.dumps(record, indent=2, sort_keys=True) + "\n"
 )
