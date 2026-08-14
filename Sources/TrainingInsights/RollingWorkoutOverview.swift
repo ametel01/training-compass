@@ -174,6 +174,11 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
     let comparisonRecords = comparisonWindows.map { window in
       records.filter { window.contains($0.localDate) }
     }
+    let overviewRecords = recordsInWindows(currentWindow, comparisonWindows, records: records)
+    let overviewDateRange =
+      "Current: \(currentWindow.displayName). Comparison: "
+      + comparisonWindows.map(\.displayName).joined(separator: "; ")
+    let overviewDates = Set(overviewRecords.map { $0.localDate.iso8601String }).sorted()
     let comparisonAvailability: RollingWorkoutComparisonAvailability =
       coverage.isComplete
       ? .available
@@ -185,7 +190,9 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
     }
     let countExplanation = explanation(
       question: "How many Health Workouts occurred in the current rolling window?",
-      included: currentRecords.map(\.id),
+      included: overviewRecords.map(\.id),
+      includedDates: overviewDates,
+      dateRange: overviewDateRange,
       exclusions: exclusions,
       coverage: coverage,
       baseline: comparisonAvailability,
@@ -218,7 +225,15 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
           comparisonMedian: comparisonAvailability == .available ? median(baseline) : nil,
           explanation: explanation(
             question: "How many \(activityType) Health Workouts occurred?",
-            included: current.map(\.id),
+            included: overviewRecords.filter {
+              normalizedActivityType($0.activityType) == activityType
+            }.map(\.id),
+            includedDates: Set(
+              overviewRecords.filter {
+                normalizedActivityType($0.activityType) == activityType
+              }.map { $0.localDate.iso8601String }
+            ).sorted(),
+            dateRange: overviewDateRange,
             exclusions: exclusions,
             coverage: coverage,
             baseline: comparisonAvailability,
@@ -281,7 +296,19 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
         totalWorkoutDurationSeconds: currentRecords.compactMap(validDuration).reduce(0, +),
         explanation: explanation(
           question: "How much associated heart-rate time was in the \(zone.displayName) zone?",
-          included: currentZoneRecords.map(\.id),
+          included: overviewRecords.filter { record in
+            guard case .available(let times) = record.zoneTimes else { return false }
+            return validZoneDuration(times[zone]) != nil
+          }.map(\.id),
+          includedDates: Set(
+            overviewRecords.compactMap { record in
+              guard case .available(let times) = record.zoneTimes,
+                validZoneDuration(times[zone]) != nil
+              else { return nil }
+              return record.localDate.iso8601String
+            }
+          ).sorted(),
+          dateRange: overviewDateRange,
           exclusions: exclusions,
           coverage: coverage,
           baseline: comparisonAvailability,
@@ -294,6 +321,8 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
       ? explanation(
         question: "Is associated Heart-Rate Zone time available?",
         included: [],
+        includedDates: overviewDates,
+        dateRange: overviewDateRange,
         exclusions: exclusions,
         coverage: coverage,
         baseline: comparisonAvailability,
@@ -306,9 +335,15 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
       : nil
     let placeholderExplanation = explanation(
       question: "How much positive workout duration is available?",
-      included: currentRecords.compactMap { record in
+      included: overviewRecords.compactMap { record in
         validDuration(for: record).map { _ in record.id }
       },
+      includedDates: Set(
+        overviewRecords.compactMap { record in
+          validDuration(for: record).map { _ in record.localDate.iso8601String }
+        }
+      ).sorted(),
+      dateRange: overviewDateRange,
       exclusions: exclusions,
       coverage: coverage,
       baseline: comparisonAvailability,
@@ -367,6 +402,8 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
   private func explanation(
     question: String,
     included: [String],
+    includedDates: [String],
+    dateRange: String,
     exclusions: [InsightExplanationExclusion],
     coverage: RollingWorkoutSourceCoverage,
     baseline: RollingWorkoutComparisonAvailability,
@@ -378,10 +415,10 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
       includedRecordIDs: included,
       excludedRecords: [],
       formula: formula,
-      dateRange:
-        "Trailing seven local dates including today; preceding four non-overlapping seven-day periods",
+      dateRange: dateRange,
       roundingRule: "Calculations retain full precision.",
       sourceState: coverage.description,
+      includedDates: includedDates,
       sourceCoverage: coverage.description,
       comparisonBaseline: String(describing: baseline),
       missingData: missing,

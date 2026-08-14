@@ -289,6 +289,25 @@ public struct InsightExplanation: Codable, Equatable, Sendable {
   public let lastReconciliation: String?
   public let configuration: String?
 
+  private enum CodingKeys: String, CodingKey {
+    case question
+    case includedRecordIDs
+    case excludedRecords
+    case formula
+    case dateRange
+    case roundingRule
+    case sourceState
+    case includedDates
+    case sourceCoverage
+    case calculationRule
+    case comparisonBaseline
+    case missingData
+    case exclusions
+    case lastReconciliation
+    case configuration
+    case text
+  }
+
   public init(
     question: String,
     includedRecordIDs: [String],
@@ -336,6 +355,33 @@ public struct InsightExplanation: Codable, Equatable, Sendable {
       + " Source state: " + sourceState + ". Coverage: " + self.sourceCoverage
       + ". Missing data: " + (missingData.isEmpty ? "none" : missingData.joined(separator: ", "))
       + ". Exclusions: " + details + "."
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let formula = try container.decode(String.self, forKey: .formula)
+    let sourceState = try container.decode(String.self, forKey: .sourceState)
+    self.init(
+      question: try container.decode(String.self, forKey: .question),
+      includedRecordIDs: try container.decode([String].self, forKey: .includedRecordIDs),
+      excludedRecords: try container.decode([E1RMExcludedRecord].self, forKey: .excludedRecords),
+      formula: formula,
+      dateRange: try container.decode(String.self, forKey: .dateRange),
+      roundingRule: try container.decode(String.self, forKey: .roundingRule),
+      sourceState: sourceState,
+      includedDates: try container.decodeIfPresent([String].self, forKey: .includedDates) ?? [],
+      sourceCoverage:
+        try container.decodeIfPresent(String.self, forKey: .sourceCoverage) ?? sourceState,
+      calculationRule:
+        try container.decodeIfPresent(String.self, forKey: .calculationRule) ?? formula,
+      comparisonBaseline: try container.decodeIfPresent(String.self, forKey: .comparisonBaseline),
+      missingData: try container.decodeIfPresent([String].self, forKey: .missingData) ?? [],
+      exclusions:
+        try container.decodeIfPresent([InsightExplanationExclusion].self, forKey: .exclusions)
+        ?? [],
+      lastReconciliation:
+        try container.decodeIfPresent(String.self, forKey: .lastReconciliation),
+      configuration: try container.decodeIfPresent(String.self, forKey: .configuration))
   }
 
   public init(

@@ -38,7 +38,7 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
     var records: [RollingWorkoutRecord] = []
     for workout in workoutsByID.values where !deleted.contains(workout.healthKitUUID) {
       guard let localDate = Self.parse(localDate: workout.localDate) else { continue }
-      let enrichment = try await repository.loadHealthWorkoutEnrichment(
+      let enrichment = try? await repository.loadHealthWorkoutEnrichment(
         for: workout.healthKitUUID)
       let zoneTimes =
         await zoneProvider?.zoneTimes(for: workout, enrichment: enrichment)

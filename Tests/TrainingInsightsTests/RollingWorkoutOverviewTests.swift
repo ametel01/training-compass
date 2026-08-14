@@ -43,9 +43,13 @@ final class RollingWorkoutOverviewTests: XCTestCase {
       ])
     XCTAssertEqual(overview.workoutCount.currentValue, 2)
     XCTAssertEqual(overview.workoutCount.comparisonMedian, 2.5)
-    XCTAssertEqual(
-      overview.workoutCount.explanation.includedRecordIDs,
-      ["current-start", "current-end"])
+    XCTAssertTrue(overview.workoutCount.explanation.includedRecordIDs.contains("current-start"))
+    XCTAssertTrue(overview.workoutCount.explanation.includedRecordIDs.contains("baseline-4-d"))
+    XCTAssertTrue(
+      overview.workoutCount.explanation.includedDates.contains("2026-08-09"))
+    XCTAssertTrue(
+      overview.workoutCount.explanation.dateRange.contains("Current: 2026-08-09 through 2026-08-15")
+    )
     XCTAssertTrue(
       overview.workoutCount.explanation.exclusions.contains {
         $0.recordID == "outside" && $0.reason == "Outside the 35-date overview horizon"
@@ -129,6 +133,18 @@ final class RollingWorkoutOverviewTests: XCTestCase {
     XCTAssertNil(overview.workoutCount.comparisonMedian)
     XCTAssertTrue(
       overview.workoutCount.explanation.text.contains("complete comparison horizon"))
+  }
+
+  func testInsightExplanationDecodesPreOverviewPayloads() throws {
+    let data = Data(
+      #"{"question":"How?","includedRecordIDs":[],"excludedRecords":[],"formula":"Epley","dateRange":"No included dates","roundingRule":"Full precision","sourceState":"Test"}"#
+        .utf8)
+
+    let explanation = try JSONDecoder().decode(InsightExplanation.self, from: data)
+
+    XCTAssertEqual(explanation.includedDates, [])
+    XCTAssertEqual(explanation.sourceCoverage, "Test")
+    XCTAssertEqual(explanation.calculationRule, "Epley")
   }
 
   private func record(

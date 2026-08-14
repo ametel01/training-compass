@@ -72,6 +72,28 @@ final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
     XCTAssertTrue(overview.workoutCount.explanation.text.contains("limited history"))
   }
 
+  func testEnrichmentFailureLeavesCoreWorkoutFactsAvailable() async throws {
+    let repository = OverviewRepository(
+      workouts: [workout(id: "enrichment-failed", localDate: "2026-08-15", duration: 900)],
+      checkpoint: HealthSyncCheckpoint(
+        stream: .workouts, anchor: "anchor", reconciliationContext: "complete"),
+      throwsWhenLoadingEnrichment: true)
+    let boundary = RollingWorkoutOverviewBoundary(
+      repository: repository,
+      clock: OverviewClock(),
+      calendar: OverviewCalendar())
+
+    let overview = try await boundary.overview(
+      asOf: TrainingDate(year: 2026, month: 8, day: 15))
+
+    XCTAssertEqual(overview.workoutCount.currentValue, 1)
+    XCTAssertEqual(overview.totalDuration.currentValue, 900)
+    XCTAssertTrue(
+      overview.zoneAvailabilityExplanation?.missingData.contains {
+        $0.contains("Heart-rate enrichment has not been checked")
+      } == true)
+  }
+
   private func workout(id: String, localDate: String, duration: TimeInterval) -> HealthWorkout {
     HealthWorkout(
       healthKitUUID: id,
@@ -88,15 +110,18 @@ private actor OverviewRepository: HealthWorkoutRepository {
   private var workouts: [HealthWorkout]
   private let deleted: [String]
   private let checkpoint: HealthSyncCheckpoint?
+  private let throwsWhenLoadingEnrichment: Bool
 
   init(
     workouts: [HealthWorkout],
     deleted: [String] = [],
-    checkpoint: HealthSyncCheckpoint? = nil
+    checkpoint: HealthSyncCheckpoint? = nil,
+    throwsWhenLoadingEnrichment: Bool = false
   ) {
     self.workouts = workouts
     self.deleted = deleted
     self.checkpoint = checkpoint
+    self.throwsWhenLoadingEnrichment = throwsWhenLoadingEnrichment
   }
 
   func upsertHealthWorkouts(
@@ -110,9 +135,20 @@ private actor OverviewRepository: HealthWorkoutRepository {
 
   func loadHealthWorkoutDeletionUUIDs() async throws -> [String] { deleted }
 
+  func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
+  {
+    if throwsWhenLoadingEnrichment { throw OverviewRepositoryError.enrichmentUnavailable }
+    return nil
+  }
+
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
     -> HealthSyncCheckpoint?
   { stream == .workouts ? checkpoint : nil }
+}
+
+private enum OverviewRepositoryError: Error {
+  case enrichmentUnavailable
 }
 
 private actor OverviewZoneProvider: RollingWorkoutZoneProjectionProviding {
