@@ -125,10 +125,12 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
   public let sortDate: Date
   public let session: TrainingEventSessionFacts?
   public let healthWorkout: HealthWorkout?
+  public let healthWorkoutEnrichment: HealthWorkoutEnrichment?
   public let link: HealthWorkoutLinkFact?
   public let linkState: UnifiedTrainingEventLinkState
   public let lastSuccessfulReconciliation: Date?
   public let reconciliationContext: String?
+  public let healthCoverage: HealthStreamCoverage?
   public let disagreements: [TrainingEventDisagreement]
 
   public init(
@@ -137,10 +139,12 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
     sortDate: Date,
     session: TrainingEventSessionFacts? = nil,
     healthWorkout: HealthWorkout? = nil,
+    healthWorkoutEnrichment: HealthWorkoutEnrichment? = nil,
     link: HealthWorkoutLinkFact? = nil,
     linkState: UnifiedTrainingEventLinkState,
     lastSuccessfulReconciliation: Date? = nil,
     reconciliationContext: String? = nil,
+    healthCoverage: HealthStreamCoverage? = nil,
     additionalDisagreements: [TrainingEventDisagreement] = []
   ) {
     self.id = id
@@ -148,10 +152,14 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
     self.sortDate = sortDate
     self.session = session
     self.healthWorkout = healthWorkout
+    self.healthWorkoutEnrichment = healthWorkout.map {
+      healthWorkoutEnrichment ?? .loading(healthKitUUID: $0.healthKitUUID)
+    }
     self.link = link
     self.linkState = linkState
     self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
     self.reconciliationContext = reconciliationContext
+    self.healthCoverage = healthWorkout.map { _ in healthCoverage ?? .unknown }
     var disagreements: [TrainingEventDisagreement] = []
     if let session, let healthWorkout,
       session.session.intendedDate.iso8601String != healthWorkout.localDate
@@ -382,9 +390,21 @@ public struct TrainingEventLinkBoundary: Sendable {
     let persistedLinks = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil)
       .filter(\.isActive)
     let checkpoint = try? await healthRepository.loadHealthSyncCheckpoint(for: .workouts)
+    let healthCoverage: HealthStreamCoverage =
+      checkpoint.map {
+        $0.hasLimitedHistory ? .limitedHistory : .available
+      } ?? .unknown
     let workoutsByID = Dictionary(
       workouts.map { ($0.healthKitUUID, $0) },
       uniquingKeysWith: { _, replacement in replacement })
+    var enrichmentsByID: [String: HealthWorkoutEnrichment] = [:]
+    for workout in workouts {
+      if let enrichment = try await healthRepository.loadHealthWorkoutEnrichment(
+        for: workout.healthKitUUID)
+      {
+        enrichmentsByID[workout.healthKitUUID] = enrichment
+      }
+    }
     let activeLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] != nil }
     let unavailableLinks = persistedLinks.filter { workoutsByID[$0.healthKitUUID] == nil }
     let linksByUUID = Dictionary(grouping: persistedLinks, by: \.healthKitUUID)
@@ -439,12 +459,16 @@ public struct TrainingEventLinkBoundary: Sendable {
               sortDate: workout?.startDate ?? completionDate,
               session: facts,
               healthWorkout: workout,
+              healthWorkoutEnrichment: workout.flatMap {
+                enrichmentsByID[$0.healthKitUUID]
+              },
               link: link ?? formerLink,
               linkState: link == nil
                 ? (formerLink == nil ? .unlinked : .formerLinkWorkoutUnavailable)
                 : .linked,
               lastSuccessfulReconciliation: checkpoint?.committedAt,
               reconciliationContext: checkpoint?.reconciliationContext,
+              healthCoverage: healthCoverage,
               additionalDisagreements: [link, formerLink].compactMap { $0 }.compactMap {
                 linkConflictsByID[$0.id]
               }
@@ -460,9 +484,11 @@ public struct TrainingEventLinkBoundary: Sendable {
           localDate: workout.localDate,
           sortDate: workout.startDate,
           healthWorkout: workout,
+          healthWorkoutEnrichment: enrichmentsByID[workout.healthKitUUID],
           linkState: .unlinked,
           lastSuccessfulReconciliation: checkpoint?.committedAt,
-          reconciliationContext: checkpoint?.reconciliationContext
+          reconciliationContext: checkpoint?.reconciliationContext,
+          healthCoverage: healthCoverage
         ))
     }
     events.sort {

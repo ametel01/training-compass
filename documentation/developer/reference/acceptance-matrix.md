@@ -1,7 +1,7 @@
 # Training Compass acceptance matrix
 
 This matrix covers the protected shell, Local Training Core, Health
-reconciliation foundation, and explicit Training Event links from GitHub issues #1 through #23. A row is evidence-backed only when
+reconciliation foundation, explicit Training Event links, and Workout Enrichment from GitHub issues #1 through #23 and #25. A row is evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
 
@@ -46,6 +46,8 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #23: Explicitly link local Sessions to external workouts | Durable confirmation, concurrency, and completion | The owner reviewed a current candidate; the Session is Completed or ready to complete | Stale replacement, duplicate identity, restart, and v12 export fixtures | Confirmation creates one authoritative link between stable identities without merging either source; stale or duplicate claims are rejected; restart and legacy import retain the link; completion with an external workout atomically records Write-back suppression | Application, persistence | No | `TrainingEventLinkBoundaryTests`; `TrainingEventLinkRepositoryTests`; `make verify-migrations` |
 | Issue #23: Explicitly link local Sessions to external workouts | Unified projection, missing source, and unlink | An active link exists and the Health mirror may delete or later restore its workout | Linked pair, missing workout, exact-UUID return, disagreement, and unlink fixtures | The pair is counted once; detail keeps Session and Health authority, provenance, disagreements, link state, and reconciliation context; a missing workout never erases the Session or link; exact UUID reconnects; explicit unlink restores two events without deleting either source | Application, persistence, UI | No | `TrainingEventLinkBoundaryTests`; unified Today and Progress destinations |
 | Issue #23: Explicitly link local Sessions to external workouts | Owner-facing critical journey | Seeded Completed Session with likely and unusual candidates | Deterministic XCUITest scenario and Acceptance Device | The owner explicitly confirms an unusual match, opens the dual-source single-count detail, sees the no-silent-overwrite contract, and explicitly unlinks; no Training Compass workout-summary Write-back is produced when linking during completion | Application, UI, device, privacy | Yes | `TrainingCompassUITests.testExplicitTrainingEventLinkingShowsWarningDualSourceDetailAndUnlink`; Training Event linking device checklist |
+| Issue #25: Add late workout enrichment without duplicate events | Late, changed, deleted, and idempotent enrichment | A Health Workout is already mirrored; associated samples may be absent initially or change later | Synthetic workout pages plus absent, delayed, changed, deleted, and repeated enrichment queries | The initial workout remains visible; a later successful query stores positive distance, active energy, source metadata, and timed heart-rate sample intervals without inferring gaps or workout-edge coverage; each update updates the existing Training Event in place under its HealthKit UUID | Application, persistence, adapter | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; `PreDataHealthKitAdapter`; Health foundation device checklist |
+| Issue #25: Add late workout enrichment without duplicate events | Per-detail degradation, partial failure, and recovery | Any enrichment detail can be available, absent, cached after failure, or later successful independently | Synthetic partial, failed, and later-successful detail results in Health-only and linked composed views | A successful empty query labels only that detail Not available from Health without zero-filling; failure preserves its last successful value and reconciliation context; Health-only and linked views retain workout source, coverage, and one stable event identity | Application, persistence, UI | No | `HealthWorkoutBoundaryTests.testEnrichmentDegradesPerDetailAndFailedRetryRetainsLastSuccessfulContext`; `TrainingEventLinkBoundaryTests.testUnifiedLinkedViewRetainsWorkoutSourceAndPartialEnrichmentContext` |
 
 ## Required scenario-variant coverage
 
@@ -79,6 +81,7 @@ must name the automated evidence that proves the boundary.
 | Issue #21 | Same-day and reverse-chronological Health-only events | Local Sessions remain separate and usable | Duplicate, deleted, delayed, and missing provenance states remain visible | Cached navigation stays available while refresh runs | Source badge and reconciliation context remain visible |
 | Issue #22 | Foundation state and reconciliation envelope | No-access and partial-access boundaries are explicit | Empty, limited, failed, locked, and deleted states are not collapsed | Anchors, batches, facts, retries, and rebuild checkpoints are durable | Only read-only Health foundation behavior ships in this milestone |
 | Issue #23 | Explicit one-to-one link and unified event | Only Completed or ready-to-complete Sessions and unlinked external workouts are eligible; no automatic link | Missing workouts retain authoritative local identity and unusual candidates require acknowledgement | Stale review, duplicate claims, restart, legacy import, exact-UUID return, and unlink history are covered | Both source authorities and provenance remain visible; completion-link Write-back is suppressed |
+| Issue #25 | Positive associated detail enriches one existing workout | Enrichment is keyed to an existing HealthKit UUID and non-positive quantities are unavailable | Successful empty results are per detail; heart-rate gaps and workout edges remain unobserved | Empty incremental workout pages still re-query current workouts; repeated, changed, deleted, failed, and later-successful queries are idempotent | Source provenance and last successful per-detail reconciliation context remain visible in Health-only and linked views |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -93,6 +96,7 @@ Health-only Training Events on Today and in reverse-chronological history
 without inferring links to local Sessions. Issue #22 approves these slices as a
 second owner-usable milestone only after the state, reconciliation, recovery,
 device, and privacy evidence above is passing. Issue #23 adds explicit
-one-to-one linking, unified single-count projection, dual-source detail, and
-unlinking without changing either source of truth. Enrichment, routes, recovery
-insights, and HealthKit Write-back are not exposed.
+one-to-one linking, unified single-count projection, and dual-source detail.
+Issue #25 adds optional late Workout Enrichment while
+preserving the existing HealthKit UUID and Training Event identity. Routes,
+recovery insights, and HealthKit Write-back are not exposed.

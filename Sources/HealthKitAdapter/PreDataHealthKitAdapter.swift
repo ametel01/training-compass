@@ -35,7 +35,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
       guard HKHealthStore.isHealthDataAvailable() else {
         return .init(state: .unavailable, requested: request)
       }
-      let readTypes = Set(request.readTypes.compactMap(Self.readType))
+      let readTypes = Set(request.readTypes.flatMap(Self.readTypes))
       let shareTypes = Set(request.writeTypes.compactMap(Self.writeType))
       try await withCheckedThrowingContinuation {
         (continuation: CheckedContinuation<Void, any Error>) in
@@ -105,7 +105,124 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
     #endif
   }
 
+  public func fetchWorkoutEnrichment(for workout: HealthWorkout) async
+    -> HealthWorkoutEnrichment?
+  {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable(),
+        let uuid = UUID(uuidString: workout.healthKitUUID)
+      else { return nil }
+      let context = "workout-associated-query"
+      let checkedAt = Date()
+      let healthWorkout: HKWorkout
+      do {
+        guard let fetched = try await fetchWorkout(uuid: uuid) else { return nil }
+        healthWorkout = fetched
+      } catch {
+        return .init(
+          healthKitUUID: workout.healthKitUUID,
+          heartRate: .failed(code: "heart-rate-query-failed"),
+          distance: .failed(code: "distance-query-failed"),
+          activeEnergy: .failed(code: "active-energy-query-failed"))
+      }
+
+      let heartRate: HealthWorkoutHeartRateDetail
+      do {
+        let samples = try await fetchHeartRateSamples(for: healthWorkout)
+        heartRate = .available(
+          samples: samples,
+          checkedAt: checkedAt,
+          reconciliationContext: context)
+      } catch {
+        heartRate = .failed(code: "heart-rate-query-failed")
+      }
+      let provenance = Self.provenance(
+        sourceRevision: healthWorkout.sourceRevision,
+        device: healthWorkout.device)
+      let distance =
+        Self.distanceMeters(from: healthWorkout).map {
+          HealthWorkoutQuantityDetail.available(
+            value: $0,
+            unit: .meters,
+            provenance: provenance,
+            checkedAt: checkedAt,
+            reconciliationContext: context)
+        } ?? .notAvailableFromHealth(checkedAt: checkedAt, reconciliationContext: context)
+      let activeEnergy =
+        Self.activeEnergyKilocalories(from: healthWorkout).map {
+          HealthWorkoutQuantityDetail.available(
+            value: $0,
+            unit: .kilocalories,
+            provenance: provenance,
+            checkedAt: checkedAt,
+            reconciliationContext: context)
+        } ?? .notAvailableFromHealth(checkedAt: checkedAt, reconciliationContext: context)
+      return .init(
+        healthKitUUID: workout.healthKitUUID,
+        heartRate: heartRate,
+        distance: distance,
+        activeEnergy: activeEnergy)
+    #else
+      return nil
+    #endif
+  }
+
   #if canImport(HealthKit)
+    private func fetchWorkout(uuid: UUID) async throws -> HKWorkout? {
+      try await withCheckedThrowingContinuation { continuation in
+        let query = HKSampleQuery(
+          sampleType: HKObjectType.workoutType(),
+          predicate: HKQuery.predicateForObject(with: uuid),
+          limit: 1,
+          sortDescriptors: nil
+        ) { _, samples, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else {
+            continuation.resume(returning: samples?.first as? HKWorkout)
+          }
+        }
+        store.execute(query)
+      }
+    }
+
+    private func fetchHeartRateSamples(for workout: HKWorkout) async throws
+      -> [HealthWorkoutHeartRateSample]
+    {
+      guard let sampleType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+        return []
+      }
+      return try await withCheckedThrowingContinuation { continuation in
+        let query = HKSampleQuery(
+          sampleType: sampleType,
+          predicate: HKQuery.predicateForObjects(from: workout),
+          limit: HKObjectQueryNoLimit,
+          sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+        ) { _, samples, error in
+          if let error {
+            continuation.resume(throwing: error)
+            return
+          }
+          let unit = HKUnit.count().unitDivided(by: .minute())
+          let values = (samples as? [HKQuantitySample] ?? []).compactMap {
+            sample -> HealthWorkoutHeartRateSample? in
+            let beatsPerMinute = sample.quantity.doubleValue(for: unit)
+            guard beatsPerMinute > 0, beatsPerMinute.isFinite else { return nil }
+            return HealthWorkoutHeartRateSample(
+              id: sample.uuid.uuidString,
+              startDate: sample.startDate,
+              endDate: sample.endDate,
+              beatsPerMinute: beatsPerMinute,
+              provenance: Self.provenance(
+                sourceRevision: sample.sourceRevision,
+                device: sample.device))
+          }
+          continuation.resume(returning: values)
+        }
+        store.execute(query)
+      }
+    }
+
     private func fetchWorkouts(after pageToken: String?) async throws -> (
       workouts: [HealthWorkout], deletedHealthKitUUIDs: [String], nextPageToken: String?
     ) {
@@ -173,16 +290,63 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient {
       )
     }
 
-    private static func readType(_ type: HealthReadType) -> HKObjectType? {
+    private static func readTypes(_ type: HealthReadType) -> [HKObjectType] {
       switch type {
-      case .workouts: HKObjectType.workoutType()
-      case .heartRate: HKObjectType.quantityType(forIdentifier: .heartRate)
-      case .activeEnergy: HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)
-      case .sleep: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)
-      case .restingHeartRate: HKObjectType.quantityType(forIdentifier: .restingHeartRate)
+      case .workouts: [HKObjectType.workoutType()]
+      case .heartRate: [HKObjectType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
+      case .distance:
+        [
+          HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning),
+          HKObjectType.quantityType(forIdentifier: .distanceCycling),
+          HKObjectType.quantityType(forIdentifier: .distanceSwimming),
+          HKObjectType.quantityType(forIdentifier: .distanceWheelchair),
+        ].compactMap { $0 }
+      case .activeEnergy:
+        [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
+      case .sleep: [HKObjectType.categoryType(forIdentifier: .sleepAnalysis)].compactMap { $0 }
+      case .restingHeartRate:
+        [HKObjectType.quantityType(forIdentifier: .restingHeartRate)].compactMap { $0 }
       case .heartRateVariability:
-        HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
+        [HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)].compactMap { $0 }
       }
+    }
+
+    private static func distanceMeters(from workout: HKWorkout) -> Double? {
+      let types: [HKQuantityTypeIdentifier] = [
+        .distanceWalkingRunning, .distanceCycling, .distanceSwimming, .distanceWheelchair,
+      ]
+      let values = types.compactMap { identifier -> Double? in
+        guard let type = HKObjectType.quantityType(forIdentifier: identifier),
+          let quantity = workout.statistics(for: type)?.sumQuantity()
+        else { return nil }
+        let value = quantity.doubleValue(for: .meter())
+        return value > 0 && value.isFinite ? value : nil
+      }
+      let total = values.reduce(0, +)
+      return total > 0 ? total : nil
+    }
+
+    private static func activeEnergyKilocalories(from workout: HKWorkout) -> Double? {
+      guard let type = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned),
+        let quantity = workout.statistics(for: type)?.sumQuantity()
+      else { return nil }
+      let value = quantity.doubleValue(for: .kilocalorie())
+      return value > 0 && value.isFinite ? value : nil
+    }
+
+    private static func provenance(
+      sourceRevision: HKSourceRevision,
+      device: HKDevice?
+    ) -> HealthSampleProvenance {
+      let version = sourceRevision.operatingSystemVersion
+      return HealthSampleProvenance(
+        sourceName: sourceRevision.source.name,
+        sourceBundleIdentifier: sourceRevision.source.bundleIdentifier,
+        sourceProductType: sourceRevision.productType,
+        sourceOSVersion:
+          "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
+        deviceName: device?.name,
+        deviceModel: device?.model)
     }
 
     private static func localDate(for date: Date, timeZoneIdentifier: String) -> String? {

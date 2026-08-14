@@ -180,6 +180,11 @@ private struct HealthView: View {
               Text(entry.provenance.detailLabel)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+              Text(
+                "Heart rate: \(entry.enrichment.heartRate.state.displayName) · Distance: \(entry.enrichment.distance.state.displayName) · Active energy: \(entry.enrichment.activeEnergy.state.displayName)"
+              )
+              .font(.caption2)
+              .foregroundStyle(.secondary)
               if let context = entry.event.reconciliationContext {
                 Text("Last reconciliation: \(context)")
                   .font(.caption2)
@@ -779,6 +784,10 @@ private struct UnifiedTrainingEventDetailView: View {
           LabeledContent("Source", value: provenance.displayName)
           LabeledContent("Details", value: provenance.detailLabel)
           LabeledContent("Timezone", value: workout.timeZoneSource.displayName)
+          LabeledContent("Coverage", value: event.healthCoverage?.displayName ?? "Unknown")
+        }
+        if let enrichment = event.healthWorkoutEnrichment {
+          HealthWorkoutEnrichmentView(enrichment: enrichment)
         }
       } else if event.link != nil {
         Section("Health Workout") {
@@ -879,7 +888,9 @@ private struct HealthWorkoutHistoryDetailView: View {
         if let timezone = entry.event.sourceTimeZoneIdentifier {
           LabeledContent("Timezone identifier", value: timezone)
         }
+        LabeledContent("Coverage", value: entry.event.healthCoverage.displayName)
       }
+      HealthWorkoutEnrichmentView(enrichment: entry.enrichment)
       Section("Reconciliation") {
         LabeledContent("State", value: entry.state.displayName)
         if let context = entry.event.reconciliationContext {
@@ -892,6 +903,82 @@ private struct HealthWorkoutHistoryDetailView: View {
       }
     }
     .navigationTitle("Health Workout")
+  }
+}
+
+private struct HealthWorkoutEnrichmentView: View {
+  let enrichment: HealthWorkoutEnrichment
+
+  var body: some View {
+    Section("Workout Enrichment") {
+      LabeledContent("Heart rate", value: heartRateValue)
+      if enrichment.heartRate.state == .available {
+        Text(
+          "Only source-observed sample intervals are retained; gaps and workout edges are not inferred."
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      }
+      enrichmentContext(
+        lastSuccessfulCheck: enrichment.heartRate.lastSuccessfulCheck,
+        reconciliationContext: enrichment.heartRate.reconciliationContext,
+        label: "Heart rate"
+      )
+
+      LabeledContent("Distance", value: quantityValue(enrichment.distance))
+      enrichmentContext(
+        lastSuccessfulCheck: enrichment.distance.lastSuccessfulCheck,
+        reconciliationContext: enrichment.distance.reconciliationContext,
+        label: "Distance"
+      )
+
+      LabeledContent("Active energy", value: quantityValue(enrichment.activeEnergy))
+      enrichmentContext(
+        lastSuccessfulCheck: enrichment.activeEnergy.lastSuccessfulCheck,
+        reconciliationContext: enrichment.activeEnergy.reconciliationContext,
+        label: "Active energy"
+      )
+    }
+  }
+
+  private var heartRateValue: String {
+    let detail = enrichment.heartRate
+    guard !detail.samples.isEmpty else { return detail.state.displayName }
+    let cached = detail.state == .failed ? "Update failed · cached " : ""
+    return
+      "\(cached)\(detail.samples.count) observed interval\(detail.samples.count == 1 ? "" : "s")"
+  }
+
+  private func quantityValue(_ detail: HealthWorkoutQuantityDetail) -> String {
+    guard let quantity = detail.quantity else { return detail.state.displayName }
+    let formatted: String
+    switch quantity.unit {
+    case .meters:
+      formatted = String(format: "%.2f km", quantity.value / 1_000)
+    case .kilocalories:
+      formatted = String(format: "%.0f kcal", quantity.value)
+    }
+    return detail.state == .failed ? "Update failed · cached \(formatted)" : formatted
+  }
+
+  @ViewBuilder
+  private func enrichmentContext(
+    lastSuccessfulCheck: Date?,
+    reconciliationContext: String?,
+    label: String
+  ) -> some View {
+    if let lastSuccessfulCheck {
+      Text(
+        "\(label) last successful check: \(lastSuccessfulCheck.formatted(date: .abbreviated, time: .shortened))"
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+    }
+    if let reconciliationContext {
+      Text("\(label) reconciliation: \(reconciliationContext)")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
   }
 }
 

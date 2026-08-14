@@ -314,6 +314,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertEqual(history.events.first?.event.source, .health)
     XCTAssertEqual(history.events.first?.event.sourceBadge, "Health")
     XCTAssertEqual(history.events.first?.event.reconciliationContext, "observer-success")
+    XCTAssertEqual(history.events.first?.event.healthCoverage, .available)
     XCTAssertEqual(
       history.events.first?.event.lastSuccessfulReconciliation,
       Date(timeIntervalSince1970: 1_700_001_000)
@@ -401,6 +402,218 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     let provenance = try await provenanceBoundary.healthWorkoutHistory()
     XCTAssertEqual(provenance.events.first?.state, .unavailableProvenance)
     XCTAssertEqual(provenance.events.first?.provenance.displayName, "Source unavailable")
+  }
+
+  func testInitialWorkoutIsVisibleBeforeDelayedEnrichmentUpdatesSameEventInPlace() async throws {
+    let workout = fixture("delayed-enrichment")
+    let enrichment = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .available(
+        samples: [
+          HealthWorkoutHeartRateSample(
+            id: "heart-rate-1",
+            startDate: workout.startDate.addingTimeInterval(30),
+            endDate: workout.startDate.addingTimeInterval(35),
+            beatsPerMinute: 132,
+            provenance: HealthSampleProvenance(
+              sourceName: "Synthetic Watch",
+              sourceBundleIdentifier: "com.example.watch"
+            ))
+        ],
+        checkedAt: Date(timeIntervalSince1970: 1_700_000_900),
+        reconciliationContext: "delayed-success"
+      ),
+      distance: .available(
+        value: 1_250,
+        unit: .meters,
+        checkedAt: Date(timeIntervalSince1970: 1_700_000_900),
+        reconciliationContext: "delayed-success"
+      ),
+      activeEnergy: .notAvailableFromHealth(
+        checkedAt: Date(timeIntervalSince1970: 1_700_000_900),
+        reconciliationContext: "delayed-success"
+      )
+    )
+    let client = SyntheticWorkoutEnrichmentHealthClient(
+      workout: workout, enrichments: [enrichment])
+    let repository = EnrichmentRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts],
+      authorization: .init(state: .authorized)
+    )
+    let boundary = HealthWorkoutImportBoundary(
+      client: client,
+      repository: repository,
+      authorization: .init(state: .authorized)
+    )
+    let visibleCollector = EnrichmentVisibilityCollector()
+
+    _ = try await coordinator.synchronize { _ in
+      let snapshot = try? await boundary.healthWorkoutHistory()
+      await visibleCollector.record(snapshot)
+    }
+
+    let collectedSnapshot = await visibleCollector.snapshot
+    let initial = try XCTUnwrap(collectedSnapshot)
+    XCTAssertEqual(initial.events.map(\.id), [workout.healthKitUUID])
+    XCTAssertEqual(initial.events.first?.enrichment.heartRate.state, .loading)
+
+    let enriched = try await boundary.healthWorkoutHistory()
+    XCTAssertEqual(enriched.events.map(\.id), [workout.healthKitUUID])
+    XCTAssertEqual(enriched.events.first?.enrichment, enrichment)
+    XCTAssertEqual(
+      enriched.events.first?.enrichment.heartRate.samples.first?.startDate,
+      workout.startDate.addingTimeInterval(30))
+    XCTAssertEqual(
+      enriched.events.first?.enrichment.heartRate.samples.first?.endDate,
+      workout.startDate.addingTimeInterval(35))
+  }
+
+  func testEnrichmentDegradesPerDetailAndFailedRetryRetainsLastSuccessfulContext() async throws {
+    let workout = fixture("partial-enrichment")
+    let firstCheck = Date(timeIntervalSince1970: 1_700_000_900)
+    let first = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .notAvailableFromHealth(
+        checkedAt: firstCheck,
+        reconciliationContext: "first-success"
+      ),
+      distance: .available(
+        value: 5_000,
+        unit: .meters,
+        checkedAt: firstCheck,
+        reconciliationContext: "first-success"
+      ),
+      activeEnergy: .available(
+        value: 420,
+        unit: .kilocalories,
+        checkedAt: firstCheck,
+        reconciliationContext: "first-success"
+      )
+    )
+    let failedThenRecovered = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .failed(code: "heart-rate-query-failed"),
+      distance: .notAvailableFromHealth(
+        checkedAt: Date(timeIntervalSince1970: 1_700_001_000),
+        reconciliationContext: "second-success"
+      ),
+      activeEnergy: .failed(code: "energy-query-failed")
+    )
+    let recoveredAt = Date(timeIntervalSince1970: 1_700_001_100)
+    let recovered = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .available(
+        samples: [
+          HealthWorkoutHeartRateSample(
+            id: "recovered-heart-rate",
+            startDate: workout.startDate.addingTimeInterval(60),
+            endDate: workout.startDate.addingTimeInterval(65),
+            beatsPerMinute: 138)
+        ],
+        checkedAt: recoveredAt,
+        reconciliationContext: "later-success"
+      ),
+      distance: failedThenRecovered.distance,
+      activeEnergy: .available(
+        value: 430,
+        unit: .kilocalories,
+        checkedAt: recoveredAt,
+        reconciliationContext: "later-success"
+      )
+    )
+    let client = SyntheticWorkoutEnrichmentHealthClient(
+      workout: workout,
+      enrichments: [first, failedThenRecovered, recovered]
+    )
+    let repository = EnrichmentRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts],
+      authorization: .init(state: .authorized)
+    )
+
+    _ = try await coordinator.foreground()
+    _ = try await coordinator.retry()
+
+    let loaded = try await repository.loadHealthWorkoutEnrichment(for: workout.healthKitUUID)
+    let persisted = try XCTUnwrap(loaded)
+    XCTAssertEqual(persisted.heartRate.state, .failed)
+    XCTAssertEqual(persisted.heartRate.lastSuccessfulCheck, firstCheck)
+    XCTAssertEqual(persisted.heartRate.reconciliationContext, "first-success")
+    XCTAssertEqual(persisted.distance.state, .notAvailableFromHealth)
+    XCTAssertNil(persisted.distance.quantity)
+    XCTAssertEqual(persisted.activeEnergy.state, .failed)
+    XCTAssertEqual(persisted.activeEnergy.quantity?.value, 420)
+    XCTAssertEqual(persisted.activeEnergy.lastSuccessfulCheck, firstCheck)
+
+    _ = try await coordinator.retry()
+    let recoveredValue = try await repository.loadHealthWorkoutEnrichment(
+      for: workout.healthKitUUID)
+    XCTAssertEqual(recoveredValue, recovered)
+    XCTAssertEqual(recoveredValue?.heartRate.lastSuccessfulCheck, recoveredAt)
+    XCTAssertEqual(recoveredValue?.activeEnergy.quantity?.value, 430)
+  }
+
+  func testRepeatedEnrichmentReplacementAndDeletionAreIdempotentWithoutAnotherEvent() async throws {
+    let workout = fixture("idempotent-enrichment")
+    let checkedAt = Date(timeIntervalSince1970: 1_700_001_100)
+    let available = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: .notAvailableFromHealth(
+        checkedAt: checkedAt,
+        reconciliationContext: "repeat"
+      ),
+      distance: .available(
+        value: 10_000,
+        unit: .meters,
+        checkedAt: checkedAt,
+        reconciliationContext: "repeat"
+      ),
+      activeEnergy: .notAvailableFromHealth(
+        checkedAt: checkedAt,
+        reconciliationContext: "repeat"
+      )
+    )
+    let deleted = HealthWorkoutEnrichment(
+      healthKitUUID: workout.healthKitUUID,
+      heartRate: available.heartRate,
+      distance: .notAvailableFromHealth(
+        checkedAt: checkedAt.addingTimeInterval(10),
+        reconciliationContext: "sample-deleted"
+      ),
+      activeEnergy: available.activeEnergy
+    )
+    let client = SyntheticWorkoutEnrichmentHealthClient(
+      workout: workout,
+      enrichments: [available, available, deleted]
+    )
+    let repository = EnrichmentRepository()
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts],
+      authorization: .init(state: .authorized)
+    )
+    let boundary = HealthWorkoutImportBoundary(
+      client: client,
+      repository: repository,
+      authorization: .init(state: .authorized)
+    )
+
+    _ = try await coordinator.foreground()
+    _ = try await coordinator.retry()
+    let repeatedHistory = try await boundary.healthWorkoutHistory()
+    XCTAssertEqual(repeatedHistory.events.count, 1)
+    _ = try await coordinator.retry()
+
+    let history = try await boundary.healthWorkoutHistory()
+    XCTAssertEqual(history.events.map(\.id), [workout.healthKitUUID])
+    XCTAssertEqual(history.events.first?.enrichment.distance.state, .notAvailableFromHealth)
+    XCTAssertNil(history.events.first?.enrichment.distance.quantity)
   }
 
   private func fixture(_ id: String) -> HealthWorkout {
@@ -709,5 +922,99 @@ private actor HistoryRepository: HealthWorkoutRepository {
     -> HealthMirrorContentSnapshot
   {
     .init(stream: stream, recordCount: stream == .workouts ? values.count : 0)
+  }
+}
+
+private actor SyntheticWorkoutEnrichmentHealthClient: HealthWorkoutClient {
+  let workout: HealthWorkout
+  let enrichments: [HealthWorkoutEnrichment]
+  private var enrichmentIndex = 0
+  private var workoutPageCount = 0
+
+  init(workout: HealthWorkout, enrichments: [HealthWorkoutEnrichment]) {
+    self.workout = workout
+    self.enrichments = enrichments
+  }
+
+  func requestAuthorization() async throws -> HealthAuthorizationResult { .requestCompleted }
+
+  func requestHealthAuthorization(
+    _ request: HealthAuthorizationRequest
+  ) async throws -> HealthAuthorizationSnapshot { .init(state: .authorized, requested: request) }
+
+  func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+    defer { workoutPageCount += 1 }
+    return HealthWorkoutPage(
+      workouts: workoutPageCount == 0 ? [workout] : [],
+      reconciliationContext: "workout-refresh")
+  }
+
+  func fetchWorkoutEnrichment(for workout: HealthWorkout) async -> HealthWorkoutEnrichment? {
+    let enrichment = enrichments[min(enrichmentIndex, enrichments.count - 1)]
+    enrichmentIndex += 1
+    return enrichment
+  }
+}
+
+private actor EnrichmentRepository: HealthWorkoutRepository {
+  private var workouts: [HealthWorkout] = []
+  private var enrichments: [String: HealthWorkoutEnrichment] = [:]
+  private var checkpoint: HealthSyncCheckpoint?
+
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
+  {
+    self.workouts = workouts
+  }
+
+  func loadHealthWorkouts() async throws -> [HealthWorkout] { workouts }
+
+  func commitHealthWorkoutPage(
+    _ page: HealthWorkoutPage,
+    stream: HealthSyncStream,
+    limits: HealthSyncBatchLimits
+  ) async throws {
+    try limits.validate(page: page)
+    for uuid in page.deletedHealthKitUUIDs {
+      workouts.removeAll { $0.healthKitUUID == uuid }
+      enrichments[uuid] = nil
+    }
+    for workout in page.workouts {
+      workouts.removeAll { $0.healthKitUUID == workout.healthKitUUID }
+      workouts.append(workout)
+    }
+    checkpoint = HealthSyncCheckpoint(
+      stream: stream,
+      anchor: page.nextAnchor,
+      reconciliationContext: page.reconciliationContext
+    )
+  }
+
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
+  {
+    checkpoint
+  }
+
+  func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
+    -> HealthMirrorContentSnapshot
+  {
+    .init(stream: stream, recordCount: stream == .workouts ? workouts.count : nil)
+  }
+
+  func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {
+    enrichments[enrichment.healthKitUUID] = enrichment
+  }
+
+  func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+    -> HealthWorkoutEnrichment?
+  {
+    enrichments[healthKitUUID]
+  }
+}
+
+private actor EnrichmentVisibilityCollector {
+  private(set) var snapshot: HealthWorkoutHistorySnapshot?
+
+  func record(_ snapshot: HealthWorkoutHistorySnapshot?) {
+    if self.snapshot == nil { self.snapshot = snapshot }
   }
 }
