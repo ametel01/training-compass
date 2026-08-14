@@ -166,6 +166,12 @@ final class AppModel {
           storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider())
       }(),
       healthWorkoutRouteBoundary: {
+        // Deterministic UI acceptance scenarios use synthetic workout IDs and
+        // must never trigger a real Health authorization sheet merely because
+        // their detail view is exercised.
+        guard ProcessInfo.processInfo.environment["TRAINING_COMPASS_UI_SCENARIO"] == nil else {
+          return nil
+        }
         guard let routeClient = dependencies.healthKit as? any HealthWorkoutRouteClient,
           let routeRepository = repository as? any HealthWorkoutRouteRepository
         else { return nil }

@@ -793,7 +793,9 @@ private struct UnifiedTrainingEventDetailView: View {
         if let enrichment = event.healthWorkoutEnrichment {
           HealthWorkoutEnrichmentView(enrichment: enrichment)
         }
-        HealthWorkoutRouteView(healthKitUUID: workout.healthKitUUID, model: model)
+        if model.healthWorkoutRouteBoundary != nil {
+          HealthWorkoutRouteView(healthKitUUID: workout.healthKitUUID, model: model)
+        }
       } else if event.link != nil {
         Section("Health Workout") {
           Text("The exact linked HealthKit UUID is not currently available in the mirror.")
@@ -897,7 +899,9 @@ private struct HealthWorkoutHistoryDetailView: View {
         LabeledContent("Coverage", value: entry.event.healthCoverage.displayName)
       }
       HealthWorkoutEnrichmentView(enrichment: entry.enrichment)
-      HealthWorkoutRouteView(healthKitUUID: entry.event.healthKitUUID, model: model)
+      if model.healthWorkoutRouteBoundary != nil {
+        HealthWorkoutRouteView(healthKitUUID: entry.event.healthKitUUID, model: model)
+      }
       Section("Reconciliation") {
         LabeledContent("State", value: entry.state.displayName)
         if let context = entry.event.reconciliationContext {
