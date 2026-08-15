@@ -1636,6 +1636,27 @@ public actor HealthWorkoutImportBoundary {
     return evidence.sleepEpisodes(preference: preferredSleepSourceOrder, calendar: calendar)
   }
 
+  /// Returns neutral daily resting-heart-rate and HRV SDNN observations from
+  /// the independent mirrored streams. The projection retains each stream's
+  /// source, coverage, reconciliation, and algorithm context; it never treats
+  /// one stream's success as evidence that another stream is current.
+  public func dailyRecoveryObservations(
+    calendar: Calendar = .current,
+    now: Date = Date()
+  ) async -> HealthRecoveryObservationProjection {
+    let evidence = await recoveryEvidence()
+    return evidence.dailyObservations(calendar: calendar, now: now)
+  }
+
+  /// Descriptive alias for callers that use the shorter Recovery Evidence
+  /// vocabulary at the application boundary.
+  public func recoveryObservations(
+    calendar: Calendar = .current,
+    now: Date = Date()
+  ) async -> HealthRecoveryObservationProjection {
+    await dailyRecoveryObservations(calendar: calendar, now: now)
+  }
+
   public func todayHealthWorkouts(on date: TrainingDate) async throws
     -> [HealthWorkoutHistoryEntry]
   {

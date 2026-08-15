@@ -457,6 +457,7 @@ private struct RecoveryEvidenceSection: View {
   @State private var sleepPreference = SleepSourcePreference()
 
   var body: some View {
+    let dailyObservations = snapshot.dailyObservations()
     VStack(alignment: .leading, spacing: 8) {
       Text(
         "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
@@ -474,7 +475,7 @@ private struct RecoveryEvidenceSection: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
           if !status.isCurrentToday, status.lastSuccessfulCheck != nil {
-            Text("Cached observation; not current for today's guidance.")
+            Text("Cached observation; not current for today's comparison.")
               .font(.caption2)
               .foregroundStyle(.secondary)
           }
@@ -545,13 +546,27 @@ private struct RecoveryEvidenceSection: View {
             }
           }
         }
-        if !snapshot.restingHeartRate.isEmpty {
-          Text("Resting heart rate: \(snapshot.restingHeartRate.count) samples")
-            .font(.caption)
+        if !dailyObservations.restingHeartRate.isEmpty {
+          Text("Daily resting-heart-rate observations")
+            .font(.caption.weight(.semibold))
+          ForEach(dailyObservations.restingHeartRate) { observation in
+            RecoveryObservationRow(observation: observation)
+          }
         }
-        if !snapshot.heartRateVariability.isEmpty {
-          Text("HRV SDNN: \(snapshot.heartRateVariability.count) samples")
-            .font(.caption)
+        if !dailyObservations.heartRateVariability.isEmpty {
+          Text("Daily HRV SDNN observations")
+            .font(.caption.weight(.semibold))
+          ForEach(dailyObservations.heartRateVariability) { observation in
+            RecoveryObservationRow(observation: observation)
+          }
+        }
+        if !dailyObservations.explanation.missingData.isEmpty {
+          Text(
+            "Quantity context: "
+              + dailyObservations.explanation.missingData.joined(separator: "; ")
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
         }
       }
     }
@@ -560,6 +575,74 @@ private struct RecoveryEvidenceSection: View {
         sleepPreference = await boundary.sleepSourcePreference()
       }
     }
+  }
+}
+
+private struct RecoveryObservationRow: View {
+  let observation: HealthRecoveryDailyObservation
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack {
+        Text(observation.date.iso8601String)
+          .font(.subheadline.weight(.semibold))
+        Spacer()
+        Text("\(observation.value, specifier: "%.2f") \(observation.unit)")
+          .font(.subheadline.monospacedDigit())
+      }
+      Text(
+        "Source: \(observation.source.displayName) · \(observation.sampleCount) sample\(observation.sampleCount == 1 ? "" : "s")"
+      )
+      .font(.caption)
+      Text(observation.sourceProvenance.detailLabel)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      Text(
+        "Latest included sample: \(observation.latestIncludedSampleDate.formatted(date: .abbreviated, time: .shortened)) · \(observation.latestIncludedSampleID)"
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      if observation.algorithmVersions.isEmpty {
+        Text("Algorithm revision: not provided by Health")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      } else {
+        Text("Algorithm revisions: \(observation.algorithmVersions.joined(separator: ", "))")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      Text(
+        "Coverage: \(observation.coverage.displayName) · Reconciliation: \(observation.reconciliation == .updating ? "Updating" : "Idle")"
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      Text(
+        "Last successful reconciliation: "
+          + (observation.lastSuccessfulReconciliation?.formatted(
+            date: .abbreviated, time: .shortened)
+            ?? "Never")
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      if !observation.isCurrent {
+        Text("This recorded value is cached and not current for today's comparison.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      if let failure = observation.failure {
+        Text("Stream check failed: \(failure.code). Cached value remains visible.")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+      }
+      NavigationLink {
+        InsightExplanationDetailView(explanation: observation.explanation)
+      } label: {
+        Label("Explain observed value", systemImage: "info.circle")
+      }
+      .font(.caption)
+    }
+    .padding(.vertical, 4)
+    .accessibilityIdentifier("health.recovery.observation.\(observation.id)")
   }
 }
 

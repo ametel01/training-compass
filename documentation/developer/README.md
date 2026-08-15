@@ -9,7 +9,9 @@ Training Compass contains the protected Gate 0 shell, Local Training Core slices
 
 The Health destination also exposes owner-controlled Preferred Sleep source
 ordering and deterministic, source-aware Primary Sleep and Nap episode
-inspection from issue #34.
+inspection from issue #34, plus source-aware daily resting-heart-rate and HRV
+SDNN observations with full-precision daily reduction and reconciliation context
+from issue #35.
 
 ## How-to guides
 
