@@ -131,6 +131,21 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
     XCTAssertEqual(saveRequests, 2)
   }
 
+  func testCheckWriteAccessRequiresAuthorizedSnapshot() async throws {
+    let repository = WriteBackRepositorySpy()
+    let client = WriteBackClientSpy()
+    await client.setAuthorizationState(.postponed)
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+
+    do {
+      _ = try await boundary.checkWriteAccess()
+      XCTFail("A postponed write authorization must remain an explicit access-needed state")
+    } catch let error as HealthWorkoutWriteBackClientError {
+      XCTAssertEqual(error, .authorizationDenied)
+    }
+  }
+
   func testTerminalFailurePreservesLocalCompletionUntilExplicitRetry() async throws {
     let repository = WriteBackRepositorySpy()
     try await repository.saveHealthWorkoutWriteBackPreference(.init(enabled: true))
@@ -251,13 +266,16 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
   private(set) var authorizationRequests = 0
   private(set) var saveRequests = 0
   private(set) var summaries: [HealthWorkoutWriteBackSummary] = []
+  private var authorizationState = HealthAuthorizationState.authorized
   private var saveOutcomes: [SaveOutcome] = []
 
   func setSaveOutcomes(_ outcomes: [SaveOutcome]) { saveOutcomes = outcomes }
+  func setAuthorizationState(_ state: HealthAuthorizationState) { authorizationState = state }
 
   func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
     authorizationRequests += 1
-    return .init(state: .authorized, requested: .init(readTypes: [], writeTypes: [.workouts]))
+    return .init(
+      state: authorizationState, requested: .init(readTypes: [], writeTypes: [.workouts]))
   }
 
   func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String {

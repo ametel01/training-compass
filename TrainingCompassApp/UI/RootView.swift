@@ -50,6 +50,12 @@ struct RootView: View {
             trigger: .foreground)
         }
       }
+      .onReceive(
+        NotificationCenter.default.publisher(
+          for: UIApplication.protectedDataDidBecomeAvailableNotification)
+      ) { _ in
+        Task { await model.resumeHealthWorkoutWriteBacks() }
+      }
 
       if concealsSensitiveContent {
         PrivacyShield()

@@ -157,7 +157,15 @@ extension HealthWorkoutWriteBackClient {
   /// Access checks are explicit and deliberately do not retry a queued
   /// operation. The owner can inspect the result and then choose Try Again.
   public func checkWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
-    try await requestWriteAuthorization()
+    let snapshot = try await requestWriteAuthorization()
+    switch snapshot.state {
+    case .authorized:
+      return snapshot
+    case .unavailable:
+      throw HealthWorkoutWriteBackClientError.unavailable
+    case .notRequested, .postponed:
+      throw HealthWorkoutWriteBackClientError.authorizationDenied
+    }
   }
 }
 

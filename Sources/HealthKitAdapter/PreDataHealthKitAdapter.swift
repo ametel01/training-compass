@@ -61,8 +61,17 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
   }
 
   public func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
-    try await requestHealthAuthorization(
+    let snapshot = try await requestHealthAuthorization(
       .init(readTypes: [], writeTypes: [.workouts]))
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable() else {
+        throw HealthWorkoutWriteBackClientError.unavailable
+      }
+      guard store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else {
+        throw HealthWorkoutWriteBackClientError.authorizationDenied
+      }
+    #endif
+    return snapshot
   }
 
   public func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String {
@@ -83,7 +92,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         (continuation: CheckedContinuation<Void, any Error>) in
         builder.beginCollection(withStart: summary.startDate) { success, error in
           if let error {
-            continuation.resume(throwing: error)
+            continuation.resume(throwing: Self.mapWriteBackError(error))
           } else if success {
             continuation.resume(returning: ())
           } else {
@@ -98,7 +107,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
           HKMetadataKeySyncVersion: summary.syncVersion,
         ]) { success, error in
           if let error {
-            continuation.resume(throwing: error)
+            continuation.resume(throwing: Self.mapWriteBackError(error))
           } else if success {
             continuation.resume(returning: ())
           } else {
@@ -110,7 +119,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         (continuation: CheckedContinuation<Void, any Error>) in
         builder.endCollection(withEnd: summary.endDate) { success, error in
           if let error {
-            continuation.resume(throwing: error)
+            continuation.resume(throwing: Self.mapWriteBackError(error))
           } else if success {
             continuation.resume(returning: ())
           } else {
@@ -123,7 +132,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
           (continuation: CheckedContinuation<HKWorkout?, any Error>) in
           builder.finishWorkout { workout, error in
             if let error {
-              continuation.resume(throwing: error)
+              continuation.resume(throwing: Self.mapWriteBackError(error))
             } else {
               continuation.resume(returning: workout)
             }
@@ -150,7 +159,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
           sortDescriptors: nil
         ) { _, samples, error in
           if let error {
-            continuation.resume(throwing: error)
+            continuation.resume(throwing: Self.mapWriteBackError(error))
             return
           }
           let exists = (samples as? [HKWorkout] ?? []).contains {
@@ -165,6 +174,27 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       throw HealthWorkoutWriteBackClientError.unavailable
     #endif
   }
+
+  #if canImport(HealthKit)
+    private static func mapWriteBackError(_ error: any Error) -> any Error {
+      let error = error as NSError
+      guard error.domain == HKError.errorDomain else { return error }
+      switch error.code {
+      case HKError.errorHealthDataUnavailable.rawValue:
+        return HealthWorkoutWriteBackClientError.unavailable
+      case HKError.errorAuthorizationDenied.rawValue,
+        HKError.errorAuthorizationNotDetermined.rawValue,
+        HKError.errorRequiredAuthorizationDenied.rawValue:
+        return HealthWorkoutWriteBackClientError.authorizationDenied
+      case HKError.errorDatabaseInaccessible.rawValue:
+        return HealthWorkoutWriteBackClientError.protectedDataUnavailable
+      default:
+        return error
+      }
+    }
+  #else
+    private static func mapWriteBackError(_ error: any Error) -> any Error { error }
+  #endif
 
   public func requestWorkoutRouteAuthorization() async throws
     -> HealthWorkoutRouteAuthorizationState
