@@ -1657,6 +1657,31 @@ public actor HealthWorkoutImportBoundary {
     await dailyRecoveryObservations(calendar: calendar, now: now)
   }
 
+  /// Returns independently calculated Personal Recovery Baselines for Primary
+  /// Sleep duration and consistency, resting heart rate, and HRV SDNN. The
+  /// current local date is excluded from each measure's own 28-day reference
+  /// window, and no baseline becomes established before 14 valid days.
+  public func personalRecoveryBaselines(
+    calendar: Calendar = .current,
+    asOfDate: TrainingDate? = nil,
+    now: Date = Date()
+  ) async -> PersonalRecoveryBaselineProjection {
+    let evidence = await recoveryEvidence()
+    return evidence.personalRecoveryBaselines(
+      preference: preferredSleepSourceOrder,
+      calendar: calendar,
+      asOfDate: asOfDate,
+      now: now)
+  }
+
+  public func recoveryBaselines(
+    calendar: Calendar = .current,
+    asOfDate: TrainingDate? = nil,
+    now: Date = Date()
+  ) async -> PersonalRecoveryBaselineProjection {
+    await personalRecoveryBaselines(calendar: calendar, asOfDate: asOfDate, now: now)
+  }
+
   public func todayHealthWorkouts(on date: TrainingDate) async throws
     -> [HealthWorkoutHistoryEntry]
   {

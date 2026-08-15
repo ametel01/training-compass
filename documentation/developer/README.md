@@ -11,7 +11,11 @@ The Health destination also exposes owner-controlled Preferred Sleep source
 ordering and deterministic, source-aware Primary Sleep and Nap episode
 inspection from issue #34, plus source-aware daily resting-heart-rate and HRV
 SDNN observations with full-precision daily reduction and reconciliation context
-from issue #35.
+from issue #35. Health also calculates independent Personal Recovery Baselines
+for Primary Sleep duration and consistency, resting heart rate, and HRV SDNN
+from issue #36; each baseline uses the preceding 28 local calendar days,
+requires 14 valid observed days, and keeps its exact median, middle 50 percent,
+source, freshness, and explanation visible without combining measures.
 
 ## How-to guides
 

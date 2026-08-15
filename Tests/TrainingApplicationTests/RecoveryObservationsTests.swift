@@ -228,4 +228,81 @@ final class RecoveryObservationsTests: XCTestCase {
     XCTAssertFalse(projection.heartRateVariability.first?.isCurrent == true)
     XCTAssertEqual(projection.statuses.map(\.stream), [.restingHeartRate, .heartRateVariability])
   }
+
+  func testPersonalBaselinesUsePrimarySleepAndKeepEachMeasureIndependent() {
+    let source = HealthRecoverySampleProvenance(
+      sourceName: "Watch", sourceBundleIdentifier: "com.watch")
+    var sleep: [HealthSleepSample] = (1...15).map { day in
+      HealthSleepSample(
+        id: "sleep-\(day)",
+        startDate: date(day, 1),
+        endDate: date(day, 7),
+        provenance: source)
+    }
+    sleep.append(
+      HealthSleepSample(
+        id: "nap", startDate: date(14, 13), endDate: date(14, 14), provenance: source))
+    sleep.append(
+      HealthSleepSample(
+        id: "sleep-current", startDate: date(29, 1), endDate: date(29, 9), provenance: source))
+
+    let currentCheck = date(29, 12)
+    let statuses = [
+      HealthStreamStatus(
+        stream: .sleep,
+        requested: true,
+        authorization: .authorized,
+        coverage: .available,
+        mirroredContent: .available,
+        lastSuccessfulCheck: currentCheck),
+      HealthStreamStatus(
+        stream: .restingHeartRate,
+        requested: true,
+        authorization: .authorized,
+        coverage: .available,
+        mirroredContent: .available,
+        lastSuccessfulCheck: currentCheck),
+      HealthStreamStatus(
+        stream: .heartRateVariability,
+        requested: true,
+        authorization: .authorized,
+        coverage: .available,
+        mirroredContent: .available,
+        lastSuccessfulCheck: currentCheck),
+    ]
+    let snapshot = HealthRecoveryEvidenceSnapshot(
+      sleep: sleep,
+      restingHeartRate: (1...14).map {
+        resting("rest-\($0)", day: $0, value: Double(50 + $0))
+      } + [resting("rest-current", day: 29, value: 70)],
+      heartRateVariability: (1...14).map {
+        hrv("hrv-\($0)", day: $0, value: Double(30 + $0))
+      } + [hrv("hrv-current", day: 29, value: 60)],
+      statuses: statuses)
+
+    let baselines = snapshot.personalRecoveryBaselines(
+      calendar: calendar, asOfDate: TrainingDate(year: 2026, month: 8, day: 29), now: date(29, 12))
+    XCTAssertEqual(baselines.baselines.count, 5)
+    XCTAssertTrue(baselines.baseline(for: .primarySleepDuration)?.isEstablished == true)
+    XCTAssertEqual(
+      baselines.baseline(for: .primarySleepDuration)?.validObservationDays, 15)
+    XCTAssertEqual(
+      baselines.baseline(for: .primarySleepDuration)?.currentObservation?.value, 8 * 60 * 60)
+    XCTAssertTrue(
+      baselines.baseline(for: .primarySleepDuration)?.explanation.includedRecordIDs.contains("nap")
+        == false)
+    XCTAssertEqual(
+      baselines.baseline(for: .restingHeartRate)?.differenceFromMedian, 12.5)
+    XCTAssertEqual(
+      baselines.baseline(for: .heartRateVariabilitySDNN)?.differenceFromMedian, 22.5)
+    XCTAssertTrue(baselines.baseline(for: .sleepTimingConsistency)?.isEstablished == true)
+    XCTAssertEqual(baselines.baseline(for: .sleepTimingConsistency)?.median, 0)
+    XCTAssertTrue(
+      baselines.baseline(for: .sleepTimingConsistency)?.explanation.sourceState.contains(
+        "sleep-episodes-v1") == true)
+    XCTAssertTrue(
+      baselines.baseline(for: .primarySleepDuration)?.explanation.sourceCoverage.contains(
+        "History available") == true)
+    XCTAssertTrue(baselines.explanation.text.contains("no combined score"))
+  }
 }

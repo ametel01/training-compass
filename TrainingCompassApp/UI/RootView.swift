@@ -458,6 +458,7 @@ private struct RecoveryEvidenceSection: View {
 
   var body: some View {
     let dailyObservations = snapshot.dailyObservations()
+    let personalBaselines = snapshot.personalRecoveryBaselines()
     VStack(alignment: .leading, spacing: 8) {
       Text(
         "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
@@ -560,6 +561,24 @@ private struct RecoveryEvidenceSection: View {
             RecoveryObservationRow(observation: observation)
           }
         }
+        if !personalBaselines.baselines.isEmpty {
+          Text("Personal Recovery Baselines")
+            .font(.caption.weight(.semibold))
+          Text(
+            "Each measure uses its own preceding 28 local calendar days. The current day is excluded from that measure's baseline; missing days are ignored and no measure becomes a score."
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          ForEach(personalBaselines.baselines) { baseline in
+            RecoveryBaselineRow(baseline: baseline)
+          }
+          NavigationLink {
+            InsightExplanationDetailView(explanation: personalBaselines.explanation)
+          } label: {
+            Label("Explain all personal baselines", systemImage: "info.circle")
+          }
+          .font(.caption)
+        }
         if !dailyObservations.explanation.missingData.isEmpty {
           Text(
             "Quantity context: "
@@ -575,6 +594,59 @@ private struct RecoveryEvidenceSection: View {
         sleepPreference = await boundary.sleepSourcePreference()
       }
     }
+  }
+}
+
+private struct RecoveryBaselineRow: View {
+  let baseline: PersonalRecoveryBaseline
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack {
+        Text(baseline.metric.displayName)
+          .font(.subheadline.weight(.semibold))
+        Spacer()
+        if let median = baseline.median {
+          Text("Median \(String(describing: median)) \(baseline.metric.unit)")
+            .font(.caption.monospacedDigit())
+        }
+      }
+      if let lower = baseline.lowerQuartile, let upper = baseline.upperQuartile {
+        Text(
+          "Middle 50%: \(String(describing: lower))–\(String(describing: upper)) \(baseline.metric.unit) · \(baseline.validObservationDays) valid days"
+        )
+        .font(.caption2)
+      } else {
+        Text(
+          "Baseline forming: \(baseline.validObservationDays)/\(baseline.minimumObservationDays) valid days"
+        )
+        .font(.caption2)
+      }
+      if let current = baseline.currentObservation, let difference = baseline.differenceFromMedian {
+        Text(
+          "Current \(String(describing: current.value)) \(baseline.metric.unit) · \(baseline.comparison.displayName) · \(baseline.neutralDirection ?? "same as") the baseline median · Difference: \(String(describing: difference)) \(baseline.metric.unit)"
+        )
+        .font(.caption2)
+      } else {
+        Text("No current source-comparable observation for comparison.")
+          .font(.caption2)
+      }
+      if let sourceName = baseline.sourceName {
+        Text(
+          "Source: \(sourceName) · Window: \(baseline.windowStart.iso8601String)–\(baseline.windowEnd.iso8601String)"
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      }
+      NavigationLink {
+        InsightExplanationDetailView(explanation: baseline.explanation)
+      } label: {
+        Label("Explain baseline", systemImage: "info.circle")
+      }
+      .font(.caption)
+    }
+    .padding(.vertical, 4)
+    .accessibilityIdentifier("health.recovery.baseline.\(baseline.metric.rawValue)")
   }
 }
 

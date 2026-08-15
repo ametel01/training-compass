@@ -38,6 +38,14 @@ capture workout measurements, dates, identifiers, routes, or notes.
 - [ ] Verify no displayed view emits a combined training-load score, personal
   record, goal, fitness claim, inferred effort, race prediction, causal claim,
   recovery verdict, or automatic prescription.
+- [ ] In Health, inspect the Personal Recovery Baselines for Primary Sleep
+  duration, duration consistency, timing consistency, resting heart rate, and
+  HRV SDNN. Verify that the current day is excluded from each 28-day window,
+  missing dates are not filled, 13 valid days withhold a baseline, 14 valid
+  days establish it, and band boundaries are classified within.
+- [ ] Verify a current comparison requires a current source-comparable
+  observation, shows the exact full-precision difference from the median, and
+  uses only longer/shorter, higher/lower, or more/less variable language.
 
 ## Responsiveness and continuity
 

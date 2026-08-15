@@ -5,7 +5,7 @@ reconciliation foundation, explicit Training Event links, Workout Enrichment,
 on-demand simplified routes, the Unified Events and Enrichment milestone, the
 Rolling Workout Overview, transparent Heart-Rate Zones, Training and Running
 Insights, and independent Recovery Evidence from GitHub issues #1 through #23 and
-#25 through #34. A row is
+#25 through #36. A row is
 evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
@@ -84,6 +84,8 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #35: Present daily resting-heart-rate and HRV observations | Source-owned daily quantity observations | Mirrored positive resting-heart-rate and HRV SDNN samples span sparse local dates and multiple source revisions | Duplicate imports, same-identity replacements, deletions, missing dates, and algorithm-version changes remain explicit | Resting heart rate uses the latest same-source sample on its HealthKit sample date; HRV SDNN uses the full-precision daily median; every observation retains source, included IDs, sample count, latest sample, and algorithm context | Application, insights, persistence, UI | Yes | `RecoveryObservationsTests`; `HealthRecoveryObservationCalculator`; Health destination |
 | Issue #35: Present daily resting-heart-rate and HRV observations | Independent reconciliation and coverage | Each quantity stream has its own status, checkpoint context, and mirrored content | Stale cached data, updating state, first/later failure, limited history, and unavailable stream state affect only that stream's observation context | Every row shows coverage, reconciliation state, last successful reconciliation, and whether it is current for comparison; no stream success is borrowed by another | Application, persistence, UI, privacy | Yes | `RecoveryObservationsTests`; `HealthWorkoutBoundaryTests`; Health destination |
 | Issue #35: Present daily resting-heart-rate and HRV observations | Neutral source comparability and sparse history | Source identities are stable for some dates and absent or conflicting for another date | Incomparable source context suppresses only the affected date; missing dates are not filled, interpolated, carried forward, or described as favorable | Explanations retain recorded values, source and coverage limitations, median rule, algorithm information, and reconciliation failure without recovery, health, stress, illness, risk, or performance claims | Insights, application, UI, privacy | Yes | `RecoveryObservationsTests`; `HealthWorkoutRepositoryTests`; Health destination |
+| Issue #36: Calculate Personal Recovery Baselines | Independent 28-day baselines | Primary Sleep, daily resting-heart-rate, and HRV SDNN observations exist with local dates and source context | Each measure excludes its current observation, ignores missing days, withholds at 13 valid days, and establishes at 14 valid days | Every measure reports full-precision median and middle 50 percent band independently; no measure is combined into a score and Primary Sleep excludes Naps | Insights, application, UI | Yes | `PersonalRecoveryBaselineTests`; `RecoveryObservationsTests`; Health destination |
+| Issue #36: Calculate Personal Recovery Baselines | Boundaries, comparability, and corrections | A current observation is present or absent; source, freshness, and reconciliation state may change | Window edges, even medians and quartiles, band boundaries, source changes, current-day rollover, duplicate revisions, and corrections remain explicit | Current comparison requires a real current source-comparable observation; below/within/above treats band edges as within; exact difference from median and neutral direction language remain inspectable | Insights, application, persistence, UI, privacy | Yes | `PersonalRecoveryBaselineTests`; `RecoveryObservationsTests`; `HealthWorkoutBoundaryTests`; Health destination |
 
 ## Required scenario-variant coverage
 
@@ -128,6 +130,7 @@ must name the automated evidence that proves the boundary.
 | Issue #33 | Independent Recovery Evidence streams | Health authorization includes sleep, resting heart rate, and HRV SDNN read types | Partial authorization, empty and limited history, sparse and late samples, replacements, deletions, lock, and current-day boundaries remain explicit | Each stream's mirror, checkpoint, facts, status, and cached content remain independent; source and algorithm provenance remain visible; no polling or local-training dependency is introduced | Adapter, application, persistence, UI, privacy, release evidence |
 | Issue #34 | Preferred Sleep and deterministic episodes | Owner orders source identities and inspects Primary Sleep and Nap episodes | Overlaps, exact 90-minute boundaries, ties, multiple episodes, cross-midnight dates, missing or incomparable sources, corrections, and deletions remain explicit | Source priority, interval IDs, alternative context, wake-up date, duration, midpoint, classification, exclusions, and reconciliation limitations are inspectable; no sleep sources are summed across overlap | Insights, application, persistence, UI, privacy, release evidence |
 | Issue #35 | Daily resting-heart-rate and HRV observations | Positive source-owned quantity samples are reduced into local-date observations | Odd/even HRV medians, replacement/deletion, duplicate import, sparse dates, algorithm revisions, stale/failing streams, and incomparable sources remain explicit | Every quantity observation exposes source, sample IDs/count, latest sample context, algorithm revisions, coverage, reconciliation state, last successful check, current comparison state, and neutral explanation; no missing date is synthesized | Insights, application, persistence, UI, privacy, release evidence |
+| Issue #36 | Personal Recovery Baselines | Primary Sleep and independent daily quantity observations are available | 13/14-day availability, 28-day edges, missing dates, even quartiles, source changes, current-day rollover, stale/failing streams, and corrected values remain explicit | Each measure has an independent median, middle 50 percent, current classification, exact difference, source/coverage context, and complete explanation; no combined score or population range is emitted | Insights, application, UI, privacy, release evidence |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -156,6 +159,12 @@ source-aware Primary Sleep and Nap episodes. Issue #35 adds source-aware daily
 resting-heart-rate and HRV SDNN observations with full-precision daily
 reduction, sparse-date handling, algorithm context, and neutral reconciliation
 explanations. Recovery Guidance remains out of scope. HealthKit Write-back are not exposed.
+Issue #36 adds independent Personal Recovery Baselines for Primary Sleep
+duration and consistency, sleep timing consistency, resting heart rate, and
+HRV SDNN. Each baseline uses valid observations from the preceding 28 local
+calendar days, requires 14 observed days, excludes the current observation from
+its own reference, and exposes exact median, middle-half, source, freshness,
+missing-data, and reconciliation context.
 Issue #28 adds the rolling workout
 projection on Progress. Issue #29 adds owner-configured, source-aware
 Heart-Rate Zones with explicit coverage and historical recalculation from
