@@ -160,6 +160,10 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
   public let elevationMeters: Double?
   public let firstImportedAt: Date
   public let reconciliationContext: String?
+  /// HealthKit's sync metadata is retained for Training Compass-owned
+  /// write-backs. It is nil for externally authored workouts.
+  public let appAuthoredSyncIdentifier: String?
+  public let appAuthoredSyncVersion: Int?
 
   public var id: String { healthKitUUID }
 
@@ -181,7 +185,9 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
     runningEnvironment: RunningEnvironment = .unspecified,
     elevationMeters: Double? = nil,
     firstImportedAt: Date = Date(),
-    reconciliationContext: String? = nil
+    reconciliationContext: String? = nil,
+    appAuthoredSyncIdentifier: String? = nil,
+    appAuthoredSyncVersion: Int? = nil
   ) {
     precondition(!healthKitUUID.isEmpty, "HealthKit UUID must be stable and non-empty")
     precondition(endDate >= startDate, "Workout end must not precede its start")
@@ -205,6 +211,9 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
       elevationMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
     self.firstImportedAt = firstImportedAt
     self.reconciliationContext = reconciliationContext
+    self.appAuthoredSyncIdentifier =
+      appAuthoredSyncIdentifier?.isEmpty == true ? nil : appAuthoredSyncIdentifier
+    self.appAuthoredSyncVersion = appAuthoredSyncVersion.flatMap { $0 > 0 ? $0 : nil }
   }
 
   /// Source-compatible initializer retained for callers that predate the
@@ -291,12 +300,18 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
 
   public var environment: RunningEnvironment { runningEnvironment }
   public var sourceEnvironment: RunningEnvironment { runningEnvironment }
+  public var syncIdentifier: String? { appAuthoredSyncIdentifier }
+  public var syncVersion: Int? { appAuthoredSyncVersion }
+  public var isAppAuthored: Bool {
+    appAuthoredSyncIdentifier != nil && appAuthoredSyncVersion != nil
+  }
 
   private enum CodingKeys: String, CodingKey {
     case healthKitUUID, activityType, startDate, endDate, duration
     case sourceName, sourceBundleIdentifier, sourceProductType, sourceOSVersion
     case deviceName, deviceModel, sourceTimeZoneIdentifier, localDate, timeZoneSource
     case runningEnvironment, elevationMeters, firstImportedAt, reconciliationContext
+    case appAuthoredSyncIdentifier, appAuthoredSyncVersion
   }
 
   public init(from decoder: Decoder) throws {
@@ -324,7 +339,11 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
       elevationMeters: try container.decodeIfPresent(Double.self, forKey: .elevationMeters),
       firstImportedAt: try container.decode(Date.self, forKey: .firstImportedAt),
       reconciliationContext: try container.decodeIfPresent(
-        String.self, forKey: .reconciliationContext))
+        String.self, forKey: .reconciliationContext),
+      appAuthoredSyncIdentifier: try container.decodeIfPresent(
+        String.self, forKey: .appAuthoredSyncIdentifier),
+      appAuthoredSyncVersion: try container.decodeIfPresent(
+        Int.self, forKey: .appAuthoredSyncVersion))
   }
 
   private static func localDate(for date: Date, timeZoneIdentifier: String?) -> String {
@@ -1567,8 +1586,27 @@ public actor HealthWorkoutImportBoundary {
     let lastSuccessful = workoutStatus?.lastSuccessfulCheck ?? checkpoint?.committedAt
     let context = checkpoint?.reconciliationContext
 
+    // Versioned app-authored replacements represent one logical event. Keep
+    // the highest version (with a deterministic UUID tie-break) in the
+    // history mirror so superseded imports cannot inflate event counts.
+    let appAuthoredGroups = Dictionary(
+      grouping: workouts.filter(\.isAppAuthored),
+      by: { $0.appAuthoredSyncIdentifier! })
+    let selectedAppAuthoredIDs = Set(
+      appAuthoredGroups.values.compactMap { group in
+        group.sorted {
+          let lhsVersion = $0.appAuthoredSyncVersion ?? 0
+          let rhsVersion = $1.appAuthoredSyncVersion ?? 0
+          if lhsVersion != rhsVersion { return lhsVersion > rhsVersion }
+          return $0.healthKitUUID < $1.healthKitUUID
+        }.first?.healthKitUUID
+      })
     var workoutsByUUID: [String: HealthWorkout] = [:]
-    for workout in workouts { workoutsByUUID[workout.healthKitUUID] = workout }
+    for workout in workouts {
+      guard !workout.isAppAuthored || selectedAppAuthoredIDs.contains(workout.healthKitUUID)
+      else { continue }
+      workoutsByUUID[workout.healthKitUUID] = workout
+    }
     var enrichmentsByUUID: [String: HealthWorkoutEnrichment] = [:]
     for workout in workoutsByUUID.values {
       if let enrichment = try? await repository.loadHealthWorkoutEnrichment(

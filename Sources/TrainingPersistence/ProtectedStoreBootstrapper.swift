@@ -595,6 +595,12 @@ public struct ProtectedStoreBootstrapper: Sendable {
         on: "health_recovery_samples",
         columns: ["stream", "sample_date"])
     }
+    migrator.registerMigration("reconstructible_v10_write_back_metadata") { db in
+      try db.alter(table: "health_workouts") { table in
+        table.add(column: "app_authored_sync_identifier", .text)
+        table.add(column: "app_authored_sync_version", .integer)
+      }
+    }
     return migrator
   }
 

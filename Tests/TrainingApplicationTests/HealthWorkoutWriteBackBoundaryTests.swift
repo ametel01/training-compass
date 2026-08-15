@@ -190,6 +190,37 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
     XCTAssertEqual(saved?.state, .savedToHealth)
   }
 
+  func testReopenMarksSummaryPendingAndOnlyChangedFactsPublishGreaterVersion() async throws {
+    let repository = WriteBackRepositorySpy()
+    try await repository.saveHealthWorkoutWriteBackPreference(.init(enabled: true))
+    let client = WriteBackClientSpy()
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+    let session = makeCompletedSession()
+    _ = await boundary.queue(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000), choice: .share)
+
+    let pending = await boundary.markSessionEditing(sessionID: "session")
+    XCTAssertEqual(pending?.state, .updatePending)
+    XCTAssertEqual(pending?.syncVersion, 1)
+
+    let unchanged = await boundary.reconcileCompletedSession(
+      session, completedAt: Date(timeIntervalSince1970: 2_000))
+    XCTAssertEqual(unchanged?.state, .savedToHealth)
+    XCTAssertEqual(unchanged?.syncVersion, 1)
+    let unchangedSaveRequests = await client.saveRequests
+    XCTAssertEqual(unchangedSaveRequests, 1)
+
+    let changed = await boundary.reconcileCompletedSession(
+      session, completedAt: Date(timeIntervalSince1970: 3_000))
+    XCTAssertEqual(changed?.state, .savedToHealth)
+    XCTAssertEqual(changed?.syncVersion, 2)
+    let changedSaveRequests = await client.saveRequests
+    let summaries = await client.summaries
+    XCTAssertEqual(changedSaveRequests, 2)
+    XCTAssertEqual(summaries.last?.syncVersion, 2)
+  }
+
   private func makeCompletedSession() -> TodaySessionSnapshot {
     let prescription = TrainingSetPrescription(
       id: "prescription", setNumber: 1, role: .primary, percentage: 0.65,

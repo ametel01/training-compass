@@ -390,6 +390,33 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertEqual(history.events.first?.provenance.sourceName, "Phone")
   }
 
+  func testHealthHistoryExcludesSupersededAppAuthoredVersions() async throws {
+    let identifier = HealthWorkoutWriteBackBoundary.syncIdentifier(for: "session")
+    let first = fixture("app-v1")
+    let versionOne = HealthWorkout(
+      healthKitUUID: first.healthKitUUID, activityType: first.activityType,
+      startDate: first.startDate, endDate: first.endDate, duration: first.duration,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      localDate: first.localDate, firstImportedAt: first.firstImportedAt,
+      appAuthoredSyncIdentifier: identifier, appAuthoredSyncVersion: 1)
+    let versionTwo = HealthWorkout(
+      healthKitUUID: "app-v2", activityType: first.activityType,
+      startDate: first.startDate, endDate: first.endDate.addingTimeInterval(60), duration: 360,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      localDate: first.localDate, firstImportedAt: first.firstImportedAt,
+      appAuthoredSyncIdentifier: identifier, appAuthoredSyncVersion: 2)
+    let boundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []),
+      repository: HistoryRepository(workouts: [versionOne, versionTwo]),
+      authorization: .init(state: .authorized))
+
+    let history = try await boundary.healthWorkoutHistory()
+
+    XCTAssertEqual(history.events.map(\.id), ["app-v2"])
+  }
+
   func testTodayHealthHistoryUsesStableLocalDateAndDoesNotLinkToSession() async throws {
     let workout = fixture("today")
     let repository = HistoryRepository(workouts: [workout])

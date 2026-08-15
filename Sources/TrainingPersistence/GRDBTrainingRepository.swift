@@ -199,8 +199,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
                device_name, device_model, source_timezone_identifier, local_date, timezone_source,
                running_environment,
                elevation_meters,
-               first_imported_at, reconciliation_context, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               first_imported_at, reconciliation_context, app_authored_sync_identifier,
+               app_authored_sync_version, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(healthkit_uuid) DO UPDATE SET
               activity_type = excluded.activity_type,
               start_date = excluded.start_date,
@@ -233,7 +234,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               running_environment = excluded.running_environment,
               elevation_meters = excluded.elevation_meters,
               reconciliation_context = excluded.reconciliation_context,
+              app_authored_sync_identifier = excluded.app_authored_sync_identifier,
+              app_authored_sync_version = excluded.app_authored_sync_version,
               updated_at = excluded.updated_at
+            WHERE excluded.app_authored_sync_version IS NULL
+              OR health_workouts.app_authored_sync_version IS NULL
+              OR excluded.app_authored_sync_version >= health_workouts.app_authored_sync_version
             """,
           arguments: [
             workout.healthKitUUID,
@@ -254,6 +260,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.elevationMeters,
             workout.firstImportedAt.timeIntervalSince1970,
             workout.reconciliationContext ?? reconciliationContext,
+            workout.appAuthoredSyncIdentifier,
+            workout.appAuthoredSyncVersion,
             Date().timeIntervalSince1970,
           ]
         )
@@ -276,7 +284,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
                  device_name, device_model, source_timezone_identifier, local_date, timezone_source,
                  running_environment,
                  elevation_meters,
-                 first_imported_at, reconciliation_context
+                 first_imported_at, reconciliation_context,
+                 app_authored_sync_identifier, app_authored_sync_version
           FROM health_workouts ORDER BY start_date, healthkit_uuid
           """
       ).map { row in
@@ -303,7 +312,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             ?? .unspecified,
           elevationMeters: row["elevation_meters"] as Double?,
           firstImportedAt: Date(timeIntervalSince1970: row["first_imported_at"]),
-          reconciliationContext: row["reconciliation_context"] as String?
+          reconciliationContext: row["reconciliation_context"] as String?,
+          appAuthoredSyncIdentifier: row["app_authored_sync_identifier"] as String?,
+          appAuthoredSyncVersion: row["app_authored_sync_version"] as Int?
         )
       }
     }
@@ -344,8 +355,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
                device_name, device_model, source_timezone_identifier, local_date, timezone_source,
                running_environment,
                elevation_meters,
-               first_imported_at, reconciliation_context, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               first_imported_at, reconciliation_context, app_authored_sync_identifier,
+               app_authored_sync_version, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(healthkit_uuid) DO UPDATE SET
               activity_type = excluded.activity_type,
               start_date = excluded.start_date,
@@ -378,7 +390,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               running_environment = excluded.running_environment,
               elevation_meters = excluded.elevation_meters,
               reconciliation_context = excluded.reconciliation_context,
+              app_authored_sync_identifier = excluded.app_authored_sync_identifier,
+              app_authored_sync_version = excluded.app_authored_sync_version,
               updated_at = excluded.updated_at
+            WHERE excluded.app_authored_sync_version IS NULL
+              OR health_workouts.app_authored_sync_version IS NULL
+              OR excluded.app_authored_sync_version >= health_workouts.app_authored_sync_version
             """,
           arguments: [
             workout.healthKitUUID,
@@ -399,6 +416,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.elevationMeters,
             workout.firstImportedAt.timeIntervalSince1970,
             workout.reconciliationContext ?? page.reconciliationContext,
+            workout.appAuthoredSyncIdentifier,
+            workout.appAuthoredSyncVersion,
             committedAt.timeIntervalSince1970,
           ]
         )
@@ -2571,6 +2590,20 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         assistanceLiftID: session.assistanceLiftID,
         updatedAt: completion.confirmedAt
       )
+      let completedSnapshot = SessionCorrectionSnapshot(
+        sessionID: completion.sessionID,
+        status: .completed,
+        intendedDate: session.intendedDate,
+        primaryLiftID: session.primaryLiftID,
+        assistanceLiftID: session.assistanceLiftID,
+        completion: completion,
+        updatedAt: completion.confirmedAt)
+      try Self.reconcileHealthWorkoutWriteBack(
+        db,
+        sessionID: completion.sessionID,
+        before: completedSnapshot,
+        after: completedSnapshot,
+        occurredAt: completion.confirmedAt)
       return completion
     }
   }
@@ -2751,6 +2784,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           auditID, active.id, request.sessionID, occurredAt, request.note,
           try Self.encodeCorrectionSnapshot(current), try Self.encodeCorrectionSnapshot(after),
         ])
+      try Self.reconcileHealthWorkoutWriteBack(
+        db,
+        sessionID: request.sessionID,
+        before: current,
+        after: after,
+        occurredAt: occurredAt)
       return SessionCorrectionAuditEntry(
         id: auditID,
         cycleID: active.id,
@@ -2761,6 +2800,71 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         after: after
       )
     }
+  }
+
+  /// Keeps the durable local write-back intent aligned with a correction. This
+  /// runs in the same transaction as the Session mutation; a later HealthKit
+  /// failure can therefore leave a queued version without ever rolling back
+  /// the owner's local correction.
+  private static func reconcileHealthWorkoutWriteBack(
+    _ db: Database,
+    sessionID: String,
+    before: SessionCorrectionSnapshot,
+    after: SessionCorrectionSnapshot,
+    occurredAt: Int64
+  ) throws {
+    guard
+      let row = try Row.fetchOne(
+        db,
+        sql:
+          "SELECT sync_identifier, sync_version, state, start_date, end_date, healthkit_uuid FROM health_workout_write_backs WHERE session_id = ?",
+        arguments: [sessionID]),
+      let state = HealthWorkoutWriteBackState(rawValue: row["state"] as String),
+      state != .notShared
+    else { return }
+
+    if after.status == .scheduled || after.status == .skipped || after.status == .unperformed {
+      try db.execute(
+        sql:
+          "UPDATE health_workout_write_backs SET state = ?, healthkit_uuid = NULL, updated_at = ? WHERE session_id = ?",
+        arguments: [HealthWorkoutWriteBackState.notShared.rawValue, Double(occurredAt), sessionID])
+      return
+    }
+    if after.status != .completed {
+      try db.execute(
+        sql: "UPDATE health_workout_write_backs SET state = ?, updated_at = ? WHERE session_id = ?",
+        arguments: [
+          HealthWorkoutWriteBackState.updatePending.rawValue, Double(occurredAt), sessionID,
+        ])
+      return
+    }
+
+    let completedAt = after.completion?.confirmedAt ?? occurredAt
+    let startDate = Self.writeBackStartDate(for: after.intendedDate, fallback: completedAt)
+    let endDate = Double(completedAt)
+    let currentStart = row["start_date"] as Double
+    let currentEnd = row["end_date"] as Double
+    let factsChanged = currentStart != startDate || currentEnd != endDate
+    let nextVersion = (row["sync_version"] as Int64) + (factsChanged ? 1 : 0)
+    let nextState: HealthWorkoutWriteBackState =
+      factsChanged ? .queued : (state == .updatePending ? .savedToHealth : state)
+    try db.execute(
+      sql:
+        "UPDATE health_workout_write_backs SET sync_version = ?, state = ?, start_date = ?, end_date = ?, duration = ?, updated_at = ? WHERE session_id = ?",
+      arguments: [
+        nextVersion, nextState.rawValue, startDate, endDate, max(0, endDate - startDate),
+        Double(occurredAt), sessionID,
+      ])
+    _ = before
+  }
+
+  private static func writeBackStartDate(for date: TrainingDate, fallback: Int64) -> Double {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar.date(
+      from: DateComponents(year: date.year, month: date.month, day: date.day))?
+      .timeIntervalSince1970
+      ?? Double(fallback)
   }
 
   private func performReplacement(

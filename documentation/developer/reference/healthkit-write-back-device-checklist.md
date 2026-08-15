@@ -41,6 +41,20 @@ HealthKit identifiers, or owner data in evidence artifacts.
 10. Verify Health Settings shows a quiet aggregate count for affected Session
     summaries. Use `Refresh Health Data` and confirm it does not retry any
     write-back; read freshness and write-back state remain independent.
+11. Reopen a Completed Session with an existing Training Compass summary.
+    Verify the local edit commits first and the summary reports `Update
+    pending` while the Session is being edited. Re-complete without changing
+    start/end facts and confirm the existing Health object is reused; change a
+    start/end fact and confirm a greater sync version is published.
+12. Re-import the same HealthKit UUID out of order (including a lower sync
+    version) and verify the highest version remains current and superseded
+    versions do not create extra timeline/history events. If equal highest
+    versions exist, verify the conflict is visible and no object is deleted
+    automatically.
+13. Move a reopened Session to Skipped, or remove it through Program Edit,
+    and verify the local summary relationship is unlinked without deleting an
+    external Health workout. Any duplicate cleanup must name an explicit
+    retained object and delete only objects authored by Training Compass.
 
 The corresponding automated evidence is `HealthWorkoutWriteBackBoundaryTests`,
 the write-back repository tests, the HealthKit adapter tests, the lifecycle/UI

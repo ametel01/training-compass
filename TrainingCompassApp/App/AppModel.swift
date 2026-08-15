@@ -136,6 +136,13 @@ final class AppModel {
       healthKit: PreDataHealthKitAdapter(),
       logger: UnifiedPrivacyLogger()
     )
+    let healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary? = {
+      guard let writeBackClient = dependencies.healthKit as? any HealthWorkoutWriteBackClient,
+        let writeBackRepository = repository as? any HealthWorkoutWriteBackRepository
+      else { return nil }
+      return HealthWorkoutWriteBackBoundary(
+        repository: writeBackRepository, client: writeBackClient, clock: dependencies.clock)
+    }()
     return AppModel(
       preparePreDataShell: PreparePreDataShell(dependencies: dependencies),
       liftConfigurationBoundary: LiftConfigurationBoundary(
@@ -158,7 +165,8 @@ final class AppModel {
         repository: repository,
         clock: dependencies.clock,
         calendar: dependencies.calendar,
-        uuidGenerator: dependencies.uuidGenerator
+        uuidGenerator: dependencies.uuidGenerator,
+        writeBackBoundary: healthWorkoutWriteBackBoundary
       ),
       progressBoundary: ProgressBoundary(repository: repository, clock: dependencies.clock),
       trainingMaxProposalBoundary: TrainingMaxProposalBoundary(
@@ -210,13 +218,7 @@ final class AppModel {
           repository: routeRepository,
           resourceProvider: DeviceHealthWorkoutRouteResourceProvider())
       }(),
-      healthWorkoutWriteBackBoundary: {
-        guard let writeBackClient = dependencies.healthKit as? any HealthWorkoutWriteBackClient,
-          let writeBackRepository = repository as? any HealthWorkoutWriteBackRepository
-        else { return nil }
-        return HealthWorkoutWriteBackBoundary(
-          repository: writeBackRepository, client: writeBackClient, clock: dependencies.clock)
-      }(),
+      healthWorkoutWriteBackBoundary: healthWorkoutWriteBackBoundary,
       trainingEventLinkBoundary: {
         guard let healthRepository = repository as? any HealthWorkoutRepository,
           let linkRepository = repository as? any TrainingEventLinkRepository

@@ -175,6 +175,50 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
     #endif
   }
 
+  public func deleteWorkout(healthKitUUID: String) async throws {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable(),
+        let uuid = UUID(uuidString: healthKitUUID)
+      else { throw HealthWorkoutWriteBackClientError.unavailable }
+      guard
+        let workout = try await withCheckedThrowingContinuation({
+          (continuation: CheckedContinuation<HKWorkout?, any Error>) in
+          let query = HKSampleQuery(
+            sampleType: HKObjectType.workoutType(),
+            predicate: HKQuery.predicateForObject(with: uuid),
+            limit: 1, sortDescriptors: nil
+          ) { _, samples, error in
+            if let error {
+              continuation.resume(throwing: Self.mapWriteBackError(error))
+            } else {
+              continuation.resume(returning: (samples as? [HKWorkout])?.first)
+            }
+          }
+          store.execute(query)
+        })
+      else { return }
+      guard
+        workout.sourceRevision.source.bundleIdentifier
+          == TrainingEventLinkBoundary.trainingCompassBundleIdentifier
+      else { throw HealthWorkoutWriteBackClientError.authorizationDenied }
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        store.delete(workout) { success, error in
+          if let error {
+            continuation.resume(throwing: Self.mapWriteBackError(error))
+          } else if success {
+            continuation.resume(returning: ())
+          } else {
+            continuation.resume(throwing: HealthWorkoutWriteBackClientError.inaccessible)
+          }
+        }
+      }
+    #else
+      _ = healthKitUUID
+      throw HealthWorkoutWriteBackClientError.unavailable
+    #endif
+  }
+
   #if canImport(HealthKit)
     private static func mapWriteBackError(_ error: any Error) -> any Error {
       let error = error as NSError
@@ -744,7 +788,9 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         timeZoneSource: source,
         runningEnvironment: runningEnvironment,
         elevationMeters: elevationMeters,
-        reconciliationContext: "foreground-initial"
+        reconciliationContext: "foreground-initial",
+        appAuthoredSyncIdentifier: workout.metadata?[HKMetadataKeySyncIdentifier] as? String,
+        appAuthoredSyncVersion: (workout.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue
       )
     }
 

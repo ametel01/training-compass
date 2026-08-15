@@ -151,6 +151,17 @@ public protocol HealthWorkoutWriteBackClient: Sendable {
   func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot
   func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String
   func workoutExists(syncIdentifier: String) async throws -> Bool
+  func deleteWorkout(healthKitUUID: String) async throws
+}
+
+extension HealthWorkoutWriteBackClient {
+  /// Deletion is deliberately an optional capability for older clients and
+  /// test doubles. The write-back boundary never uses it implicitly; callers
+  /// must explicitly repair an app-owned duplicate.
+  public func deleteWorkout(healthKitUUID: String) async throws {
+    _ = healthKitUUID
+    throw HealthWorkoutWriteBackClientError.unavailable
+  }
 }
 
 extension HealthWorkoutWriteBackClient {
@@ -178,6 +189,22 @@ public protocol HealthWorkoutWriteBackRepository: Sendable {
   func saveHealthWorkoutWriteBack(_ record: HealthWorkoutWriteBackRecord) async throws
   func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
     -> [HealthWorkoutLinkFact]
+}
+
+public struct HealthWorkoutWriteBackRepairResult: Codable, Equatable, Sendable {
+  public let syncIdentifier: String
+  public let retainedHealthKitUUID: String
+  public let deletedHealthKitUUIDs: [String]
+
+  public init(
+    syncIdentifier: String,
+    retainedHealthKitUUID: String,
+    deletedHealthKitUUIDs: [String]
+  ) {
+    self.syncIdentifier = syncIdentifier
+    self.retainedHealthKitUUID = retainedHealthKitUUID
+    self.deletedHealthKitUUIDs = deletedHealthKitUUIDs
+  }
 }
 
 extension HealthWorkoutWriteBackRepository {
@@ -292,6 +319,156 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
     try await repository.loadHealthWorkoutWriteBacks()
   }
 
+  /// Marks an existing app-authored summary stale after a local Session is
+  /// reopened. The local edit has already committed before this durable state
+  /// transition, so a persistence failure cannot roll back the edit.
+  @discardableResult
+  public func markSessionEditing(sessionID: String) async -> HealthWorkoutWriteBackRecord? {
+    await withDeliveryLane {
+      guard
+        let current = try? await self.repository.loadHealthWorkoutWriteBack(sessionID: sessionID),
+        current.state != .notShared
+      else { return nil }
+      let pending = HealthWorkoutWriteBackRecord(
+        sessionID: current.sessionID,
+        syncIdentifier: current.syncIdentifier,
+        syncVersion: current.syncVersion,
+        state: .updatePending,
+        startDate: current.startDate,
+        endDate: current.endDate,
+        healthKitUUID: current.healthKitUUID,
+        updatedAt: self.clock.now())
+      try? await self.repository.saveHealthWorkoutWriteBack(pending)
+      return pending
+    }
+  }
+
+  /// Reconciles a completed local Session against its already-shared summary.
+  /// Only start/end facts advance the version. Set edits remain local facts and
+  /// therefore do not create another HealthKit object.
+  @discardableResult
+  public func reconcileCompletedSession(
+    _ session: TodaySessionSnapshot,
+    completedAt: Date
+  ) async -> HealthWorkoutWriteBackRecord? {
+    await withDeliveryLane {
+      guard let completion = session.completion, completion.sessionID == session.session.id,
+        let current = try? await self.repository.loadHealthWorkoutWriteBack(
+          sessionID: session.session.id),
+        current.state != .notShared
+      else { return nil }
+      let summary = self.summary(for: session, completedAt: completedAt)
+      let factsChanged =
+        current.startDate != summary.startDate || current.endDate != summary.endDate
+      if !factsChanged {
+        guard current.state == .updatePending else { return current }
+        let restored = HealthWorkoutWriteBackRecord(
+          sessionID: current.sessionID,
+          syncIdentifier: current.syncIdentifier,
+          syncVersion: current.syncVersion,
+          state: .savedToHealth,
+          startDate: current.startDate,
+          endDate: current.endDate,
+          healthKitUUID: current.healthKitUUID,
+          updatedAt: self.clock.now())
+        try? await self.repository.saveHealthWorkoutWriteBack(restored)
+        return restored
+      }
+      let queued = HealthWorkoutWriteBackRecord(
+        sessionID: summary.sessionID,
+        syncIdentifier: summary.syncIdentifier,
+        syncVersion: current.syncVersion + 1,
+        state: .queued,
+        startDate: summary.startDate,
+        endDate: summary.endDate,
+        healthKitUUID: current.healthKitUUID,
+        updatedAt: self.clock.now())
+      do {
+        try await self.repository.saveHealthWorkoutWriteBack(queued)
+        return await self.save(queued)
+      } catch {
+        // The durable queued record is the source of truth when a client save
+        // fails; never surface that failure as a local Session failure.
+        return queued
+      }
+    }
+  }
+
+  /// Removes the local relationship without deleting the Health object. The
+  /// owner can separately choose an app-owned duplicate repair operation.
+  @discardableResult
+  public func unlinkSessionSummary(sessionID: String) async -> HealthWorkoutWriteBackRecord? {
+    await withDeliveryLane {
+      guard
+        let current = try? await self.repository.loadHealthWorkoutWriteBack(sessionID: sessionID),
+        current.state != .notShared
+      else { return nil }
+      let unlinked = HealthWorkoutWriteBackRecord(
+        sessionID: current.sessionID,
+        syncIdentifier: current.syncIdentifier,
+        syncVersion: current.syncVersion,
+        state: .notShared,
+        startDate: current.startDate,
+        endDate: current.endDate,
+        updatedAt: self.clock.now())
+      try? await self.repository.saveHealthWorkoutWriteBack(unlinked)
+      return unlinked
+    }
+  }
+
+  /// Explicitly deletes only the extra app-authored objects supplied by the
+  /// caller. The caller must provide a retained object and the client is
+  /// responsible for the final HealthKit ownership check.
+  public func repairAppAuthoredConflict(
+    syncIdentifier: String,
+    retainedHealthKitUUID: String,
+    extraHealthKitUUIDs: [String],
+    appAuthoredHealthKitUUIDs: Set<String>
+  ) async -> HealthWorkoutWriteBackRepairResult? {
+    let extras = Array(Set(extraHealthKitUUIDs)).filter {
+      $0 != retainedHealthKitUUID && appAuthoredHealthKitUUIDs.contains($0)
+    }.sorted()
+    guard
+      extras.count == Set(extraHealthKitUUIDs).filter({ $0 != retainedHealthKitUUID }).count
+    else {
+      return nil
+    }
+    var deleted: [String] = []
+    for uuid in extras {
+      do {
+        try await client.deleteWorkout(healthKitUUID: uuid)
+        deleted.append(uuid)
+      } catch {
+        return nil
+      }
+    }
+    return .init(
+      syncIdentifier: syncIdentifier,
+      retainedHealthKitUUID: retainedHealthKitUUID,
+      deletedHealthKitUUIDs: deleted)
+  }
+
+  /// Convenience repair entry point for a mirror projection. Ownership is
+  /// derived from the imported objects rather than trusted from a UUID-only
+  /// list, and every candidate must belong to the requested sync identifier.
+  public func repairAppAuthoredConflict(
+    syncIdentifier: String,
+    retainedHealthKitUUID: String,
+    extraHealthKitUUIDs: [String],
+    appAuthoredWorkouts: [HealthWorkout]
+  ) async -> HealthWorkoutWriteBackRepairResult? {
+    guard
+      appAuthoredWorkouts.allSatisfy({
+        $0.isAppAuthored && $0.appAuthoredSyncIdentifier == syncIdentifier
+      })
+    else { return nil }
+    return await repairAppAuthoredConflict(
+      syncIdentifier: syncIdentifier,
+      retainedHealthKitUUID: retainedHealthKitUUID,
+      extraHealthKitUUIDs: extraHealthKitUUIDs,
+      appAuthoredHealthKitUUIDs: Set(appAuthoredWorkouts.map(\.healthKitUUID)))
+  }
+
   /// Queues a per-session decision and then attempts delivery. The queue record
   /// is committed before the HealthKit operation, so a locked device or failed
   /// save cannot lose the owner's choice.
@@ -365,7 +542,13 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
       healthKitUUID: queued.healthKitUUID, updatedAt: clock.now())
     do {
       try await repository.saveHealthWorkoutWriteBack(saving)
-      if try await client.workoutExists(syncIdentifier: queued.syncIdentifier) {
+      // An existing UUID means this is a replacement version. Reusing the
+      // existence shortcut here would incorrectly suppress the newer HealthKit
+      // object; the shortcut is only for an interrupted first save where no
+      // UUID was durably recorded yet.
+      if queued.healthKitUUID == nil, queued.syncVersion == 1,
+        try await client.workoutExists(syncIdentifier: queued.syncIdentifier)
+      {
         let saved = HealthWorkoutWriteBackRecord(
           sessionID: queued.sessionID, syncIdentifier: queued.syncIdentifier,
           syncVersion: queued.syncVersion, state: .savedToHealth,

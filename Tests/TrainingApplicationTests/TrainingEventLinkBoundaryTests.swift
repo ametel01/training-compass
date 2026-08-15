@@ -446,6 +446,63 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     XCTAssertTrue(linked.disagreements.contains(.missingHealthProvenance))
   }
 
+  func testVersionedAppAuthoredSummariesCollapseAndExposeEqualVersionConflict() async throws {
+    let syncIdentifier = HealthWorkoutWriteBackBoundary.syncIdentifier(for: "session")
+    let versionOne = makeWorkout(
+      id: "app-v1", activity: "traditional-strength-training", start: 1_704_108_600,
+      localDate: "2024-01-01",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier)
+    let versionTwo = HealthWorkout(
+      healthKitUUID: "app-v2", activityType: "traditional-strength-training",
+      startDate: Date(timeIntervalSince1970: 1_704_108_600),
+      endDate: Date(timeIntervalSince1970: 1_704_109_600), duration: 1_000,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      localDate: "2024-01-01", firstImportedAt: Date(timeIntervalSince1970: 1_704_110_000),
+      appAuthoredSyncIdentifier: syncIdentifier, appAuthoredSyncVersion: 2)
+    let versionOneWithMetadata = HealthWorkout(
+      healthKitUUID: versionOne.healthKitUUID, activityType: versionOne.activityType,
+      startDate: versionOne.startDate, endDate: versionOne.endDate, duration: versionOne.duration,
+      sourceName: versionOne.sourceName,
+      sourceBundleIdentifier: versionOne.sourceBundleIdentifier,
+      localDate: versionOne.localDate, firstImportedAt: versionOne.firstImportedAt,
+      appAuthoredSyncIdentifier: syncIdentifier, appAuthoredSyncVersion: 1)
+    let repository = TrainingEventTestRepository(
+      cycles: [makeCycle(status: .completed)],
+      completions: [CompletedSession(sessionID: "session", confirmedAt: 1_704_110_400)],
+      workouts: [versionOneWithMetadata, versionTwo])
+    let boundary = makeBoundary(repository: repository)
+
+    let selected = try await boundary.timeline()
+    XCTAssertEqual(selected.aggregateCount, 1)
+    XCTAssertEqual(selected.events.first?.healthWorkout?.healthKitUUID, "app-v2")
+    XCTAssertFalse(
+      selected.events.first?.disagreements.contains {
+        if case .writeBackConflict = $0 { return true }
+        return false
+      } ?? false)
+
+    let equalVersion = HealthWorkout(
+      healthKitUUID: "app-v3", activityType: versionTwo.activityType,
+      startDate: versionTwo.startDate, endDate: versionTwo.endDate, duration: versionTwo.duration,
+      sourceName: versionTwo.sourceName,
+      sourceBundleIdentifier: versionTwo.sourceBundleIdentifier,
+      localDate: versionTwo.localDate, firstImportedAt: versionTwo.firstImportedAt,
+      appAuthoredSyncIdentifier: syncIdentifier, appAuthoredSyncVersion: 2)
+    await repository.replaceWorkouts([versionOneWithMetadata, versionTwo, equalVersion])
+    let conflict = try await boundary.timeline()
+    XCTAssertEqual(conflict.aggregateCount, 1)
+    XCTAssertTrue(
+      conflict.events.first?.disagreements.contains {
+        if case .writeBackConflict(
+          syncIdentifier: syncIdentifier, syncVersion: 2, healthKitUUIDs: ["app-v2", "app-v3"]
+        ) = $0 {
+          return true
+        }
+        return false
+      } ?? false)
+  }
+
   private func makeBoundary(repository: TrainingEventTestRepository) -> TrainingEventLinkBoundary {
     TrainingEventLinkBoundary(
       cycleRepository: repository,

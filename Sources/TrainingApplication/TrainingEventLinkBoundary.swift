@@ -76,6 +76,7 @@ public enum TrainingEventDisagreement: Codable, Equatable, Sendable {
   case localDate(session: String, health: String)
   case missingHealthProvenance
   case linkConflict(healthKitUUID: String, sessionIDs: [String])
+  case writeBackConflict(syncIdentifier: String, syncVersion: Int, healthKitUUIDs: [String])
 
   public var message: String {
     switch self {
@@ -85,6 +86,8 @@ public enum TrainingEventDisagreement: Codable, Equatable, Sendable {
       "Health Workout source provenance is unavailable."
     case .linkConflict(let healthKitUUID, let sessionIDs):
       "HealthKit UUID \(healthKitUUID) has conflicting active links: \(sessionIDs.joined(separator: ", "))."
+    case .writeBackConflict(let syncIdentifier, let syncVersion, let healthKitUUIDs):
+      "App-authored Health summary \(syncIdentifier) has multiple version \(syncVersion) objects: \(healthKitUUIDs.joined(separator: ", ")). Repair the extra app-owned objects explicitly."
     }
   }
 }
@@ -397,6 +400,28 @@ public struct TrainingEventLinkBoundary: Sendable {
     let workoutsByID = Dictionary(
       workouts.map { ($0.healthKitUUID, $0) },
       uniquingKeysWith: { _, replacement in replacement })
+    // HealthKit can retain more than one object for an app-authored sync
+    // identifier after a failed/out-of-order replacement. Only the highest
+    // version participates in the current projection; equal highest versions
+    // remain visible through one deterministic object plus a conflict.
+    let appAuthoredGroups = Dictionary(
+      grouping: workouts.filter(\.isAppAuthored), by: { $0.appAuthoredSyncIdentifier! })
+    var selectedAppAuthoredIDs: Set<String> = []
+    var appAuthoredConflictsByID: [String: TrainingEventDisagreement] = [:]
+    for (syncIdentifier, group) in appAuthoredGroups {
+      guard let highest = group.compactMap(\.appAuthoredSyncVersion).max() else { continue }
+      let highestObjects = group.filter { $0.appAuthoredSyncVersion == highest }
+        .sorted { $0.healthKitUUID < $1.healthKitUUID }
+      guard let selected = highestObjects.first else { continue }
+      selectedAppAuthoredIDs.insert(selected.healthKitUUID)
+      if highestObjects.count > 1 {
+        let disagreement = TrainingEventDisagreement.writeBackConflict(
+          syncIdentifier: syncIdentifier,
+          syncVersion: highest,
+          healthKitUUIDs: highestObjects.map(\.healthKitUUID))
+        appAuthoredConflictsByID[selected.healthKitUUID] = disagreement
+      }
+    }
     var enrichmentsByID: [String: HealthWorkoutEnrichment] = [:]
     for workout in workouts {
       if let enrichment = try await healthRepository.loadHealthWorkoutEnrichment(
@@ -447,10 +472,31 @@ public struct TrainingEventLinkBoundary: Sendable {
             omissions: try await resultRepository.loadOmittedSets(for: session.id),
             additionalSets: try await resultRepository.loadAdditionalSets(for: session.id)
           )
-          let link = linksBySessionID[session.id]
+          let persistedLink = linksBySessionID[session.id]
           let formerLink = unavailableLinksBySessionID[session.id]
-          let workout = link.flatMap { workoutsByID[$0.healthKitUUID] }
+          let persistedWorkout = persistedLink.flatMap { workoutsByID[$0.healthKitUUID] }
+          // A stale active link to a lower-version app-authored object must
+          // not win over the highest imported replacement. The local summary
+          // still resolves through its sync identifier below; the old link
+          // is omitted from this projection until an explicit repair updates
+          // the authoritative relationship.
+          let link =
+            persistedWorkout.map {
+              $0.isAppAuthored && !selectedAppAuthoredIDs.contains($0.healthKitUUID)
+            } == true
+            ? nil : persistedLink
+          let appAuthoredCandidates = workouts.filter {
+            $0.appAuthoredSyncIdentifier
+              == HealthWorkoutWriteBackBoundary.syncIdentifier(for: session.id)
+              && selectedAppAuthoredIDs.contains($0.healthKitUUID)
+          }
+          let workout =
+            link.flatMap { workoutsByID[$0.healthKitUUID] } ?? appAuthoredCandidates.first
           if let workout { consumedWorkoutIDs.insert(workout.healthKitUUID) }
+          if let syncID = workout?.appAuthoredSyncIdentifier {
+            consumedWorkoutIDs.formUnion(
+              appAuthoredGroups[syncID, default: []].map(\.healthKitUUID))
+          }
           let completionDate = Date(timeIntervalSince1970: TimeInterval(completion.confirmedAt))
           events.append(
             UnifiedTrainingEvent(
@@ -463,7 +509,7 @@ public struct TrainingEventLinkBoundary: Sendable {
                 enrichmentsByID[$0.healthKitUUID]
               },
               link: link ?? formerLink,
-              linkState: link == nil
+              linkState: link == nil && workout?.isAppAuthored != true
                 ? (formerLink == nil ? .unlinked : .formerLinkWorkoutUnavailable)
                 : .linked,
               lastSuccessfulReconciliation: checkpoint?.committedAt,
@@ -472,12 +518,17 @@ public struct TrainingEventLinkBoundary: Sendable {
               additionalDisagreements: [link, formerLink].compactMap { $0 }.compactMap {
                 linkConflictsByID[$0.id]
               }
+                + (workout.flatMap { appAuthoredConflictsByID[$0.healthKitUUID] }
+                  .map { [$0] } ?? [])
             ))
         }
       }
     }
 
-    for workout in workouts where !consumedWorkoutIDs.contains(workout.healthKitUUID) {
+    for workout in workouts
+    where !consumedWorkoutIDs.contains(workout.healthKitUUID)
+      && (!workout.isAppAuthored || selectedAppAuthoredIDs.contains(workout.healthKitUUID))
+    {
       events.append(
         UnifiedTrainingEvent(
           id: "health:\(workout.healthKitUUID)",
@@ -488,7 +539,9 @@ public struct TrainingEventLinkBoundary: Sendable {
           linkState: .unlinked,
           lastSuccessfulReconciliation: checkpoint?.committedAt,
           reconciliationContext: checkpoint?.reconciliationContext,
-          healthCoverage: healthCoverage
+          healthCoverage: healthCoverage,
+          additionalDisagreements: workout.appAuthoredSyncIdentifier
+            .flatMap { _ in appAuthoredConflictsByID[workout.healthKitUUID] }.map { [$0] } ?? []
         ))
     }
     events.sort {

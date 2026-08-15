@@ -470,19 +470,39 @@ public struct SessionLoggingBoundary: Sendable {
   private let clock: any Clock
   private let calendar: any CalendarProvider
   private let uuidGenerator: any UUIDGenerator
+  private let writeBackBoundary: HealthWorkoutWriteBackBoundary?
 
   public init(
     cycleRepository: any TrainingCycleRepository,
     resultRepository: any SetResultRepository,
     clock: any Clock,
     calendar: any CalendarProvider,
-    uuidGenerator: any UUIDGenerator
+    uuidGenerator: any UUIDGenerator,
+    writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.cycleRepository = cycleRepository
     self.resultRepository = resultRepository
     self.clock = clock
     self.calendar = calendar
     self.uuidGenerator = uuidGenerator
+    self.writeBackBoundary = writeBackBoundary
+  }
+
+  public init(
+    repository: any TrainingRepository,
+    clock: any Clock,
+    calendar: any CalendarProvider,
+    uuidGenerator: any UUIDGenerator,
+    writeBackBoundary: HealthWorkoutWriteBackBoundary?
+  ) {
+    self.init(
+      cycleRepository: repository,
+      resultRepository: repository,
+      clock: clock,
+      calendar: calendar,
+      uuidGenerator: uuidGenerator,
+      writeBackBoundary: writeBackBoundary
+    )
   }
 
   public init(
@@ -492,12 +512,11 @@ public struct SessionLoggingBoundary: Sendable {
     uuidGenerator: any UUIDGenerator
   ) {
     self.init(
-      cycleRepository: repository,
-      resultRepository: repository,
+      repository: repository,
       clock: clock,
       calendar: calendar,
-      uuidGenerator: uuidGenerator
-    )
+      uuidGenerator: uuidGenerator,
+      writeBackBoundary: nil)
   }
 
   public init(
@@ -506,10 +525,12 @@ public struct SessionLoggingBoundary: Sendable {
     uuidGenerator: any UUIDGenerator
   ) {
     self.init(
-      repository: repository,
+      cycleRepository: repository,
+      resultRepository: repository,
       clock: clock,
       calendar: CurrentCalendarProvider(),
-      uuidGenerator: uuidGenerator
+      uuidGenerator: uuidGenerator,
+      writeBackBoundary: nil
     )
   }
 
@@ -742,6 +763,11 @@ public struct SessionLoggingBoundary: Sendable {
     guard let snapshot = try await activeSession(sessionID: sessionID) else {
       throw SessionLoggingError.unknownSession
     }
+    if let writeBackBoundary, let completion = snapshot.completion {
+      _ = await writeBackBoundary.reconcileCompletedSession(
+        snapshot,
+        completedAt: Date(timeIntervalSince1970: TimeInterval(completion.confirmedAt)))
+    }
     _ = completion
     return snapshot
   }
@@ -797,6 +823,9 @@ public struct SessionLoggingBoundary: Sendable {
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp()
     )
+    if let writeBackBoundary {
+      _ = await writeBackBoundary.markSessionEditing(sessionID: request.sessionID)
+    }
     try await unlinkExternalWorkoutIfNeeded(
       sessionID: request.sessionID, resultingStatus: request.status)
     guard let reopened = try await activeSession(sessionID: request.sessionID) else {
@@ -850,6 +879,18 @@ public struct SessionLoggingBoundary: Sendable {
       auditID: uuidGenerator.makeUUID().uuidString,
       occurredAt: timestamp()
     )
+    if let writeBackBoundary {
+      if request.status == .completed, let completedAt = request.completedAt,
+        let snapshot = try? await activeSession(sessionID: request.sessionID)
+      {
+        _ = await writeBackBoundary.reconcileCompletedSession(
+          snapshot, completedAt: Date(timeIntervalSince1970: TimeInterval(completedAt)))
+      } else if request.status == .scheduled || request.status == .skipped
+        || request.status == .unperformed
+      {
+        _ = await writeBackBoundary.unlinkSessionSummary(sessionID: request.sessionID)
+      }
+    }
     try await unlinkExternalWorkoutIfNeeded(
       sessionID: request.sessionID, resultingStatus: request.status)
     return audit
@@ -888,8 +929,26 @@ public struct SessionLoggingBoundary: Sendable {
       })
     else { throw SessionLoggingError.unknownSession }
     let current = cycle.weeks[weekIndex].sessions[sessionIndex]
-    guard current.status == .scheduled else {
+    guard current.status == .scheduled || current.status == .inProgress else {
       throw SessionLoggingError.sessionNotTerminal
+    }
+    if current.status == .inProgress {
+      guard let snapshot = try await correctionSnapshot(sessionID: sessionID) else {
+        throw SessionLoggingError.unknownSession
+      }
+      let request = SessionCorrectionRequest(
+        sessionID: sessionID,
+        status: .skipped,
+        intendedDate: snapshot.intendedDate,
+        primaryLiftID: snapshot.primaryLiftID,
+        assistanceLiftID: snapshot.assistanceLiftID,
+        note: note)
+      _ = try await correctSession(
+        request, confirmation: confirmation, expectedBefore: snapshot)
+      guard let skipped = try await activeSession(sessionID: sessionID) else {
+        throw SessionLoggingError.unknownSession
+      }
+      return skipped
     }
     let replacementSession = TrainingCycleSession(
       id: current.id,

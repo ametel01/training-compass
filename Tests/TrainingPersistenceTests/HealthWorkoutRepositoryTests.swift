@@ -76,6 +76,70 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertEqual(afterRestart, loaded)
   }
 
+  func testVersionedWriteBackMetadataSurvivesIdempotentReimportAndRestart() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(
+        path: "training-health-write-back-metadata-\(UUID().uuidString)",
+        directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let identifier = HealthWorkoutWriteBackBoundary.syncIdentifier(for: "session")
+    let workout = HealthWorkout(
+      healthKitUUID: "app-authored-uuid", activityType: "traditional-strength-training",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300), duration: 300,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      localDate: "2023-11-14", firstImportedAt: Date(timeIntervalSince1970: 1_700_000_500),
+      appAuthoredSyncIdentifier: identifier, appAuthoredSyncVersion: 3)
+
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [workout, workout], anchor: "same"),
+      stream: .workouts, limits: .default)
+    let loaded = try await repository.loadHealthWorkouts()
+    XCTAssertEqual(loaded.count, 1)
+    XCTAssertEqual(loaded.first?.appAuthoredSyncIdentifier, identifier)
+    XCTAssertEqual(loaded.first?.appAuthoredSyncVersion, 3)
+
+    let restarted = GRDBTrainingRepository(root: root)
+    let afterRestart = try await restarted.loadHealthWorkouts()
+    XCTAssertEqual(afterRestart, loaded)
+  }
+
+  func testLowerVersionImportCannotReplaceHigherVersionForSameUUID() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(
+        path: "training-health-write-back-order-\(UUID().uuidString)",
+        directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let identifier = HealthWorkoutWriteBackBoundary.syncIdentifier(for: "session")
+    let base = HealthWorkout(
+      healthKitUUID: "app-authored-uuid", activityType: "running",
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300), duration: 300,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      localDate: "2023-11-14", firstImportedAt: Date(timeIntervalSince1970: 1_700_000_500),
+      appAuthoredSyncIdentifier: identifier, appAuthoredSyncVersion: 2)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [base]), stream: .workouts, limits: .default)
+
+    let stale = HealthWorkout(
+      healthKitUUID: base.healthKitUUID, activityType: "cycling",
+      startDate: base.startDate, endDate: base.endDate, duration: base.duration,
+      sourceName: base.sourceName, sourceBundleIdentifier: base.sourceBundleIdentifier,
+      localDate: base.localDate, firstImportedAt: base.firstImportedAt,
+      appAuthoredSyncIdentifier: identifier, appAuthoredSyncVersion: 1)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(workouts: [stale]), stream: .workouts, limits: .default)
+
+    let loaded = try await repository.loadHealthWorkouts()
+    XCTAssertEqual(loaded.count, 1)
+    XCTAssertEqual(loaded.first?.activityType, "running")
+    XCTAssertEqual(loaded.first?.appAuthoredSyncVersion, 2)
+  }
+
   func testAnchoredPageCommitDeletesAndCheckpointsAtomically() async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: "training-health-sync-\(UUID().uuidString)", directoryHint: .isDirectory)
