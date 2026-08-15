@@ -25,7 +25,7 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>Training Compass reads Health Workouts and selected recovery evidence to show source-aware history. Local training works without Health access.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Training Compass does not request write-back access in this release.</string>
+	<string>When you opt in, Training Compass saves only a Traditional Strength Training session summary with its start, end, duration, and stable sync identifier. Detailed training data remains local.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

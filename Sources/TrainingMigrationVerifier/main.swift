@@ -55,7 +55,8 @@ let authoritativeTables = try stores.authoritative.read { db in
           'additional_sets', 'session_completions', 'session_projections',
           'session_correction_audit', 'training_max_proposals', 'training_max_history',
           'health_workout_link_facts', 'heart_rate_configuration',
-          'running_comparison_exclusions'
+          'running_comparison_exclusions', 'health_workout_write_back_preferences',
+          'health_workout_write_backs'
         )
         """
     ))
@@ -68,9 +69,10 @@ guard
     "session_projections", "session_correction_audit",
     "training_max_proposals", "training_max_history", "health_workout_link_facts",
     "heart_rate_configuration", "running_comparison_exclusions",
+    "health_workout_write_back_preferences", "health_workout_write_backs",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v15")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v16")
 }
 
 let authoritativeRowCount = try reopenedStores.authoritative.read { db in
@@ -104,7 +106,7 @@ else {
 }
 
 print(
-  "Authoritative v15 and reconstructible v8 migration interruption, retry, and idempotence passed.")
+  "Authoritative v16 and reconstructible v8 migration interruption, retry, and idempotence passed.")
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

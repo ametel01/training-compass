@@ -463,6 +463,32 @@ public struct ProtectedStoreBootstrapper: Sendable {
         table.column("excluded_at", .double).notNull()
       }
     }
+    migrator.registerMigration("authoritative_v16_health_workout_write_back") { db in
+      try db.create(table: "health_workout_write_back_preferences") { table in
+        table.column("id", .text).primaryKey()
+        table.column("enabled", .boolean).notNull().defaults(to: false)
+        table.column("updated_at", .double).notNull()
+      }
+      try db.execute(
+        sql:
+          "INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at) VALUES ('default', 0, 0)"
+      )
+      try db.create(table: "health_workout_write_backs") { table in
+        table.column("session_id", .text).primaryKey()
+        table.column("sync_identifier", .text).notNull()
+        table.column("sync_version", .integer).notNull().check { $0 > 0 }
+        table.column("state", .text).notNull()
+        table.column("start_date", .double).notNull()
+        table.column("end_date", .double).notNull()
+        table.column("duration", .double).notNull().check { $0 >= 0 }
+        table.column("healthkit_uuid", .text)
+        table.column("last_error", .text)
+        table.column("updated_at", .double).notNull()
+      }
+      try db.create(
+        index: "health_workout_write_backs_sync_identifier",
+        on: "health_workout_write_backs", columns: ["sync_identifier"], unique: true)
+    }
     return migrator
   }
 

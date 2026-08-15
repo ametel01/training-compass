@@ -72,6 +72,8 @@ private struct HealthView: View {
   @State private var errorMessage: String?
   @State private var maximumHeartRateText = ""
   @State private var maximumHeartRate: HeartRateConfiguration?
+  @State private var writeBackPreference = HealthWorkoutWriteBackPreference()
+  @State private var writeBackError: String?
 
   var body: some View {
     List {
@@ -123,6 +125,26 @@ private struct HealthView: View {
         } else {
           Text("Health data is unavailable on this device. Local training remains fully available.")
             .foregroundStyle(.secondary)
+        }
+      }
+
+      Section("Optional Session summaries") {
+        Toggle(
+          "Share completed Session summaries with Health",
+          isOn: Binding(
+            get: { writeBackPreference.enabled },
+            set: { enabled in Task { await setWriteBackEnabled(enabled) } }
+          )
+        )
+        .disabled(model.healthWorkoutWriteBackBoundary == nil)
+        .accessibilityIdentifier("health.write-back.enabled")
+        Text(
+          "Off by default. Enabling this preference requests permission to save only a Traditional Strength Training summary. Each completion can still opt out."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        if let writeBackError {
+          Text(writeBackError).font(.caption).foregroundStyle(.orange)
         }
       }
 
@@ -256,6 +278,9 @@ private struct HealthView: View {
       healthHistory =
         (try? await boundary.healthWorkoutHistory())
         ?? HealthWorkoutHistorySnapshot(state: .unavailable)
+      if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
+        writeBackPreference = (try? await writeBackBoundary.preference()) ?? .init()
+      }
       maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
       if let maximumHeartRate {
         maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
@@ -412,6 +437,19 @@ private struct HealthView: View {
       model.heartRateConfigurationDidChange()
     } catch {
       errorMessage = "Maximum heart rate must be a finite positive number."
+    }
+  }
+
+  private func setWriteBackEnabled(_ enabled: Bool) async {
+    guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+    do {
+      _ = try await boundary.setEnabled(enabled)
+      writeBackPreference = try await boundary.preference()
+      writeBackError = nil
+    } catch {
+      writeBackPreference = (try? await boundary.preference()) ?? .init()
+      writeBackError =
+        "Health write-back permission was not completed. Local training remains available."
     }
   }
 
@@ -2151,6 +2189,10 @@ private struct TodayView: View {
   @State private var additionalNote = ""
   @State private var editingAdditionalSetID: String?
   @State private var showingCompletionConfirmation = false
+  @State private var showingWriteBackChoice = false
+  @State private var pendingWriteBackChoice: SessionWriteBackChoice = .doNotShare
+  @State private var writeBackPreference = HealthWorkoutWriteBackPreference()
+  @State private var writeBackRecord: HealthWorkoutWriteBackRecord?
   @State private var errorMessage: String?
 
   var body: some View {
@@ -2301,6 +2343,10 @@ private struct TodayView: View {
                   }
                 }
               }
+              if let writeBackRecord {
+                LabeledContent("HealthKit summary", value: writeBackRecord.state.displayName)
+                  .accessibilityIdentifier("today.write-back.state")
+              }
             }
             trainingEventLinkControls
           } else if today.state == .readyToComplete {
@@ -2358,10 +2404,31 @@ private struct TodayView: View {
       isPresented: $showingCompletionConfirmation,
       titleVisibility: .visible
     ) {
-      Button("Confirm Completion") { Task { await beginCompletion() } }
+      Button("Confirm Completion") { Task { await beginCompletionDecision() } }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Completion records the planned-versus-actual work and every set disposition.")
+      Text(
+        "Completion records the planned-versus-actual work and every set disposition. Local completion never depends on Health access."
+      )
+    }
+    .confirmationDialog(
+      "Share a summary with Health?",
+      isPresented: $showingWriteBackChoice,
+      titleVisibility: .visible
+    ) {
+      Button("Share summary") {
+        pendingWriteBackChoice = .share
+        Task { await beginCompletion() }
+      }
+      Button("Keep this Session local") {
+        pendingWriteBackChoice = .doNotShare
+        Task { await beginCompletion() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Only the Traditional Strength Training start, end, duration, and stable sync identifier/version are shared. Sets, loads, prescriptions, Training Maxes, e1RM, notes, and audit history remain local."
+      )
     }
     .confirmationDialog(
       "Confirm unusual Training Event match?",
@@ -2476,6 +2543,21 @@ private struct TodayView: View {
     }
   }
 
+  private func beginCompletionDecision() async {
+    guard let boundary = model.healthWorkoutWriteBackBoundary else {
+      pendingWriteBackChoice = .doNotShare
+      await beginCompletion()
+      return
+    }
+    writeBackPreference = (try? await boundary.preference()) ?? .init()
+    if writeBackPreference.enabled {
+      showingWriteBackChoice = true
+    } else {
+      pendingWriteBackChoice = .doNotShare
+      await beginCompletion()
+    }
+  }
+
   private func beginCompletion() async {
     guard let candidateID = selectedCompletionCandidateID,
       let candidate = linkingSnapshot?.candidates.first(where: { $0.id == candidateID })
@@ -2501,6 +2583,7 @@ private struct TodayView: View {
           to: sessionID,
           confirmation: confirmation
         )
+        await queueWriteBack()
       } else {
         _ = try await boundary.confirmLink(
           candidate,
@@ -2539,6 +2622,14 @@ private struct TodayView: View {
   private func reload() async {
     do {
       today = try await model.sessionLoggingBoundary.today()
+      if let sessionID = today?.session.id,
+        let writeBackBoundary = model.healthWorkoutWriteBackBoundary
+      {
+        writeBackPreference = (try? await writeBackBoundary.preference()) ?? .init()
+        writeBackRecord = try? await writeBackBoundary.state(for: sessionID)
+      } else {
+        writeBackRecord = nil
+      }
       let date = today?.intendedDate ?? TrainingDate(date: Date())
       todayEvents =
         (try? await model.trainingEventLinkBoundary?.timeline(on: date).events) ?? []
@@ -2602,8 +2693,19 @@ private struct TodayView: View {
   private func completeWithoutLink() async {
     do {
       _ = try await model.sessionLoggingBoundary.confirmSession(sessionID: today?.session.id ?? "")
-      await reload()
+      await queueWriteBack()
     } catch { errorMessage = String(describing: error) }
+  }
+
+  private func queueWriteBack() async {
+    await reload()
+    guard let today, let boundary = model.healthWorkoutWriteBackBoundary,
+      let completion = today.completion
+    else { return }
+    writeBackRecord = await boundary.queue(
+      session: today,
+      completedAt: Date(timeIntervalSince1970: TimeInterval(completion.confirmedAt)),
+      choice: pendingWriteBackChoice)
   }
 
   private func beginEditing(_ set: AdditionalSet) {

@@ -18,7 +18,7 @@ private enum ApplicationAcceptanceScenario {
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
   TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
   HealthWorkoutRouteRepository, TrainingEventLinkRepository,
-  RunningComparisonExclusionRepository
+  RunningComparisonExclusionRepository, HealthWorkoutWriteBackRepository
 {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
@@ -151,7 +151,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         db,
         sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
       )
-      for table in tables where table != "gate_zero_metadata" && table != "grdb_migrations" {
+      for table in tables
+      where table != "gate_zero_metadata" && table != "grdb_migrations"
+        && table != "health_workout_write_back_preferences"
+      {
         let quoted = Self.quoteIdentifier(table)
         if (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(quoted)")) ?? 0 > 0 {
           return false
@@ -909,6 +912,36 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           writeBackDisposition: disposition,
           unlinkedAt: ($0["unlinked_at"] as Double?).map(Date.init(timeIntervalSince1970:))
         )
+      }
+    }
+  }
+
+  public func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
+    -> [HealthWorkoutLinkFact]
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT id, healthkit_uuid, local_entity_kind, local_entity_id, linked_at,
+                 linked_during_completion, write_back_disposition, unlinked_at
+          FROM health_workout_link_facts
+          WHERE local_entity_kind = ? AND local_entity_id = ? ORDER BY linked_at, id
+          """,
+        arguments: [TrainingEventLocalEntityKind.session.rawValue, localEntityID]
+      ).map {
+        guard let kind = TrainingEventLocalEntityKind(rawValue: $0["local_entity_kind"]),
+          let disposition = TrainingEventWriteBackDisposition(
+            rawValue: $0["write_back_disposition"])
+        else { throw TrainingEventLinkRepositoryError.invalidLink }
+        return HealthWorkoutLinkFact(
+          id: $0["id"], healthKitUUID: $0["healthkit_uuid"], localEntityKind: kind,
+          localEntityID: $0["local_entity_id"],
+          linkedAt: Date(timeIntervalSince1970: $0["linked_at"]),
+          linkedDuringCompletion: $0["linked_during_completion"],
+          writeBackDisposition: disposition,
+          unlinkedAt: ($0["unlinked_at"] as Double?).map(Date.init(timeIntervalSince1970:)))
       }
     }
   }
@@ -2398,6 +2431,99 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  public func loadHealthWorkoutWriteBackPreference() async throws
+    -> HealthWorkoutWriteBackPreference
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql:
+            "SELECT enabled, updated_at FROM health_workout_write_back_preferences WHERE id = 'default'"
+        )
+      else { return .init() }
+      return .init(
+        enabled: row["enabled"], updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+    }
+  }
+
+  public func saveHealthWorkoutWriteBackPreference(
+    _ preference: HealthWorkoutWriteBackPreference
+  ) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at)
+          VALUES ('default', ?, ?)
+          ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [preference.enabled, preference.updatedAt.timeIntervalSince1970])
+    }
+  }
+
+  public func loadHealthWorkoutWriteBack(sessionID: String)
+    async throws -> HealthWorkoutWriteBackRecord?
+  {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchOne(
+        db,
+        sql: """
+          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date,
+                 healthkit_uuid, last_error, updated_at
+          FROM health_workout_write_backs WHERE session_id = ?
+          """,
+        arguments: [sessionID]
+      ).map(Self.healthWorkoutWriteBackRecord(from:))
+    }
+  }
+
+  public func loadHealthWorkoutWriteBacks() async throws -> [HealthWorkoutWriteBackRecord] {
+    let stores = try await readyStores()
+    return try await stores.authoritative.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date,
+                 healthkit_uuid, last_error, updated_at
+          FROM health_workout_write_backs ORDER BY updated_at, session_id
+          """
+      ).map(Self.healthWorkoutWriteBackRecord(from:))
+    }
+  }
+
+  public func saveHealthWorkoutWriteBack(_ record: HealthWorkoutWriteBackRecord) async throws {
+    let stores = try await readyStores()
+    try await stores.authoritative.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO health_workout_write_backs
+            (session_id, sync_identifier, sync_version, state, start_date, end_date, duration,
+             healthkit_uuid, last_error, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(session_id) DO UPDATE SET
+            sync_identifier = excluded.sync_identifier,
+            sync_version = excluded.sync_version,
+            state = excluded.state,
+            start_date = excluded.start_date,
+            end_date = excluded.end_date,
+            duration = excluded.duration,
+            healthkit_uuid = excluded.healthkit_uuid,
+            last_error = excluded.last_error,
+            updated_at = excluded.updated_at
+          """,
+        arguments: [
+          record.sessionID, record.syncIdentifier, record.syncVersion, record.state.rawValue,
+          record.startDate.timeIntervalSince1970, record.endDate.timeIntervalSince1970,
+          record.duration, record.healthKitUUID, record.lastError,
+          record.updatedAt.timeIntervalSince1970,
+        ])
+    }
+  }
+
   public func completeSession(
     _ completion: CompletedSession,
     confirmation: SessionCompletionConfirmation
@@ -2802,7 +2928,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         throw TrainingImportError.incompleteArchive("table \(table.name)")
       }
       let quotedTable = quoteIdentifier(table.name)
-      if table.name == "gate_zero_metadata" {
+      if table.name == "gate_zero_metadata"
+        || table.name == "health_workout_write_back_preferences"
+      {
         try db.execute(sql: "DELETE FROM \(quotedTable)")
       }
       let schemaColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(\(quotedTable))")
@@ -3066,7 +3194,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "set_result_audit",
     "session_correction_audit", "training_max_proposals", "training_max_history",
     "health_workout_link_facts", "heart_rate_configuration",
-    "running_comparison_exclusions",
+    "running_comparison_exclusions", "health_workout_write_backs",
   ]
 
   private static let legacyImportColumns: [String: Set<String>] = [
@@ -3499,6 +3627,27 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  private static func healthWorkoutWriteBackRecord(from row: Row)
+    throws -> HealthWorkoutWriteBackRecord
+  {
+    guard let state = HealthWorkoutWriteBackState(rawValue: row["state"] as String) else {
+      throw PersistenceError.invalidHealthWorkoutWriteBack
+    }
+    let startDate = Date(timeIntervalSince1970: row["start_date"] as Double)
+    let endDate = Date(timeIntervalSince1970: row["end_date"] as Double)
+    guard row["sync_version"] as Int64 > 0,
+      startDate <= endDate,
+      (row["duration"] as Double).isFinite,
+      (row["duration"] as Double) >= 0
+    else { throw PersistenceError.invalidHealthWorkoutWriteBack }
+    return .init(
+      sessionID: row["session_id"], syncIdentifier: row["sync_identifier"],
+      syncVersion: row["sync_version"], state: state,
+      startDate: startDate, endDate: endDate,
+      healthKitUUID: row["healthkit_uuid"], lastError: row["last_error"],
+      updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+  }
+
   private static func compactAdditionalSets(_ db: Database, sessionID: String) throws {
     let ids = try String.fetchAll(
       db,
@@ -3532,6 +3681,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     )
     let exportTableNames = tableNames.filter {
       !$0.hasSuffix("_projections") && $0 != "grdb_migrations"
+        && $0 != "health_workout_write_back_preferences"
     }
     let tables = try exportTableNames.map { tableName -> TrainingExportTable in
       let quotedName = "\"" + tableName.replacingOccurrences(of: "\"", with: "\"\"") + "\""
@@ -3824,6 +3974,7 @@ public enum PersistenceError: Error, Equatable, Sendable {
   case invalidTrainingMaxHistory
   case storesUnavailable
   case invalidHealthWorkout
+  case invalidHealthWorkoutWriteBack
 }
 
 public enum TrainingPersistenceModule {}

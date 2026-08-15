@@ -328,6 +328,7 @@ public struct TrainingImportBoundary: Sendable {
     "session_completions", "session_correction_audit", "training_max_proposals",
     "training_max_history", "health_workout_link_facts",
     "heart_rate_configuration", "running_comparison_exclusions",
+    "health_workout_write_backs",
   ]
 }
 

@@ -31,6 +31,7 @@ final class AppModel {
   let healthWorkoutImportBoundary: HealthWorkoutImportBoundary?
   let healthDataRebuildBoundary: HealthDataRebuildBoundary?
   let healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary?
+  let healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary?
   let trainingEventLinkBoundary: TrainingEventLinkBoundary?
   let rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary?
   let runningPerformanceBoundary: RunningPerformanceBoundary?
@@ -51,6 +52,7 @@ final class AppModel {
     healthWorkoutImportBoundary: HealthWorkoutImportBoundary? = nil,
     healthDataRebuildBoundary: HealthDataRebuildBoundary? = nil,
     healthWorkoutRouteBoundary: HealthWorkoutRouteBoundary? = nil,
+    healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary? = nil,
     trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
     rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil,
     runningPerformanceBoundary: RunningPerformanceBoundary? = nil,
@@ -70,6 +72,7 @@ final class AppModel {
     self.healthWorkoutImportBoundary = healthWorkoutImportBoundary
     self.healthDataRebuildBoundary = healthDataRebuildBoundary
     self.healthWorkoutRouteBoundary = healthWorkoutRouteBoundary
+    self.healthWorkoutWriteBackBoundary = healthWorkoutWriteBackBoundary
     self.trainingEventLinkBoundary = trainingEventLinkBoundary
     self.rollingWorkoutOverviewBoundary = rollingWorkoutOverviewBoundary
     self.runningPerformanceBoundary = runningPerformanceBoundary
@@ -197,6 +200,13 @@ final class AppModel {
           client: routeClient,
           repository: routeRepository,
           resourceProvider: DeviceHealthWorkoutRouteResourceProvider())
+      }(),
+      healthWorkoutWriteBackBoundary: {
+        guard let writeBackClient = dependencies.healthKit as? any HealthWorkoutWriteBackClient,
+          let writeBackRepository = repository as? any HealthWorkoutWriteBackRepository
+        else { return nil }
+        return HealthWorkoutWriteBackBoundary(
+          repository: writeBackRepository, client: writeBackClient, clock: dependencies.clock)
       }(),
       trainingEventLinkBoundary: {
         guard let healthRepository = repository as? any HealthWorkoutRepository,

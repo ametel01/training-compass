@@ -18,8 +18,9 @@ MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights-device-checklist.md"
 RECOVERY_CHECKLIST = ROOT / "documentation/developer/reference/recovery-evidence-device-checklist.md"
+WRITE_BACK_CHECKLIST = ROOT / "documentation/developer/reference/healthkit-write-back-device-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -94,6 +95,8 @@ def main() -> int:
         errors.append("Training and Running Insights Acceptance Device checklist is missing")
     if not RECOVERY_CHECKLIST.exists():
         errors.append("Recovery Evidence and Guidance Acceptance Device checklist is missing")
+    if not WRITE_BACK_CHECKLIST.exists():
+        errors.append("HealthKit Write-back Acceptance Device checklist is missing")
 
     rows = matrix_rows(matrix)
     sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
@@ -128,7 +131,7 @@ def main() -> int:
         "No-access, partial/limited-history, successful-empty, cached, and unavailable states",
         "paginated additions, replacements, deletions, and independent stream facts",
         "locked, later unlocked, interrupted, terminated, or a first/later reconciliation fails",
-        "HealthKit Write-back are not exposed",
+        "Write-back is not exposed before opt-in",
     )
     for contract in required_health_contracts:
         if contract not in matrix:
@@ -204,6 +207,16 @@ def main() -> int:
     for contract in required_recovery_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits Recovery Evidence and Guidance contract: {contract}")
+
+    required_write_back_contracts = (
+        "authorization is not requested before enablement",
+        "Only a Traditional Strength Training summary is written",
+        "No second summary is created for an external link",
+        "local completion succeeds independently of Health availability",
+    )
+    for contract in required_write_back_contracts:
+        if contract.lower() not in matrix.lower():
+            errors.append(f"acceptance matrix omits HealthKit Write-back contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

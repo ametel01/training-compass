@@ -8,7 +8,9 @@ import TrainingApplication
 /// The real HealthKit adapter.  Its public surface is made only of
 /// application-owned values so HealthKit cannot leak through the application
 /// or persistence layers.
-public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteClient {
+public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteClient,
+  HealthWorkoutWriteBackClient
+{
   #if canImport(HealthKit)
     private let store: HKHealthStore
   #endif
@@ -55,6 +57,112 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       return .init(state: .authorized, requested: request)
     #else
       return .init(state: .unavailable, requested: request)
+    #endif
+  }
+
+  public func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
+    try await requestHealthAuthorization(
+      .init(readTypes: [], writeTypes: [.workouts]))
+  }
+
+  public func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable() else {
+        throw HealthWorkoutWriteBackClientError.unavailable
+      }
+      let workoutType = HKObjectType.workoutType()
+      guard store.authorizationStatus(for: workoutType) == .sharingAuthorized else {
+        throw HealthWorkoutWriteBackClientError.authorizationDenied
+      }
+      let configuration = HKWorkoutConfiguration()
+      configuration.activityType = .traditionalStrengthTraining
+      configuration.locationType = .indoor
+      let builder = HKWorkoutBuilder(
+        healthStore: store, configuration: configuration, device: HKDevice.local())
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        builder.beginCollection(withStart: summary.startDate) { success, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if success {
+            continuation.resume(returning: ())
+          } else {
+            continuation.resume(throwing: HealthWorkoutWriteBackClientError.inaccessible)
+          }
+        }
+      }
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        builder.addMetadata([
+          HKMetadataKeySyncIdentifier: summary.syncIdentifier,
+          HKMetadataKeySyncVersion: summary.syncVersion,
+        ]) { success, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if success {
+            continuation.resume(returning: ())
+          } else {
+            continuation.resume(throwing: HealthWorkoutWriteBackClientError.inaccessible)
+          }
+        }
+      }
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        builder.endCollection(withEnd: summary.endDate) { success, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else if success {
+            continuation.resume(returning: ())
+          } else {
+            continuation.resume(throwing: HealthWorkoutWriteBackClientError.inaccessible)
+          }
+        }
+      }
+      guard
+        let workout = try await withCheckedThrowingContinuation({
+          (continuation: CheckedContinuation<HKWorkout?, any Error>) in
+          builder.finishWorkout { workout, error in
+            if let error {
+              continuation.resume(throwing: error)
+            } else {
+              continuation.resume(returning: workout)
+            }
+          }
+        })
+      else { throw HealthWorkoutWriteBackClientError.inaccessible }
+      return workout.uuid.uuidString
+    #else
+      _ = summary
+      throw HealthWorkoutWriteBackClientError.unavailable
+    #endif
+  }
+
+  public func workoutExists(syncIdentifier: String) async throws -> Bool {
+    #if canImport(HealthKit)
+      guard HKHealthStore.isHealthDataAvailable() else {
+        throw HealthWorkoutWriteBackClientError.unavailable
+      }
+      return try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Bool, any Error>) in
+        let query = HKSampleQuery(
+          sampleType: HKObjectType.workoutType(), predicate: nil,
+          limit: HKObjectQueryNoLimit,
+          sortDescriptors: nil
+        ) { _, samples, error in
+          if let error {
+            continuation.resume(throwing: error)
+            return
+          }
+          let exists = (samples as? [HKWorkout] ?? []).contains {
+            ($0.metadata?[HKMetadataKeySyncIdentifier] as? String) == syncIdentifier
+          }
+          continuation.resume(returning: exists)
+        }
+        store.execute(query)
+      }
+    #else
+      _ = syncIdentifier
+      throw HealthWorkoutWriteBackClientError.unavailable
     #endif
   }
 
