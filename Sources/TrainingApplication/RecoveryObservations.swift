@@ -388,6 +388,8 @@ public struct HealthRecoveryObservationCalculator: Sendable {
       calculationRule: metric == .restingHeartRate
         ? "A replacement for the same HealthKit sample identity replaces the prior value; no other date is changed."
         : "Odd counts use the middle sorted value; even counts use the arithmetic mean of the two middle sorted values.",
+      comparisonBaseline:
+        "No baseline is combined into this daily observation; personal 28-day baselines use the preceding local calendar days independently.",
       missingData: missing,
       exclusions: [],
       lastReconciliation: lastSuccessful?.ISO8601Format(),

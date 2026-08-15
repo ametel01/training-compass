@@ -1,8 +1,8 @@
 # Training Compass release-candidate checklist
 
 Issue #22 is the approval gate for the second owner-usable milestone, issue
-#27 approves Unified Events and Enrichment, and issue #32 approves Training and
-Running Insights. The first owner-data milestone
+#27 approves Unified Events and Enrichment, issue #32 approves Training and
+Running Insights, and issue #38 approves Recovery Evidence and Guidance. The first owner-data milestone
 remains covered by issue #16. The Acceptance Device is the owner's iPhone
 running the supported iOS release; Simulator numbers are regression signals
 only. A milestone candidate is eligible only
@@ -61,6 +61,13 @@ application container between steps:
     last reconciliation are reachable without leaving the displayed value;
     verify corrections and Health revisions recompute projections without
     changing source facts or duplicating linked Training Events.
+13. Recovery Evidence and Guidance: on the in-place install, inspect Preferred
+    Sleep source ordering, Primary Sleep and Naps, daily resting-heart-rate and
+    HRV observations, each Personal Recovery Baseline, and both available and
+    withheld Recovery Guidance. Exercise overlap, exact gap boundaries, sparse
+    dates, sample medians, baseline thresholds and band edges, current-day
+    rollover, source changes, failure, stale, corrected, disabled, insufficient,
+    and incomparable states while keeping local training usable.
 
 The critical XCUITest suite covers the stable launch, navigation, recovery, and
 erasure accessibility contracts. The application and persistence suites cover
@@ -82,8 +89,13 @@ HealthKit wait time is reported separately from app-controlled work.
 | Local mutation reflected on screen | 150 milliseconds |
 | Ordinary local query | 300 milliseconds |
 | Complex insight calculation | 750 milliseconds |
+| Recovery Evidence import, baseline, or guidance calculation after HealthKit returns | 750 milliseconds |
+| Recovery import P95 after HealthKit returns | 750 milliseconds |
+| Recovery baseline calculation P95 | 750 milliseconds |
+| Recovery Guidance calculation P95 | 750 milliseconds |
 | Route decoding, simplification, persistence, and display preparation after HealthKit returns | 2 seconds |
 | Foreground peak memory | 250 MiB |
+| Recovery Evidence peak memory | 250 MiB |
 | Background peak memory | 100 MiB |
 | Combined persistent stores | 2 GiB |
 | Authoritative store | 250 MiB |
@@ -110,6 +122,8 @@ the full verification data envelope below.
 | Concurrent reconciliation coordinators | 1 per installation |
 | First durable batch visibility | before the next page is requested |
 | Rebuild staging safety margin | 20% or the configured absolute margin, whichever is greater |
+| Recovery Evidence page size | 100 records |
+| Recovery Evidence transient page buffer | 8 MiB |
 
 The verification envelope is 15 years, 25,000 Health Workouts, 10,000,000
 workout heart-rate samples, 250,000 sleep intervals, 50,000 resting-heart-rate

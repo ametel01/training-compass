@@ -17,8 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights-device-checklist.md"
+RECOVERY_CHECKLIST = ROOT / "documentation/developer/reference/recovery-evidence-device-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -91,6 +92,8 @@ def main() -> int:
     budgets = BUDGETS.read_text()
     if not INSIGHTS_CHECKLIST.exists():
         errors.append("Training and Running Insights Acceptance Device checklist is missing")
+    if not RECOVERY_CHECKLIST.exists():
+        errors.append("Recovery Evidence and Guidance Acceptance Device checklist is missing")
 
     rows = matrix_rows(matrix)
     sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
@@ -183,6 +186,24 @@ def main() -> int:
     for contract in required_insight_contracts:
         if contract not in matrix:
             errors.append(f"acceptance matrix omits Training and Running Insights contract: {contract}")
+
+    required_recovery_contracts = (
+        "Source overlap",
+        "exact 90-minute and longer episode gaps",
+        "odd/even sample medians",
+        "13/14-day baselines",
+        "inclusive band edges",
+        "current-day rollover",
+        "stream failure",
+        "source-incomparable guidance states",
+        "Every visible Recovery Observation, baseline, and prompt reaches an Insight Explanation",
+        "no score, diagnosis, medical or injury-risk claim, causal interpretation, performance prediction, warning threshold, or training prescription",
+        "750-millisecond app-controlled insight budget",
+        "privacy-safe evidence contains no measurements or identifiers",
+    )
+    for contract in required_recovery_contracts:
+        if contract not in matrix:
+            errors.append(f"acceptance matrix omits Recovery Evidence and Guidance contract: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

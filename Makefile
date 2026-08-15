@@ -15,7 +15,8 @@ help:
 	@echo "  make device-smoke MILESTONE=health-foundation"
 	@echo "  make device-smoke MILESTONE=unified-events"
 	@echo "  make device-smoke MILESTONE=training-insights"
-	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights"
+	@echo "  make device-smoke MILESTONE=recovery-evidence"
+	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence"
 	@echo "  make evidence"
 
 bootstrap:

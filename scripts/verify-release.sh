@@ -3,9 +3,9 @@ set -euo pipefail
 
 milestone=${1:-gate-0}
 case "$milestone" in
-  gate-0|health-foundation|unified-events|training-insights) ;;
+  gate-0|health-foundation|unified-events|training-insights|recovery-evidence) ;;
   *)
-    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights" >&2
+    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence" >&2
     exit 2
     ;;
 esac
@@ -76,5 +76,19 @@ if milestone == "training-insights":
     }
     if not all(checks.get(key) is True for key in required):
         raise SystemExit("Release verification refused: Training and Running Insights checks are incomplete.")
+if milestone == "recovery-evidence":
+    checks = record.get("recoveryEvidenceChecks", {})
+    required = {
+        "evidenceAvailable",
+        "guidanceWithheld",
+        "explanationsReachable",
+        "neutralLanguage",
+        "currentDayCorrectness",
+        "resourceBudget",
+        "priorDataContinuity",
+        "privacy",
+    }
+    if not all(checks.get(key) is True for key in required):
+        raise SystemExit("Release verification refused: Recovery Evidence and Guidance checks are incomplete.")
 PY
 echo "${milestone} release protocol passed."

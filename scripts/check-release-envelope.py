@@ -14,6 +14,9 @@ LIMITS = {
     "localMutationP95Ms": ("<=", 150),
     "ordinaryQueryP95Ms": ("<=", 300),
     "insightP95Ms": ("<=", 750),
+    "recoveryImportP95Ms": ("<=", 750),
+    "recoveryBaselineP95Ms": ("<=", 750),
+    "recoveryGuidanceP95Ms": ("<=", 750),
     "routeProcessingP95Ms": ("<=", 2000),
     "foregroundPeakMiB": ("<=", 250),
     "backgroundPeakMiB": ("<=", 100),
@@ -28,6 +31,9 @@ LIMITS = {
     "healthReconciliationP95S": ("<=", 60),
     "healthRebuildP95S": ("<=", 60),
     "healthForegroundPeakMiB": ("<=", 250),
+    "recoveryPeakMiB": ("<=", 250),
+    "recoveryPageRecords": ("<=", 100),
+    "recoveryTransientBufferMiB": ("<=", 8),
 }
 
 

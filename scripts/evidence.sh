@@ -48,6 +48,7 @@ gate_zero_evidence = device_evidence("gate-0")
 health_foundation_evidence = device_evidence("health-foundation")
 unified_events_evidence = device_evidence("unified-events")
 training_insights_evidence = device_evidence("training-insights")
+recovery_evidence = device_evidence("recovery-evidence")
 automated_pass = acceptance_result == 0 and all(
     os.environ.get(name) == "pass"
     for name in ("VERIFY_RESULT", "MIGRATION_RESULT", "PRIVACY_RESULT", "UI_RESULT")
@@ -105,6 +106,22 @@ training_insights_accepted = (
     and all(training_insights_checks.get(key) is True for key in required_training_insights_checks)
     and automated_pass
 )
+recovery_checks = recovery_evidence.get("recoveryEvidenceChecks", {})
+required_recovery_checks = {
+    "evidenceAvailable",
+    "guidanceWithheld",
+    "explanationsReachable",
+    "neutralLanguage",
+    "currentDayCorrectness",
+    "resourceBudget",
+    "priorDataContinuity",
+    "privacy",
+}
+recovery_evidence_accepted = (
+    recovery_evidence.get("result") == "pass"
+    and all(recovery_checks.get(key) is True for key in required_recovery_checks)
+    and automated_pass
+)
 entitlements = [str(path) for path in Path(".").rglob("*.entitlements") if ".build" not in path.parts]
 record = {
     "commands": [
@@ -118,10 +135,12 @@ record = {
         "make device-smoke MILESTONE=health-foundation",
         "make device-smoke MILESTONE=unified-events",
         "make device-smoke MILESTONE=training-insights",
+        "make device-smoke MILESTONE=recovery-evidence",
         "make verify-release MILESTONE=gate-0",
         "make verify-release MILESTONE=health-foundation",
         "make verify-release MILESTONE=unified-events",
         "make verify-release MILESTONE=training-insights",
+        "make verify-release MILESTONE=recovery-evidence",
         "make evidence",
     ],
     "fixtureSeed": 21571,
@@ -138,6 +157,7 @@ record = {
             "healthFoundation": health_foundation_evidence,
             "unifiedEvents": unified_events_evidence,
             "trainingInsights": training_insights_evidence,
+            "recoveryEvidence": recovery_evidence,
         },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
@@ -164,9 +184,11 @@ record = {
         "uiGate": automated_verdict("UI_RESULT"),
         "unifiedEventsGate": "eligible" if unified_events_accepted else "blocked",
         "trainingInsightsGate": "eligible" if training_insights_accepted else "blocked",
+        "recoveryEvidenceGate": "eligible" if recovery_evidence_accepted else "blocked",
     },
     "unifiedEventsAccepted": unified_events_accepted,
     "trainingInsightsAccepted": training_insights_accepted,
+    "recoveryEvidenceAccepted": recovery_evidence_accepted,
     "waivers": [],
 }
 encoded = json.dumps(record, indent=2, sort_keys=True) + "\n"

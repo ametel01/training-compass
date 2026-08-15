@@ -16,6 +16,12 @@
   "localMutationP95Ms": 1,
   "ordinaryQueryP95Ms": 1,
   "reconstructibleMigrationP95S": 1,
+  "recoveryBaselineP95Ms": 1,
+  "recoveryGuidanceP95Ms": 1,
+  "recoveryImportP95Ms": 1,
+  "recoveryPageRecords": 1,
+  "recoveryPeakMiB": 1,
+  "recoveryTransientBufferMiB": 1,
   "routeGeometryMiB": 1,
   "routeProcessingP95Ms": 1,
   "storageAvailableMiB": 500

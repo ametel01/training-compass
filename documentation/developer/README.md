@@ -21,6 +21,10 @@ appears only when at least two Recovery Evidence Families have established
 baselines and current, successful, comparable observations. It enumerates
 measurements neutrally, preserves the full evidence and explanation surface
 when withheld or disabled, and never changes a Session or other training data.
+Issue #38 approves these Recovery Evidence and Guidance slices as one
+owner-usable milestone after the cross-feature source, explanation, language,
+resource, privacy, and in-place Acceptance Device gates pass. See the [Recovery
+Evidence and Guidance device checklist](reference/recovery-evidence-device-checklist.md).
 
 ## How-to guides
 
@@ -36,8 +40,9 @@ when withheld or disabled, and never changes a Session or other training data.
 - [Health foundation device checklist](reference/health-foundation-device-checklist.md)
 - [Workout route device checklist](reference/workout-route-device-checklist.md)
 - [Training Event linking device checklist](reference/training-event-linking-device-checklist.md)
-- [Unified Events and Enrichment device checklist](reference/unified-events-device-checklist.md)
 - [Training and Running Insights device checklist](reference/training-insights-device-checklist.md)
+- [Recovery Evidence and Guidance device checklist](reference/recovery-evidence-device-checklist.md)
+- [Unified Events and Enrichment device checklist](reference/unified-events-device-checklist.md)
 - [Migration compatibility](reference/migration-compatibility.md)
 - [Privacy checklist](reference/privacy-checklist.md)
 

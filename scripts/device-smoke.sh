@@ -2,8 +2,8 @@
 set -euo pipefail
 
 milestone=${1:-}
-if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" ]]; then
-  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights" >&2
+if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" && "$milestone" != "recovery-evidence" ]]; then
+  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence" >&2
   exit 2
 fi
 
@@ -20,6 +20,10 @@ fi
 if [[ "$milestone" == "training-insights" ]]; then
   checklist="documentation/developer/reference/training-insights-device-checklist.md"
   evidence_name="training-insights"
+fi
+if [[ "$milestone" == "recovery-evidence" ]]; then
+  checklist="documentation/developer/reference/recovery-evidence-device-checklist.md"
+  evidence_name="recovery-evidence"
 fi
 cat "$checklist"
 
@@ -101,6 +105,19 @@ check_schemas = {
             "INSIGHTS_LOCAL_AVAILABILITY": "localAvailability",
             "INSIGHTS_PERFORMANCE_BUDGET": "performanceBudget",
             "INSIGHTS_PRIOR_DATA": "priorDataContinuity",
+        },
+    ),
+    "recovery-evidence": (
+        "recoveryEvidenceChecks",
+        {
+            "RECOVERY_EVIDENCE_AVAILABLE": "evidenceAvailable",
+            "RECOVERY_GUIDANCE_WITHHELD": "guidanceWithheld",
+            "RECOVERY_EXPLANATIONS": "explanationsReachable",
+            "RECOVERY_NEUTRAL_LANGUAGE": "neutralLanguage",
+            "RECOVERY_CURRENT_DAY": "currentDayCorrectness",
+            "RECOVERY_RESOURCE_BUDGET": "resourceBudget",
+            "RECOVERY_PRIOR_DATA": "priorDataContinuity",
+            "RECOVERY_PRIVACY": "privacy",
         },
     ),
 }

@@ -444,6 +444,8 @@ public struct SleepEpisodeCalculator: Sendable {
       sourceCoverage: "Source provenance is retained for every included interval.",
       calculationRule:
         "Higher-priority overlapping sources replace alternatives; alternatives are not added.",
+      comparisonBaseline:
+        "This is a descriptive sleep episode; personal baselines use Primary Sleep only and exclude Naps.",
       missingData: missing,
       exclusions: exclusions,
       lastReconciliation: status?.lastSuccessfulCheck?.ISO8601Format(),

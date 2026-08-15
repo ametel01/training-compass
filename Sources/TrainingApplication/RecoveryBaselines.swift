@@ -141,6 +141,9 @@ extension HealthRecoveryEvidenceSnapshot {
     let missing =
       episode.explanation.missingData
       + (status?.failure.map { ["Sleep stream failure: \($0.code)"] } ?? [])
+    let coverage =
+      (status?.coverage.displayName ?? "Health sleep coverage unavailable")
+      + "; Primary Sleep only; Naps are excluded from Personal Recovery Baselines."
     return PersonalRecoveryBaselineObservation(
       id: "\(metric.rawValue):\(episode.wakeUpDate.iso8601String):\(episode.id)",
       date: episode.wakeUpDate,
@@ -149,7 +152,7 @@ extension HealthRecoveryEvidenceSnapshot {
       sourceName: source.displayName,
       sourceIsComparable: source.isComparable,
       includedRecordIDs: episode.intervals.map(\.id),
-      sourceCoverage: status?.coverage.displayName ?? "Health sleep coverage unavailable",
+      sourceCoverage: coverage,
       missingData: missing,
       algorithmVersions: algorithmVersions,
       lastReconciliation: status?.lastSuccessfulCheck?.ISO8601Format(),
