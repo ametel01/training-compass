@@ -304,5 +304,53 @@ final class RecoveryObservationsTests: XCTestCase {
       baselines.baseline(for: .primarySleepDuration)?.explanation.sourceCoverage.contains(
         "History available") == true)
     XCTAssertTrue(baselines.explanation.text.contains("no combined score"))
+
+    let guidance = snapshot.recoveryGuidance(
+      calendar: calendar,
+      asOfDate: TrainingDate(year: 2026, month: 8, day: 29),
+      now: date(29, 12))
+    let beforeGuidance = snapshot
+    XCTAssertTrue(guidance.isAvailable)
+    XCTAssertEqual(guidance.establishedFamilies.count, 3)
+    XCTAssertTrue(guidance.prompt?.contains("Consider how you feel") == true)
+    XCTAssertEqual(snapshot, beforeGuidance)
+
+    let failedStatuses = statuses.map { status in
+      status.stream == .restingHeartRate
+        ? HealthStreamStatus(
+          stream: status.stream,
+          requested: status.requested,
+          authorization: status.authorization,
+          coverage: status.coverage,
+          mirroredContent: status.mirroredContent,
+          reconciliation: status.reconciliation,
+          lastSuccessfulCheck: status.lastSuccessfulCheck,
+          failure: .init(code: "refresh-failed", occurredAt: date(29, 13)),
+          attemptCount: status.attemptCount + 1)
+        : status
+    }
+    let failedSnapshot = HealthRecoveryEvidenceSnapshot(
+      sleep: sleep,
+      restingHeartRate: snapshot.restingHeartRate,
+      heartRateVariability: snapshot.heartRateVariability,
+      statuses: failedStatuses)
+    let failedGuidance = failedSnapshot.recoveryGuidance(
+      calendar: calendar,
+      asOfDate: TrainingDate(year: 2026, month: 8, day: 29),
+      now: date(29, 12))
+    XCTAssertFalse(failedGuidance.isAvailable)
+    XCTAssertNil(failedGuidance.prompt)
+    XCTAssertFalse(failedGuidance.measurements.isEmpty)
+    XCTAssertFalse(failedSnapshot.sleep.isEmpty)
+    XCTAssertFalse(failedSnapshot.heartRateVariability.isEmpty)
+
+    let disabled = snapshot.recoveryGuidance(
+      calendar: calendar,
+      asOfDate: TrainingDate(year: 2026, month: 8, day: 29),
+      now: date(29, 12),
+      enabled: false)
+    XCTAssertFalse(disabled.isAvailable)
+    XCTAssertEqual(disabled.suppressionReason, .disabled)
+    XCTAssertEqual(disabled.measurements.count, guidance.measurements.count)
   }
 }

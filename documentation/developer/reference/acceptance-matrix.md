@@ -4,8 +4,8 @@ This matrix covers the protected shell, Local Training Core, Health
 reconciliation foundation, explicit Training Event links, Workout Enrichment,
 on-demand simplified routes, the Unified Events and Enrichment milestone, the
 Rolling Workout Overview, transparent Heart-Rate Zones, Training and Running
-Insights, and independent Recovery Evidence from GitHub issues #1 through #23 and
-#25 through #36. A row is
+Insights, independent Recovery Evidence, and Recovery Guidance from GitHub
+issues #1 through #23 and #25 through #37. A row is
 evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
@@ -86,6 +86,8 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #35: Present daily resting-heart-rate and HRV observations | Neutral source comparability and sparse history | Source identities are stable for some dates and absent or conflicting for another date | Incomparable source context suppresses only the affected date; missing dates are not filled, interpolated, carried forward, or described as favorable | Explanations retain recorded values, source and coverage limitations, median rule, algorithm information, and reconciliation failure without recovery, health, stress, illness, risk, or performance claims | Insights, application, UI, privacy | Yes | `RecoveryObservationsTests`; `HealthWorkoutRepositoryTests`; Health destination |
 | Issue #36: Calculate Personal Recovery Baselines | Independent 28-day baselines | Primary Sleep, daily resting-heart-rate, and HRV SDNN observations exist with local dates and source context | Each measure excludes its current observation, ignores missing days, withholds at 13 valid days, and establishes at 14 valid days | Every measure reports full-precision median and middle 50 percent band independently; no measure is combined into a score and Primary Sleep excludes Naps | Insights, application, UI | Yes | `PersonalRecoveryBaselineTests`; `RecoveryObservationsTests`; Health destination |
 | Issue #36: Calculate Personal Recovery Baselines | Boundaries, comparability, and corrections | A current observation is present or absent; source, freshness, and reconciliation state may change | Window edges, even medians and quartiles, band boundaries, source changes, current-day rollover, duplicate revisions, and corrections remain explicit | Current comparison requires a real current source-comparable observation; below/within/above treats band edges as within; exact difference from median and neutral direction language remain inspectable | Insights, application, persistence, UI, privacy | Yes | `PersonalRecoveryBaselineTests`; `RecoveryObservationsTests`; `HealthWorkoutBoundaryTests`; Health destination |
+| Issue #37: Offer gated neutral Recovery Guidance | Family gate and neutral enumeration | Primary Sleep and its derived measures count as one family; resting heart rate and HRV SDNN are separate families | Two established families are required; a never-baselined family does not block; every established family must have current, successful, comparable evidence | Guidance lists each current measure independently, says when measurements differ or do not move together, and never combines them into a readiness or training result | Insights, application, UI, privacy | Yes | `RecoveryGuidanceTests`; `RecoveryObservationsTests`; Health destination |
+| Issue #37: Offer gated neutral Recovery Guidance | Suppression and owner control | Current-day rollover, stale, failed, corrected, incomparable, and disabled states are deterministic | Evidence, history, collection, explanations, and training remain visible when the prompt is withheld or disabled | The owner decides whether to keep or change the Session; no action is preselected or performed, and the guidance setting has no training mutation path | Insights, application, UI, privacy | Yes | `RecoveryGuidanceTests`; Health destination; `make verify` |
 
 ## Required scenario-variant coverage
 
@@ -131,6 +133,7 @@ must name the automated evidence that proves the boundary.
 | Issue #34 | Preferred Sleep and deterministic episodes | Owner orders source identities and inspects Primary Sleep and Nap episodes | Overlaps, exact 90-minute boundaries, ties, multiple episodes, cross-midnight dates, missing or incomparable sources, corrections, and deletions remain explicit | Source priority, interval IDs, alternative context, wake-up date, duration, midpoint, classification, exclusions, and reconciliation limitations are inspectable; no sleep sources are summed across overlap | Insights, application, persistence, UI, privacy, release evidence |
 | Issue #35 | Daily resting-heart-rate and HRV observations | Positive source-owned quantity samples are reduced into local-date observations | Odd/even HRV medians, replacement/deletion, duplicate import, sparse dates, algorithm revisions, stale/failing streams, and incomparable sources remain explicit | Every quantity observation exposes source, sample IDs/count, latest sample context, algorithm revisions, coverage, reconciliation state, last successful check, current comparison state, and neutral explanation; no missing date is synthesized | Insights, application, persistence, UI, privacy, release evidence |
 | Issue #36 | Personal Recovery Baselines | Primary Sleep and independent daily quantity observations are available | 13/14-day availability, 28-day edges, missing dates, even quartiles, source changes, current-day rollover, stale/failing streams, and corrected values remain explicit | Each measure has an independent median, middle 50 percent, current classification, exact difference, source/coverage context, and complete explanation; no combined score or population range is emitted | Insights, application, UI, privacy, release evidence |
+| Issue #37 | Gated neutral Recovery Guidance | Two or more established Recovery Evidence Families with current, successful, comparable observations | Sleep-derived measures count once; stale, failed, corrected, incomparable, insufficient, disabled, and local-day rollover states suppress only the prompt while evidence remains visible | Every displayed guidance message has an explanation, neutral aligned/conflicting enumeration, an owner self-check invitation, and no score, diagnosis, prediction, or training action | Insights, application, UI, privacy, release evidence |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -158,7 +161,7 @@ adds owner-controlled Preferred Sleep source ordering and deterministic,
 source-aware Primary Sleep and Nap episodes. Issue #35 adds source-aware daily
 resting-heart-rate and HRV SDNN observations with full-precision daily
 reduction, sparse-date handling, algorithm context, and neutral reconciliation
-explanations. Recovery Guidance remains out of scope. HealthKit Write-back are not exposed.
+explanations. Recovery Guidance is now an optional, gated, neutral self-check prompt; HealthKit Write-back are not exposed.
 Issue #36 adds independent Personal Recovery Baselines for Primary Sleep
 duration and consistency, sleep timing consistency, resting heart rate, and
 HRV SDNN. Each baseline uses valid observations from the preceding 28 local

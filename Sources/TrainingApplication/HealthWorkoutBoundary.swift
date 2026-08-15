@@ -1431,6 +1431,7 @@ public actor HealthWorkoutImportBoundary {
   private let coordinator: HealthSyncCoordinator
   private var authorization: HealthAuthorizationSnapshot
   private var preferredSleepSourceOrder = SleepSourcePreference()
+  private var recoveryGuidanceEnabled = true
   private var observerRegistered = false
 
   public init(
@@ -1680,6 +1681,41 @@ public actor HealthWorkoutImportBoundary {
     now: Date = Date()
   ) async -> PersonalRecoveryBaselineProjection {
     await personalRecoveryBaselines(calendar: calendar, asOfDate: asOfDate, now: now)
+  }
+
+  /// Returns whether the owner has left the optional Recovery Guidance prompt
+  /// enabled. This setting never changes Recovery Evidence or training data.
+  public func isRecoveryGuidanceEnabled() -> Bool { recoveryGuidanceEnabled }
+
+  public func setRecoveryGuidanceEnabled(_ enabled: Bool) {
+    recoveryGuidanceEnabled = enabled
+  }
+
+  /// Calculates the explained self-check gate without mutating mirrored
+  /// evidence, baseline history, or any training record.
+  public func recoveryGuidance(
+    calendar: Calendar = .current,
+    asOfDate: TrainingDate? = nil,
+    now: Date = Date(),
+    enabled: Bool? = nil
+  ) async -> RecoveryGuidance {
+    let evidence = await recoveryEvidence()
+    return evidence.recoveryGuidance(
+      preference: preferredSleepSourceOrder,
+      calendar: calendar,
+      asOfDate: asOfDate,
+      now: now,
+      enabled: enabled ?? recoveryGuidanceEnabled)
+  }
+
+  public func healthRecoveryGuidance(
+    calendar: Calendar = .current,
+    asOfDate: TrainingDate? = nil,
+    now: Date = Date(),
+    enabled: Bool? = nil
+  ) async -> RecoveryGuidance {
+    await recoveryGuidance(
+      calendar: calendar, asOfDate: asOfDate, now: now, enabled: enabled)
   }
 
   public func todayHealthWorkouts(on date: TrainingDate) async throws

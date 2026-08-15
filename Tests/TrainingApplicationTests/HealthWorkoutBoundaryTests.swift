@@ -4,6 +4,26 @@ import XCTest
 @testable import TrainingApplication
 
 final class HealthWorkoutBoundaryTests: XCTestCase {
+  func testRecoveryGuidanceReadsWithoutMutatingTrainingBoundaryState() async throws {
+    let repository = FakeHealthRepository()
+    let boundary = HealthWorkoutImportBoundary(
+      client: FakeHealthClient(pages: []), repository: repository,
+      authorization: .init(state: .authorized))
+
+    let beforeWorkouts = try await boundary.cachedWorkouts()
+    let beforeCommitted = await repository.committed
+    let guidance = await boundary.recoveryGuidance(
+      calendar: Calendar(identifier: .gregorian),
+      asOfDate: TrainingDate(year: 2026, month: 8, day: 15),
+      now: Date(timeIntervalSince1970: 1_755_000_000))
+
+    XCTAssertFalse(guidance.canShowPrompt)
+    let afterWorkouts = try await boundary.cachedWorkouts()
+    let afterCommitted = await repository.committed
+    XCTAssertEqual(afterWorkouts, beforeWorkouts)
+    XCTAssertEqual(afterCommitted, beforeCommitted)
+  }
+
   func testConnectRequestsReadOnlyCoreTypesAndImportsEveryPage() async throws {
     let client = FakeHealthClient(pages: [
       HealthWorkoutPage(workouts: [fixture("one")], nextPageToken: "next"),

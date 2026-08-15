@@ -455,15 +455,50 @@ private struct RecoveryEvidenceSection: View {
   let snapshot: HealthRecoveryEvidenceSnapshot
   let boundary: HealthWorkoutImportBoundary?
   @State private var sleepPreference = SleepSourcePreference()
+  @AppStorage("recoveryGuidance.enabled") private var recoveryGuidanceEnabled = true
 
   var body: some View {
     let dailyObservations = snapshot.dailyObservations()
     let personalBaselines = snapshot.personalRecoveryBaselines()
+    let guidance = snapshot.recoveryGuidance(enabled: recoveryGuidanceEnabled)
     VStack(alignment: .leading, spacing: 8) {
       Text(
         "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
       )
       .font(.subheadline)
+      Toggle("Optional Recovery Guidance", isOn: $recoveryGuidanceEnabled)
+        .accessibilityIdentifier("health.recovery-guidance.enabled")
+      Text(
+        "This controls only the explained self-check prompt. Recovery Evidence, history, collection, explanations, and training remain available either way."
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      if let prompt = guidance.prompt {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Recovery Guidance")
+            .font(.caption.weight(.semibold))
+          Text(prompt)
+            .font(.subheadline)
+          NavigationLink {
+            InsightExplanationDetailView(explanation: guidance.explanation)
+          } label: {
+            Label("Explain this self-check", systemImage: "info.circle")
+          }
+          .font(.caption)
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("health.recovery-guidance.prompt")
+      } else if !recoveryGuidanceEnabled {
+        Text("Recovery Guidance is disabled; recorded evidence remains visible.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("health.recovery-guidance.disabled")
+      } else if let reason = guidance.suppressionReason {
+        Text("Recovery Guidance is currently withheld: \(reason.displayName).")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("health.recovery-guidance.withheld")
+      }
       ForEach(snapshot.statuses.filter { RecoveryEvidenceStream($0.stream) != nil }) { status in
         VStack(alignment: .leading, spacing: 3) {
           HStack {
@@ -700,6 +735,13 @@ private struct RecoveryObservationRow: View {
         Text("This recorded value is cached and not current for today's comparison.")
           .font(.caption2)
           .foregroundStyle(.secondary)
+      }
+      if observation.isCorrected {
+        Text(
+          "This recorded value was corrected during reconciliation; it remains visible but does not gate guidance."
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
       }
       if let failure = observation.failure {
         Text("Stream check failed: \(failure.code). Cached value remains visible.")

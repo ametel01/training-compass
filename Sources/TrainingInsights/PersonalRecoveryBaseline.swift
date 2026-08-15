@@ -75,6 +75,10 @@ public struct PersonalRecoveryBaselineObservation: Codable, Equatable, Identifia
   public let algorithmVersions: [String]
   public let lastReconciliation: String?
   public let isCurrent: Bool
+  /// A source reconciliation may replace a current value after it was first
+  /// observed. Corrected values remain visible but are not eligible for the
+  /// cross-family self-check prompt.
+  public let isCorrected: Bool
 
   public init(
     id: String,
@@ -88,7 +92,8 @@ public struct PersonalRecoveryBaselineObservation: Codable, Equatable, Identifia
     missingData: [String] = [],
     algorithmVersions: [String] = [],
     lastReconciliation: String? = nil,
-    isCurrent: Bool = false
+    isCurrent: Bool = false,
+    isCorrected: Bool = false
   ) {
     precondition(!id.isEmpty)
     // Zero is a valid consistency value: it means the recorded daily values
@@ -107,6 +112,7 @@ public struct PersonalRecoveryBaselineObservation: Codable, Equatable, Identifia
     self.algorithmVersions = algorithmVersions
     self.lastReconciliation = lastReconciliation
     self.isCurrent = isCurrent
+    self.isCorrected = isCorrected
   }
 }
 

@@ -122,6 +122,9 @@ public struct HealthRecoveryDailyObservation: Codable, Equatable, Identifiable, 
   public let lastSuccessfulReconciliation: Date?
   public let failure: HealthStreamFailure?
   public let isCurrent: Bool
+  /// A repeated source identity represents a corrected/reconciled value. It
+  /// remains visible in Recovery Evidence but cannot gate cross-family guidance.
+  public let isCorrected: Bool
   public let explanation: InsightExplanation
 
   public init(
@@ -139,6 +142,7 @@ public struct HealthRecoveryDailyObservation: Codable, Equatable, Identifiable, 
     lastSuccessfulReconciliation: Date?,
     failure: HealthStreamFailure?,
     isCurrent: Bool,
+    isCorrected: Bool = false,
     explanation: InsightExplanation
   ) {
     precondition(!id.isEmpty)
@@ -159,6 +163,7 @@ public struct HealthRecoveryDailyObservation: Codable, Equatable, Identifiable, 
     self.lastSuccessfulReconciliation = lastSuccessfulReconciliation
     self.failure = failure
     self.isCurrent = isCurrent
+    self.isCorrected = isCorrected
     self.explanation = explanation
   }
 
@@ -264,6 +269,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
     now: Date
   ) -> Result {
     let unique = deduplicated(samples)
+    let correctedIDs = repeatedIDs(samples.map(\.id))
     let grouped = Dictionary(grouping: unique) { trainingDate(for: $0.date, calendar: calendar) }
     var observations: [HealthRecoveryDailyObservation] = []
     var missing: [String] = []
@@ -288,6 +294,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
           latestProvenance: latest.provenance,
           algorithmVersions: ordered.compactMap(\.provenance.algorithmVersion),
           source: source,
+          isCorrected: correctedIDs.contains(latest.id),
           status: status,
           calendar: calendar,
           now: now))
@@ -302,6 +309,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
     now: Date
   ) -> Result {
     let unique = deduplicated(samples)
+    let correctedIDs = repeatedIDs(samples.map(\.id))
     let grouped = Dictionary(grouping: unique) { trainingDate(for: $0.date, calendar: calendar) }
     var observations: [HealthRecoveryDailyObservation] = []
     var missing: [String] = []
@@ -332,6 +340,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
           latestProvenance: latest.provenance,
           algorithmVersions: ordered.compactMap(\.provenance.algorithmVersion),
           source: source,
+          isCorrected: correctedIDs.contains(latest.id),
           status: status,
           calendar: calendar,
           now: now))
@@ -349,6 +358,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
     latestProvenance: HealthRecoverySampleProvenance,
     algorithmVersions: [String],
     source: HealthRecoveryObservationSource,
+    isCorrected: Bool = false,
     status: HealthStreamStatus?,
     calendar: Calendar,
     now: Date
@@ -397,6 +407,7 @@ public struct HealthRecoveryObservationCalculator: Sendable {
       lastSuccessfulReconciliation: lastSuccessful,
       failure: status?.failure,
       isCurrent: current,
+      isCorrected: isCorrected,
       explanation: explanation)
   }
 
@@ -443,6 +454,12 @@ public struct HealthRecoveryObservationCalculator: Sendable {
       }
     }
     return Array(byID.values)
+  }
+
+  private func repeatedIDs(_ ids: [String]) -> Set<String> {
+    var counts: [String: Int] = [:]
+    for id in ids { counts[id, default: 0] += 1 }
+    return Set(counts.compactMap { $0.value > 1 ? $0.key : nil })
   }
 
   private func deduplicated(

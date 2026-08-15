@@ -46,6 +46,14 @@ capture workout measurements, dates, identifiers, routes, or notes.
 - [ ] Verify a current comparison requires a current source-comparable
   observation, shows the exact full-precision difference from the median, and
   uses only longer/shorter, higher/lower, or more/less variable language.
+- [ ] In Health, verify Primary Sleep and its duration/consistency measures
+  count as one Recovery Evidence Family while resting heart rate and HRV SDNN
+  remain separate. Confirm the optional Recovery Guidance prompt appears only
+  with two established families and current, successful, comparable evidence.
+- [ ] Exercise aligned, conflicting, insufficient, stale, failed, corrected,
+  incomparable, disabled, and next-local-day states. Verify measurements remain
+  visible, explanations remain reachable, the prompt uses neutral enumeration,
+  and the owner—not the app—decides whether to keep or change the Session.
 
 ## Responsiveness and continuity
 
@@ -55,8 +63,9 @@ capture workout measurements, dates, identifiers, routes, or notes.
   insight work, excluding HealthKit wait time.
 - [ ] Background and resume the app during insight loading; local training
   remains usable and committed source facts are not lost.
-- [ ] Verify the in-place milestone retains all earlier owner data and keeps
-  Recovery Evidence, Recovery Guidance, and HealthKit Write-back hidden.
+- [ ] Verify the in-place milestone retains all earlier owner data, keeps
+  Recovery Evidence and its explanations visible when Guidance is disabled,
+  and keeps HealthKit Write-back hidden.
 
 The attended record is eligible only when every checklist item passes and the
 release-envelope measurements pass `scripts/check-release-envelope.py`.
