@@ -5,7 +5,7 @@ reconciliation foundation, explicit Training Event links, Workout Enrichment,
 on-demand simplified routes, the Unified Events and Enrichment milestone, the
 Rolling Workout Overview, transparent Heart-Rate Zones, Training and Running
 Insights, and independent Recovery Evidence from GitHub issues #1 through #23 and
-#25 through #33. A row is
+#25 through #34. A row is
 evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
@@ -78,6 +78,9 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #33: Import and expose independent Recovery Evidence streams | Application-owned values and provenance | Authorized Health access returns sleep intervals, resting-heart-rate samples, and HRV SDNN samples | Synthetic sources with replacements, sparse history, algorithm revisions, and partial authorization | Each stream is imported into the reconstructible mirror with source, time, sample, and available algorithm provenance; no HealthKit types cross the application boundary | Application, persistence, adapter, privacy | Yes | Recovery Evidence boundary and repository tests; Health destination |
 | Issue #33: Import and expose independent Recovery Evidence streams | Independent reconciliation and current-day state | Recovery streams reconcile through the existing coordinator and bounded anchored pages | Empty, limited, updating, first/later failure, delayed cache, lock/unlock, deletion, and later recovery fixtures | Every stream retains requested scope, coverage, mirror availability, activity, last successful check, and current failure; cached observations remain visible but are current for guidance only after a successful check today | Application, persistence, UI | Yes | `HealthWorkoutBoundaryTests`; `HealthWorkoutRepositoryTests`; Health destination |
 | Issue #33: Import and expose independent Recovery Evidence streams | Rebuild, privacy, and local-training continuity | Owner runs Refresh or confirmed Health Data Rebuild while local training is available | Rebuild interruption, restart, and partial stream recovery | Refresh and rebuild reuse anchors, checkpoints, batching, storage, and privacy contracts without polling; raw HealthKit identifiers and measurements stay out of diagnostics and local training remains usable | Persistence, application, device, privacy | Yes | `HealthDataRebuildBoundaryTests`; `HealthWorkoutRepositoryTests`; `make verify` |
+| Issue #34: Select Preferred Sleep and classify episodes | Owner source order and provenance | Owner orders available sleep sources and opens the sleep episode view | Missing provenance, new source, replacement, deletion, and source changes remain explicit | The selected source is the highest-priority usable comparable source for an overlapping episode; alternatives are visible and never summed | Application, insights, UI | Yes | `SleepEpisodesTests`; `HealthWorkoutBoundaryTests`; Health destination |
+| Issue #34: Select Preferred Sleep and classify episodes | Deterministic episode boundaries | Mirrored asleep intervals span a night, a nap, and a source-owned awake gap | Exact 90-minute gaps join; longer gaps, awake stages, and incomparable sources do not invent continuity | The longest episode ending on each local wake-up date is Primary Sleep; every other episode is a descriptive Nap | Insights, application | Yes | `SleepEpisodesTests`; `SleepEpisodeCalculator` |
+| Issue #34: Select Preferred Sleep and classify episodes | Transparent timing and recomputation | Owner inspects a cross-midnight episode and its explanation | Corrections, replacements, deletions, timezone boundaries, and sparse days recompute only affected episodes | Duration is the union of asleep intervals, midpoint is deterministic, wake-up date owns the episode, and every projection links source, alternatives, exclusions, and missing-data context | Insights, application, persistence, UI, privacy | Yes | `SleepEpisodesTests`; `HealthWorkoutRepositoryTests`; Health destination |
 
 ## Required scenario-variant coverage
 
@@ -120,6 +123,7 @@ must name the automated evidence that proves the boundary.
 | Issue #31 | Like-for-like running comparison and exclusion | Comparable eligibility, neutral differences, 90-day default history, exact ties, heart-rate coverage, and reversible UUID exclusions are explicit | Environment and distance boundaries, missing metrics, four-run median gate, insufficient heart-rate coverage, deletion/rebuild, exact UUID return, and new UUID replacement remain visible | Comparison projection is rebuilt from unchanged Health mirror facts and authoritative exclusions; longer history is on demand; no source workout or volume fact is edited or hidden | The selected reference, preceding Comparable Run, four-run median, metric directions, covered heart-rate intervals, exclusion state, dates, source coverage, rules, and reconciliation are inspectable through a complete Insight Explanation |
 | Issue #32 | Cross-feature insight approval | The four delivered insight families are available from unchanged source facts | Corrections, window/activity/zone/run/comparison boundaries, missing data, configuration changes, and source revisions | Correctness, explanation completeness, neutral language, single-count identity, and recomputation are verified together; no score, record, goal, claim, prediction, verdict, or prescription is emitted | Cross-feature application, insights, persistence, UI, privacy, release evidence |
 | Issue #33 | Independent Recovery Evidence streams | Health authorization includes sleep, resting heart rate, and HRV SDNN read types | Partial authorization, empty and limited history, sparse and late samples, replacements, deletions, lock, and current-day boundaries remain explicit | Each stream's mirror, checkpoint, facts, status, and cached content remain independent; source and algorithm provenance remain visible; no polling or local-training dependency is introduced | Adapter, application, persistence, UI, privacy, release evidence |
+| Issue #34 | Preferred Sleep and deterministic episodes | Owner orders source identities and inspects Primary Sleep and Nap episodes | Overlaps, exact 90-minute boundaries, ties, multiple episodes, cross-midnight dates, missing or incomparable sources, corrections, and deletions remain explicit | Source priority, interval IDs, alternative context, wake-up date, duration, midpoint, classification, exclusions, and reconciliation limitations are inspectable; no sleep sources are summed across overlap | Insights, application, persistence, UI, privacy, release evidence |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -142,8 +146,10 @@ Issue #27 approves explicit identity, late enrichment, and on-demand routes as
 one private and recoverable owner milestone after its cross-feature automated,
 device, resource, migration, and privacy evidence passes. Issue #33 adds
 independent, source-aware Recovery Evidence streams for sleep, resting heart
-rate, and HRV SDNN with durable reconciliation and current-day status while
-Recovery Guidance remains out of scope. HealthKit Write-back are not exposed.
+rate, and HRV SDNN with durable reconciliation and current-day status. Issue #34
+adds owner-controlled Preferred Sleep source ordering and deterministic,
+source-aware Primary Sleep and Nap episodes. Recovery Guidance remains out of
+scope. HealthKit Write-back are not exposed.
 Issue #28 adds the rolling workout
 projection on Progress. Issue #29 adds owner-configured, source-aware
 Heart-Rate Zones with explicit coverage and historical recalculation from

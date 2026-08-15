@@ -1430,6 +1430,7 @@ public actor HealthWorkoutImportBoundary {
   private let repository: any HealthWorkoutRepository
   private let coordinator: HealthSyncCoordinator
   private var authorization: HealthAuthorizationSnapshot
+  private var preferredSleepSourceOrder = SleepSourcePreference()
   private var observerRegistered = false
 
   public init(
@@ -1612,6 +1613,27 @@ public actor HealthWorkoutImportBoundary {
       reconciliationContext: context,
       deletedHealthKitUUIDs: deleted
     )
+  }
+
+  /// Returns the owner-controlled source ordering used for sleep projection.
+  /// The ordering is kept separate from Health reconciliation so replacing or
+  /// deleting a sample cannot rewrite the owner's preference.
+  public func sleepSourcePreference() -> SleepSourcePreference {
+    preferredSleepSourceOrder
+  }
+
+  public func setSleepSourcePreference(_ preference: SleepSourcePreference) {
+    preferredSleepSourceOrder = preference
+  }
+
+  /// Recomputes deterministic Primary Sleep and Nap episodes from the current
+  /// mirrored sleep stream.  A failed or missing refresh therefore leaves the
+  /// last mirrored intervals inspectable without claiming new continuity.
+  public func sleepEpisodes(calendar: Calendar = Calendar(identifier: .gregorian)) async
+    -> SleepEpisodeProjection
+  {
+    let evidence = await recoveryEvidence()
+    return evidence.sleepEpisodes(preference: preferredSleepSourceOrder, calendar: calendar)
   }
 
   public func todayHealthWorkouts(on date: TrainingDate) async throws

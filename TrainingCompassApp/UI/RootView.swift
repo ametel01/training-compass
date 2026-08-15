@@ -127,7 +127,9 @@ private struct HealthView: View {
       }
 
       Section("Recovery Evidence") {
-        RecoveryEvidenceSection(snapshot: recoveryEvidence)
+        RecoveryEvidenceSection(
+          snapshot: recoveryEvidence,
+          boundary: model.healthWorkoutImportBoundary)
       }
 
       Section("Heart-Rate Zones") {
@@ -451,47 +453,111 @@ private struct HealthStatusRow: View {
 
 private struct RecoveryEvidenceSection: View {
   let snapshot: HealthRecoveryEvidenceSnapshot
+  let boundary: HealthWorkoutImportBoundary?
+  @State private var sleepPreference = SleepSourcePreference()
 
   var body: some View {
-    Text(
-      "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
-    )
-    .font(.subheadline)
-    ForEach(snapshot.statuses.filter { RecoveryEvidenceStream($0.stream) != nil }) { status in
-      VStack(alignment: .leading, spacing: 3) {
-        HStack {
-          Text(status.stream.displayName).font(.headline)
-          Spacer()
-          Text(status.statusLabel).font(.caption.weight(.semibold))
-        }
-        Text(status.lastCheckedLabel).font(.caption)
-        Text("\(status.contentLabel) · \(status.historyLabel)")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-        if !status.isCurrentToday, status.lastSuccessfulCheck != nil {
-          Text("Cached observation; not current for today's guidance.")
+    VStack(alignment: .leading, spacing: 8) {
+      Text(
+        "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
+      )
+      .font(.subheadline)
+      ForEach(snapshot.statuses.filter { RecoveryEvidenceStream($0.stream) != nil }) { status in
+        VStack(alignment: .leading, spacing: 3) {
+          HStack {
+            Text(status.stream.displayName).font(.headline)
+            Spacer()
+            Text(status.statusLabel).font(.caption.weight(.semibold))
+          }
+          Text(status.lastCheckedLabel).font(.caption)
+          Text("\(status.contentLabel) · \(status.historyLabel)")
             .font(.caption2)
             .foregroundStyle(.secondary)
+          if !status.isCurrentToday, status.lastSuccessfulCheck != nil {
+            Text("Cached observation; not current for today's guidance.")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityIdentifier("health.recovery.status.\(status.stream.rawValue)")
+      }
+      if snapshot.isEmpty {
+        Text("No recovery measurements are currently mirrored.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else {
+        if !snapshot.sleep.isEmpty {
+          Text("Sleep: \(snapshot.sleep.count) recorded intervals")
+            .font(.caption)
+          let projection = snapshot.sleepEpisodes(preference: sleepPreference)
+          VStack(alignment: .leading, spacing: 5) {
+            Text("Preferred Sleep Sources")
+              .font(.caption.weight(.semibold))
+            ForEach(projection.availableSources) { source in
+              HStack {
+                Text(source.displayName)
+                Spacer()
+                Button("Prefer") {
+                  sleepPreference = sleepPreference.moving(sourceID: source.id, to: 0)
+                  Task { await boundary?.setSleepSourcePreference(sleepPreference) }
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("health.sleep.prefer.\(source.id)")
+              }
+              .font(.caption2)
+            }
+            ForEach(projection.episodes) { episode in
+              VStack(alignment: .leading, spacing: 2) {
+                Text(
+                  "\(episode.kind.displayName) · \(episode.wakeUpDate.iso8601String) · \(episode.source.displayName) · \(Int(episode.durationSeconds / 60)) min"
+                )
+                if !episode.alternativeSources.isEmpty {
+                  Text(
+                    "Alternative source context: "
+                      + episode.alternativeSources.map(\.displayName).joined(separator: ", ")
+                  )
+                  .foregroundStyle(.secondary)
+                }
+                Text("Intervals: " + episode.intervals.map(\.id).joined(separator: ", "))
+                  .foregroundStyle(.secondary)
+                Text(
+                  "Midpoint: \(episode.midpoint.formatted(date: .abbreviated, time: .shortened))"
+                )
+                .foregroundStyle(.secondary)
+                if !episode.explanation.missingData.isEmpty {
+                  Text(
+                    "Missing context: "
+                      + episode.explanation.missingData.joined(separator: "; ")
+                  )
+                  .foregroundStyle(.secondary)
+                }
+                if !episode.explanation.exclusions.isEmpty {
+                  Text(
+                    "Excluded alternatives: "
+                      + episode.explanation.exclusions.map(\.recordID).joined(separator: ", ")
+                  )
+                  .foregroundStyle(.secondary)
+                }
+              }
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .accessibilityIdentifier("health.sleep.episode.\(episode.id)")
+            }
+          }
+        }
+        if !snapshot.restingHeartRate.isEmpty {
+          Text("Resting heart rate: \(snapshot.restingHeartRate.count) samples")
+            .font(.caption)
+        }
+        if !snapshot.heartRateVariability.isEmpty {
+          Text("HRV SDNN: \(snapshot.heartRateVariability.count) samples")
+            .font(.caption)
         }
       }
-      .accessibilityIdentifier("health.recovery.status.\(status.stream.rawValue)")
     }
-    if snapshot.isEmpty {
-      Text("No recovery measurements are currently mirrored.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    } else {
-      if !snapshot.sleep.isEmpty {
-        Text("Sleep: \(snapshot.sleep.count) recorded intervals")
-          .font(.caption)
-      }
-      if !snapshot.restingHeartRate.isEmpty {
-        Text("Resting heart rate: \(snapshot.restingHeartRate.count) samples")
-          .font(.caption)
-      }
-      if !snapshot.heartRateVariability.isEmpty {
-        Text("HRV SDNN: \(snapshot.heartRateVariability.count) samples")
-          .font(.caption)
+    .task {
+      if let boundary {
+        sleepPreference = await boundary.sleepSourcePreference()
       }
     }
   }
