@@ -57,6 +57,31 @@ public enum HealthWorkoutWriteBackState: String, Codable, Equatable, Sendable {
     case .updatePending: "Update pending"
     }
   }
+
+  /// States that should remain visible in the owner's quiet, aggregate status.
+  /// Terminal local completion is never represented as an app-wide alert.
+  public var requiresAttention: Bool {
+    switch self {
+    case .queued, .saving, .retryScheduled, .healthAccessNeeded, .couldntSave,
+      .updatePending:
+      true
+    case .notShared, .savedToHealth, .deletedFromHealth:
+      false
+    }
+  }
+
+  /// States that may be retried automatically when the app gets a new
+  /// protected-data or foreground opportunity. Access and terminal failures
+  /// require an explicit owner action instead.
+  public var resumesAutomatically: Bool {
+    switch self {
+    case .queued, .saving, .retryScheduled:
+      true
+    case .notShared, .savedToHealth, .healthAccessNeeded, .couldntSave,
+      .deletedFromHealth, .updatePending:
+      false
+    }
+  }
 }
 
 public struct HealthWorkoutWriteBackRecord: Codable, Equatable, Sendable, Identifiable {
@@ -119,12 +144,21 @@ public enum HealthWorkoutWriteBackClientError: Error, Equatable, Sendable {
   case unavailable
   case authorizationDenied
   case inaccessible
+  case protectedDataUnavailable
 }
 
 public protocol HealthWorkoutWriteBackClient: Sendable {
   func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot
   func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String
   func workoutExists(syncIdentifier: String) async throws -> Bool
+}
+
+extension HealthWorkoutWriteBackClient {
+  /// Access checks are explicit and deliberately do not retry a queued
+  /// operation. The owner can inspect the result and then choose Try Again.
+  public func checkWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
+    try await requestWriteAuthorization()
+  }
 }
 
 public protocol HealthWorkoutWriteBackRepository: Sendable {
@@ -177,6 +211,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   private let repository: any HealthWorkoutWriteBackRepository
   private let client: any HealthWorkoutWriteBackClient
   private let clock: any Clock
+  private let deliveryLane = HealthWorkoutWriteBackDeliveryLane()
 
   public init(
     repository: any HealthWorkoutWriteBackRepository,
@@ -194,6 +229,34 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
 
   public func preference() async throws -> HealthWorkoutWriteBackPreference {
     try await repository.loadHealthWorkoutWriteBackPreference()
+  }
+
+  public func checkWriteAccess() async throws -> HealthAuthorizationSnapshot {
+    try await client.checkWriteAuthorization()
+  }
+
+  /// Resumes only durable work that was interrupted or classified as
+  /// transient. Health access and terminal failures remain idle until the
+  /// owner explicitly checks access or taps Try Again.
+  @discardableResult
+  public func resumePendingWriteBacks() async -> [HealthWorkoutWriteBackRecord] {
+    await withDeliveryLane { await self.resumePendingWriteBacksUnlocked() }
+  }
+
+  private func resumePendingWriteBacksUnlocked() async -> [HealthWorkoutWriteBackRecord] {
+    do {
+      guard try await repository.loadHealthWorkoutWriteBackPreference().enabled else { return [] }
+      let records = try await repository.loadHealthWorkoutWriteBacks()
+      var recovered: [HealthWorkoutWriteBackRecord] = []
+      for record in records where record.state.resumesAutomatically {
+        if let result = await save(record) {
+          recovered.append(result)
+        }
+      }
+      return recovered
+    } catch {
+      return []
+    }
   }
 
   /// The preference is durable before authorization is requested. This makes
@@ -217,11 +280,25 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
     try await repository.loadHealthWorkoutWriteBack(sessionID: sessionID)
   }
 
+  public func records() async throws -> [HealthWorkoutWriteBackRecord] {
+    try await repository.loadHealthWorkoutWriteBacks()
+  }
+
   /// Queues a per-session decision and then attempts delivery. The queue record
   /// is committed before the HealthKit operation, so a locked device or failed
   /// save cannot lose the owner's choice.
   @discardableResult
   public func queue(
+    session: TodaySessionSnapshot,
+    completedAt: Date,
+    choice: SessionWriteBackChoice
+  ) async -> HealthWorkoutWriteBackRecord? {
+    await withDeliveryLane {
+      await self.queueUnlocked(session: session, completedAt: completedAt, choice: choice)
+    }
+  }
+
+  private func queueUnlocked(
     session: TodaySessionSnapshot,
     completedAt: Date,
     choice: SessionWriteBackChoice
@@ -260,6 +337,10 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
 
   @discardableResult
   public func retry(sessionID: String) async -> HealthWorkoutWriteBackRecord? {
+    await withDeliveryLane { await self.retryUnlocked(sessionID: sessionID) }
+  }
+
+  private func retryUnlocked(sessionID: String) async -> HealthWorkoutWriteBackRecord? {
     do {
       guard let record = try await repository.loadHealthWorkoutWriteBack(sessionID: sessionID),
         record.state != .notShared
@@ -293,10 +374,18 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
         healthKitUUID: healthKitUUID, updatedAt: clock.now())
       try await repository.saveHealthWorkoutWriteBack(saved)
       return saved
-    } catch HealthWorkoutWriteBackClientError.authorizationDenied {
-      return await persistFailure(queued, state: .healthAccessNeeded, error: nil)
-    } catch HealthWorkoutWriteBackClientError.inaccessible {
+    } catch is CancellationError {
+      // Cancellation (background expiry, termination, or an explicit task
+      // cancellation) is not a terminal write failure. Leave a durable
+      // retryable state so the next launch/foreground opportunity can resume.
       return await persistFailure(queued, state: .retryScheduled, error: nil)
+    } catch let error as HealthWorkoutWriteBackClientError {
+      switch error {
+      case .authorizationDenied, .unavailable:
+        return await persistFailure(queued, state: .healthAccessNeeded, error: nil)
+      case .inaccessible, .protectedDataUnavailable:
+        return await persistFailure(queued, state: .retryScheduled, error: nil)
+      }
     } catch {
       return await persistFailure(queued, state: .couldntSave, error: String(describing: error))
     }
@@ -330,4 +419,26 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
       syncIdentifier: Self.syncIdentifier(for: session.session.id),
       startDate: min(start, completedAt), endDate: completedAt)
   }
+
+  private func withDeliveryLane<T: Sendable>(
+    _ operation: @escaping @Sendable () async -> T
+  ) async -> T {
+    await deliveryLane.acquire()
+    let result = await operation()
+    await deliveryLane.release()
+    return result
+  }
+}
+
+private actor HealthWorkoutWriteBackDeliveryLane {
+  private var isBusy = false
+
+  func acquire() async {
+    while isBusy {
+      await Task.yield()
+    }
+    isBusy = true
+  }
+
+  func release() { isBusy = false }
 }

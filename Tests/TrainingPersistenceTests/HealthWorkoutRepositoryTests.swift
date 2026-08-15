@@ -5,6 +5,29 @@ import XCTest
 @testable import TrainingPersistence
 
 final class HealthWorkoutRepositoryTests: XCTestCase {
+  func testWriteBackRecoveryStateSurvivesRestart() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-write-back-(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    try await repository.saveHealthWorkoutWriteBackPreference(.init(enabled: true))
+    let record = HealthWorkoutWriteBackRecord(
+      sessionID: "session", syncIdentifier: "com.ametel01.trainingcompass.session.session",
+      syncVersion: 1, state: .retryScheduled,
+      startDate: Date(timeIntervalSince1970: 1_700_000_000),
+      endDate: Date(timeIntervalSince1970: 1_700_000_300),
+      lastError: nil, updatedAt: Date(timeIntervalSince1970: 1_700_000_400))
+    try await repository.saveHealthWorkoutWriteBack(record)
+
+    let restarted = GRDBTrainingRepository(root: root)
+    let preference = try await restarted.loadHealthWorkoutWriteBackPreference()
+    let loaded = try await restarted.loadHealthWorkoutWriteBack(sessionID: "session")
+    let records = try await restarted.loadHealthWorkoutWriteBacks()
+    XCTAssertTrue(preference.enabled)
+    XCTAssertEqual(loaded, record)
+    XCTAssertEqual(records, [record])
+  }
+
   func testHealthWorkoutUpsertIsStableAcrossReplacementAndRestart() async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: "training-health-\(UUID().uuidString)", directoryHint: .isDirectory)

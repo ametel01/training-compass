@@ -45,6 +45,7 @@ struct RootView: View {
       .onChange(of: scenePhase) { _, phase in
         guard phase == .active else { return }
         Task {
+          await model.resumeHealthWorkoutWriteBacks()
           _ = try? await model.healthWorkoutImportBoundary?.refreshHealthData(
             trigger: .foreground)
         }
@@ -73,6 +74,7 @@ private struct HealthView: View {
   @State private var maximumHeartRateText = ""
   @State private var maximumHeartRate: HeartRateConfiguration?
   @State private var writeBackPreference = HealthWorkoutWriteBackPreference()
+  @State private var writeBackRecords: [HealthWorkoutWriteBackRecord] = []
   @State private var writeBackError: String?
 
   var body: some View {
@@ -145,6 +147,18 @@ private struct HealthView: View {
         .foregroundStyle(.secondary)
         if let writeBackError {
           Text(writeBackError).font(.caption).foregroundStyle(.orange)
+        }
+        if !writeBackRecords.filter({ $0.state.requiresAttention }).isEmpty {
+          let attentionCount = writeBackRecords.filter({ $0.state.requiresAttention }).count
+          Text(
+            "\(attentionCount) Session summary\(attentionCount == 1 ? "" : "s") need attention."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          Button("Check Health Access") {
+            Task { await checkWriteAccess() }
+          }
+          .accessibilityIdentifier("health.write-back.check-access")
         }
       }
 
@@ -270,7 +284,12 @@ private struct HealthView: View {
       }
     }
     .task(id: "\(model.phase)-\(scenePhase)") {
-      guard model.phase == .ready, let boundary = model.healthWorkoutImportBoundary else { return }
+      guard model.phase == .ready else { return }
+      if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
+        writeBackPreference = (try? await writeBackBoundary.preference()) ?? .init()
+        writeBackRecords = (try? await writeBackBoundary.records()) ?? []
+      }
+      guard let boundary = model.healthWorkoutImportBoundary else { return }
       authorization = await boundary.authorizationSnapshot()
       await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
@@ -278,9 +297,6 @@ private struct HealthView: View {
       healthHistory =
         (try? await boundary.healthWorkoutHistory())
         ?? HealthWorkoutHistorySnapshot(state: .unavailable)
-      if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
-        writeBackPreference = (try? await writeBackBoundary.preference()) ?? .init()
-      }
       maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
       if let maximumHeartRate {
         maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
@@ -445,11 +461,24 @@ private struct HealthView: View {
     do {
       _ = try await boundary.setEnabled(enabled)
       writeBackPreference = try await boundary.preference()
+      writeBackRecords = (try? await boundary.records()) ?? writeBackRecords
       writeBackError = nil
     } catch {
       writeBackPreference = (try? await boundary.preference()) ?? .init()
       writeBackError =
         "Health write-back permission was not completed. Local training remains available."
+    }
+  }
+
+  private func checkWriteAccess() async {
+    guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+    do {
+      _ = try await boundary.checkWriteAccess()
+      writeBackRecords = (try? await boundary.records()) ?? writeBackRecords
+      writeBackError = nil
+    } catch {
+      writeBackError =
+        "Health write access is still unavailable. Choose Try Again on the affected Session after checking Health settings."
     }
   }
 
@@ -2193,6 +2222,7 @@ private struct TodayView: View {
   @State private var pendingWriteBackChoice: SessionWriteBackChoice = .doNotShare
   @State private var writeBackPreference = HealthWorkoutWriteBackPreference()
   @State private var writeBackRecord: HealthWorkoutWriteBackRecord?
+  @State private var writeBackAccessMessage: String?
   @State private var errorMessage: String?
 
   var body: some View {
@@ -2346,6 +2376,7 @@ private struct TodayView: View {
               if let writeBackRecord {
                 LabeledContent("HealthKit summary", value: writeBackRecord.state.displayName)
                   .accessibilityIdentifier("today.write-back.state")
+                writeBackRecoveryActions(for: writeBackRecord)
               }
             }
             trainingEventLinkControls
@@ -2556,6 +2587,45 @@ private struct TodayView: View {
       pendingWriteBackChoice = .doNotShare
       await beginCompletion()
     }
+  }
+
+  @ViewBuilder
+  private func writeBackRecoveryActions(for record: HealthWorkoutWriteBackRecord) -> some View {
+    if record.state == .healthAccessNeeded {
+      Button("Check Health Access") {
+        Task { await checkWriteBackAccess() }
+      }
+      .accessibilityIdentifier("today.write-back.check-access")
+    }
+    if record.state == .healthAccessNeeded || record.state == .couldntSave {
+      Button("Try Again") {
+        Task { await retryWriteBack(record.sessionID) }
+      }
+      .accessibilityIdentifier("today.write-back.try-again")
+    }
+    if let writeBackAccessMessage {
+      Text(writeBackAccessMessage)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  private func checkWriteBackAccess() async {
+    guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+    do {
+      _ = try await boundary.checkWriteAccess()
+      writeBackAccessMessage = nil
+    } catch {
+      writeBackAccessMessage =
+        "Health write access is still unavailable. Check Health settings, then try again."
+    }
+  }
+
+  private func retryWriteBack(_ sessionID: String) async {
+    guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+    writeBackRecord = await boundary.retry(sessionID: sessionID)
+    writeBackAccessMessage = nil
+    await reload()
   }
 
   private func beginCompletion() async {

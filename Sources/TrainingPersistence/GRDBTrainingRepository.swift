@@ -2472,7 +2472,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try Row.fetchOne(
         db,
         sql: """
-          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date,
+          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date, duration,
                  healthkit_uuid, last_error, updated_at
           FROM health_workout_write_backs WHERE session_id = ?
           """,
@@ -2487,7 +2487,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try Row.fetchAll(
         db,
         sql: """
-          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date,
+          SELECT session_id, sync_identifier, sync_version, state, start_date, end_date, duration,
                  healthkit_uuid, last_error, updated_at
           FROM health_workout_write_backs ORDER BY updated_at, session_id
           """

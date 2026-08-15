@@ -28,5 +28,20 @@ HealthKit identifiers, or owner data in evidence artifacts.
    state. Restore access and explicitly retry; verify the same sync identity is
    saved once.
 
-The corresponding automated evidence is `HealthWorkoutWriteBackBoundary`, the
-write-back repository tests, the HealthKit adapter tests, and `make verify`.
+8. With a retryable queued operation, background or lock the device before the
+   save finishes. Return to the app and verify the durable state becomes
+   `Retry scheduled`, then resumes at launch or the next foreground entry
+   without a duplicate Health workout. Cancellation and repeated foreground
+   entry must have the same result.
+9. With denied or unavailable write access, verify the Session reports `Health
+   access needed`, offers `Check Health Access`, and does not retry on every
+   foreground entry. After access is restored, tap `Try Again` explicitly.
+   With a persistent non-permission failure, verify `Couldn't save` and
+   `Try Again` while the Completed local Session remains intact.
+10. Verify Health Settings shows a quiet aggregate count for affected Session
+    summaries. Use `Refresh Health Data` and confirm it does not retry any
+    write-back; read freshness and write-back state remain independent.
+
+The corresponding automated evidence is `HealthWorkoutWriteBackBoundaryTests`,
+the write-back repository tests, the HealthKit adapter tests, the lifecycle/UI
+integration, and `make verify`.

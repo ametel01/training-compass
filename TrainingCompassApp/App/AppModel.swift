@@ -85,9 +85,18 @@ final class AppModel {
     do {
       _ = try await preparePreDataShell()
       phase = .ready
+      await healthWorkoutWriteBackBoundary?.resumePendingWriteBacks()
     } catch {
       phase = .failed
     }
+  }
+
+  /// Replays durable, transient write-back work without touching the Health
+  /// read/reconciliation pipeline. Access and terminal failures remain
+  /// explicit owner actions.
+  func resumeHealthWorkoutWriteBacks() async {
+    guard phase == .ready else { return }
+    await healthWorkoutWriteBackBoundary?.resumePendingWriteBacks()
   }
 
   func heartRateConfigurationDidChange() {

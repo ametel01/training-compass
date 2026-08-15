@@ -33,6 +33,11 @@ after enablement, every completion can opt out, external links suppress a new
 summary, and sets, loads, prescriptions, Training Maxes, e1RM, notes, and audit
 history never cross the adapter boundary.
 
+Issue #40 makes that delivery state recoverable. Retryable queued work resumes
+after launch or foreground entry, access and terminal failures wait for explicit
+Check Health Access/Try Again actions, cancellation never loses intent, and a
+quiet aggregate Settings count remains independent of Health read refresh.
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)

@@ -20,7 +20,25 @@ INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights
 RECOVERY_CHECKLIST = ROOT / "documentation/developer/reference/recovery-evidence-device-checklist.md"
 WRITE_BACK_CHECKLIST = ROOT / "documentation/developer/reference/healthkit-write-back-device-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
+REQUIRED_SOURCES = (
+    *range(1, 24),
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",
@@ -217,6 +235,19 @@ def main() -> int:
     for contract in required_write_back_contracts:
         if contract.lower() not in matrix.lower():
             errors.append(f"acceptance matrix omits HealthKit Write-back contract: {contract}")
+
+    required_write_back_recovery_contracts = (
+        "Retry scheduled",
+        "Health access needed",
+        "Couldn't save",
+        "later foreground opportunity",
+        "Refresh Health Data does not retry Write-backs",
+    )
+    for contract in required_write_back_recovery_contracts:
+        if contract.lower() not in matrix.lower():
+            errors.append(
+                f"acceptance matrix omits HealthKit Write-back recovery contract: {contract}"
+            )
 
     if errors:
         print("Acceptance contract check failed:")
