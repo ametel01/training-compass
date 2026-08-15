@@ -95,6 +95,45 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertNil(finalCheckpoint?.anchor)
   }
 
+  func testRecoveryEvidenceUpsertsReplacesDeletesAndSurvivesRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appending(path: "training-recovery-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = GRDBTrainingRepository(root: root)
+    let first = HealthRestingHeartRateSample(
+      id: "rhr-1", date: Date(timeIntervalSince1970: 1_700_000_000), beatsPerMinute: 52,
+      provenance: .init(sourceName: "Watch", algorithmVersion: "v1"))
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(
+        workouts: [], anchor: "recovery-1", reconciliationContext: "rhr",
+        restingHeartRateSamples: [first]),
+      stream: .restingHeartRate,
+      limits: .default)
+    let replacement = HealthRestingHeartRateSample(
+      id: first.id, date: first.date, beatsPerMinute: 54,
+      provenance: first.provenance)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(
+        workouts: [], reconciliationContext: "rhr-replacement",
+        restingHeartRateSamples: [replacement]),
+      stream: .restingHeartRate,
+      limits: .default)
+    let loaded = try await repository.loadHealthRecoverySamples(for: .restingHeartRate)
+    XCTAssertEqual(loaded, [.restingHeartRate(replacement)])
+    let content = try await repository.loadHealthMirrorContent(for: .restingHeartRate)
+    XCTAssertEqual(content.availability, .available)
+    try await repository.commitHealthWorkoutPage(
+      HealthWorkoutPage(
+        workouts: [], reconciliationContext: "rhr-delete", deletedHealthKitUUIDs: [first.id]),
+      stream: .restingHeartRate,
+      limits: .default)
+    let deleted = try await repository.loadHealthRecoverySamples(for: .restingHeartRate)
+    XCTAssertTrue(deleted.isEmpty)
+    try await repository.beginHealthRebuild()
+    let rebuilt = try await repository.loadHealthRecoverySamples(for: .restingHeartRate)
+    XCTAssertTrue(rebuilt.isEmpty)
+  }
+
   func testDeviceTimezoneDateRemainsStableAcrossFallbackReplacement() async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: "training-health-date-\(UUID().uuidString)", directoryHint: .isDirectory)

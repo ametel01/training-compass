@@ -117,6 +117,47 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertTrue(firstFailure.attentionLabel?.contains("Refresh Health Data") == true)
   }
 
+  func testCurrentStatusRequiresARequestedStreamAndSameDaySuccessfulCheck() {
+    let calendar = Calendar(identifier: .gregorian)
+    let today = Date(timeIntervalSince1970: 1_700_000_000)
+    let checked = HealthStreamStatus(
+      stream: .sleep,
+      requested: true,
+      authorization: .authorized,
+      lastSuccessfulCheck: today)
+    XCTAssertTrue(checked.isCurrent(on: today, calendar: calendar))
+    XCTAssertFalse(
+      checked.isCurrent(
+        on: today.addingTimeInterval(86_400), calendar: calendar))
+    XCTAssertFalse(
+      HealthStreamStatus(
+        stream: .sleep,
+        requested: false,
+        authorization: .authorized,
+        lastSuccessfulCheck: today
+      )
+      .isCurrent(on: today, calendar: calendar))
+  }
+
+  func testCoordinatorDoesNotFetchAnUnrequestedRecoveryStream() async throws {
+    let client = FakeHealthClient(pages: [HealthWorkoutPage(workouts: [])])
+    let repository = FakeHealthRepository()
+    let authorization = HealthAuthorizationSnapshot(
+      state: .authorized,
+      requested: .init(readTypes: [.workouts]))
+    let coordinator = HealthSyncCoordinator(
+      client: client,
+      repository: repository,
+      requestedStreams: [.workouts, .sleep],
+      authorization: authorization)
+
+    let result = try await coordinator.foreground()
+    XCTAssertEqual(result.streamStatuses.map(\.stream), [.workouts])
+    let status = await coordinator.statusSnapshot(authorization: authorization)
+    XCTAssertEqual(status.streams.count, 2)
+    XCTAssertFalse(status.streams.first(where: { $0.stream == .sleep })?.requested ?? true)
+  }
+
   func testCoordinatorReportsAStatusForEveryRequestedStreamWithoutClaimingPermission()
     async
     throws
@@ -212,13 +253,13 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     let coordinator = HealthSyncCoordinator(
       client: client,
       repository: repository,
-      requestedStreams: [.workouts, .sleep],
+      requestedStreams: [.workouts, .sleep, .restingHeartRate, .heartRateVariability],
       authorization: .init(state: .authorized)
     )
 
     let result = try await coordinator.foreground()
 
-    XCTAssertEqual(result.streamStatuses.count, 2)
+    XCTAssertEqual(result.streamStatuses.count, 4)
     let checkpoints = await repository.checkpoints
     let committedStreams = await repository.committedStreams
     let facts = await repository.facts.map(\.healthKitUUID)
@@ -226,8 +267,15 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
     XCTAssertNil(checkpoints[.sleep]?.anchor)
     XCTAssertEqual(checkpoints[.workouts]?.reconciliationContext, "workouts")
     XCTAssertEqual(checkpoints[.sleep]?.reconciliationContext, "sleep")
-    XCTAssertEqual(Set(committedStreams), [.workouts, .sleep])
+    XCTAssertEqual(
+      Set(committedStreams), [.workouts, .sleep, .restingHeartRate, .heartRateVariability])
     XCTAssertEqual(facts, ["sleep-fact"])
+    let sleepSamples = await repository.recoverySamples(for: .sleep)
+    let restingHeartRateSamples = await repository.recoverySamples(for: .restingHeartRate)
+    let variabilitySamples = await repository.recoverySamples(for: .heartRateVariability)
+    XCTAssertEqual(sleepSamples.count, 1)
+    XCTAssertEqual(restingHeartRateSamples.count, 1)
+    XCTAssertEqual(variabilitySamples.count, 1)
   }
 
   func testRegisterHealthObserverUsesAuthorizedClientAndCoalescedObserverTrigger() async throws {
@@ -706,6 +754,31 @@ private actor IndependentStreamsHealthClient: HealthWorkoutClient {
         reconciliationContext: "sleep",
         streamFacts: pageToken == nil
           ? [HealthSyncFact(id: "sleep-fact", kind: .added, healthKitUUID: "sleep-fact")]
+          : [],
+        sleepSamples: pageToken == nil
+          ? [
+            HealthSleepSample(
+              id: "sleep-sample", startDate: Date(timeIntervalSince1970: 10),
+              endDate: Date(timeIntervalSince1970: 20))
+          ]
+          : [])
+    case .restingHeartRate:
+      return HealthWorkoutPage(
+        workouts: [], reconciliationContext: "resting-heart-rate",
+        restingHeartRateSamples: pageToken == nil
+          ? [
+            HealthRestingHeartRateSample(
+              id: "rhr-sample", date: Date(timeIntervalSince1970: 10), beatsPerMinute: 52)
+          ]
+          : [])
+    case .heartRateVariability:
+      return HealthWorkoutPage(
+        workouts: [], reconciliationContext: "hrv",
+        heartRateVariabilitySamples: pageToken == nil
+          ? [
+            HealthHRVSDNNSample(
+              id: "hrv-sample", date: Date(timeIntervalSince1970: 10), milliseconds: 42)
+          ]
           : [])
     default:
       return HealthWorkoutPage(workouts: [], reconciliationContext: stream.rawValue)
@@ -750,6 +823,7 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
   private(set) var checkpoints: [HealthSyncStream: HealthSyncCheckpoint] = [:]
   private(set) var committedStreams: [HealthSyncStream] = []
   private(set) var facts: [HealthSyncFact] = []
+  private var recovery: [HealthSyncStream: [HealthRecoverySample]] = [:]
 
   func upsertHealthWorkouts(
     _ workouts: [HealthWorkout], reconciliationContext: String
@@ -769,6 +843,7 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
     if stream == .workouts {
       values.append(contentsOf: page.workouts)
     }
+    recovery[stream, default: []].append(contentsOf: page.recoverySamples(for: stream))
     facts.append(contentsOf: page.streamFacts)
     checkpoints[stream] = HealthSyncCheckpoint(
       stream: stream,
@@ -785,7 +860,12 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
     -> HealthMirrorContentSnapshot
   {
-    .init(stream: stream, recordCount: stream == .workouts ? values.count : nil)
+    let count = stream == .workouts ? values.count : recovery[stream]?.count
+    return .init(stream: stream, recordCount: count)
+  }
+
+  func recoverySamples(for stream: HealthSyncStream) -> [HealthRecoverySample] {
+    recovery[stream] ?? []
   }
 }
 

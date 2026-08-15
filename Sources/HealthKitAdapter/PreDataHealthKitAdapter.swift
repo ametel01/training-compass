@@ -152,22 +152,23 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
   ) async throws {
     #if canImport(HealthKit)
       guard HKHealthStore.isHealthDataAvailable() else { return }
-      let sampleType = HKObjectType.workoutType()
-      try await withCheckedThrowingContinuation {
-        (continuation: CheckedContinuation<Void, any Error>) in
-        let query = HKObserverQuery(sampleType: sampleType, predicate: nil) {
-          _, completion, _ in
-          completion()
-          Task { await onInvalidation() }
-        }
-        store.execute(query)
-        store.enableBackgroundDelivery(for: sampleType, frequency: .hourly) { success, error in
-          if let error {
-            continuation.resume(throwing: error)
-          } else if success {
-            continuation.resume(returning: ())
-          } else {
-            continuation.resume(throwing: HealthKitAdapterError.observerRegistrationFailed)
+      for sampleType in Self.observerSampleTypes {
+        try await withCheckedThrowingContinuation {
+          (continuation: CheckedContinuation<Void, any Error>) in
+          let query = HKObserverQuery(sampleType: sampleType, predicate: nil) {
+            _, completion, _ in
+            completion()
+            Task { await onInvalidation() }
+          }
+          store.execute(query)
+          store.enableBackgroundDelivery(for: sampleType, frequency: .hourly) { success, error in
+            if let error {
+              continuation.resume(throwing: error)
+            } else if success {
+              continuation.resume(returning: ())
+            } else {
+              continuation.resume(throwing: HealthKitAdapterError.observerRegistrationFailed)
+            }
           }
         }
       }
@@ -175,6 +176,17 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
       throw HealthKitAdapterError.unavailable
     #endif
   }
+
+  #if canImport(HealthKit)
+    private static var observerSampleTypes: [HKSampleType] {
+      [
+        HKObjectType.workoutType(),
+        HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+        HKObjectType.quantityType(forIdentifier: .restingHeartRate),
+        HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
+      ].compactMap { $0 }
+    }
+  #endif
 
   public func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
     #if canImport(HealthKit)
@@ -192,6 +204,27 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
     #else
       return .init(workouts: [], reconciliationContext: "health-unavailable")
     #endif
+  }
+
+  public func fetchHealthPage(
+    for stream: HealthSyncStream, after pageToken: String?
+  ) async throws -> HealthWorkoutPage {
+    switch stream {
+    case .workouts:
+      return try await fetchWorkoutPage(after: pageToken)
+    case .sleep, .restingHeartRate, .heartRateVariability:
+      #if canImport(HealthKit)
+        guard HKHealthStore.isHealthDataAvailable() else {
+          return .init(workouts: [], reconciliationContext: "health-unavailable")
+        }
+        return try await fetchRecoveryPage(for: stream, after: pageToken)
+      #else
+        return .init(workouts: [], reconciliationContext: "health-unavailable")
+      #endif
+    case .heartRate, .distance, .activeEnergy:
+      // These are workout-associated details, not independent mirror streams.
+      throw HealthSyncError.unavailable
+    }
   }
 
   public func fetchWorkoutEnrichment(for workout: HealthWorkout) async
@@ -401,6 +434,135 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         }
         store.execute(query)
       }
+    }
+
+    private func fetchRecoveryPage(
+      for stream: HealthSyncStream, after pageToken: String?
+    ) async throws -> HealthWorkoutPage {
+      let sampleType: HKSampleType
+      switch stream {
+      case .sleep:
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+          throw HealthKitAdapterError.unavailable
+        }
+        sampleType = type
+      case .restingHeartRate:
+        guard let type = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
+          throw HealthKitAdapterError.unavailable
+        }
+        sampleType = type
+      case .heartRateVariability:
+        guard let type = HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN) else {
+          throw HealthKitAdapterError.unavailable
+        }
+        sampleType = type
+      default:
+        throw HealthKitAdapterError.unavailable
+      }
+      return try await withCheckedThrowingContinuation { continuation in
+        let query = HKAnchoredObjectQuery(
+          type: sampleType,
+          predicate: nil,
+          anchor: Self.anchor(from: pageToken),
+          limit: 100
+        ) { _, samples, deletedObjects, anchor, error in
+          if let error {
+            continuation.resume(throwing: error)
+            return
+          }
+          let recovery: [HealthRecoverySample]
+          switch stream {
+          case .sleep:
+            recovery = (samples as? [HKCategorySample] ?? []).compactMap { sample in
+              HealthRecoverySample.sleep(
+                HealthSleepSample(
+                  id: sample.uuid.uuidString,
+                  startDate: sample.startDate,
+                  endDate: sample.endDate,
+                  stage: Self.sleepStage(for: sample.value),
+                  provenance: Self.provenance(for: sample)))
+            }
+          case .restingHeartRate:
+            let unit = HKUnit.count().unitDivided(by: .minute())
+            recovery = (samples as? [HKQuantitySample] ?? []).compactMap { sample in
+              let value = sample.quantity.doubleValue(for: unit)
+              guard value > 0, value.isFinite else { return nil }
+              return .restingHeartRate(
+                HealthRestingHeartRateSample(
+                  id: sample.uuid.uuidString,
+                  date: sample.startDate,
+                  beatsPerMinute: value,
+                  provenance: Self.provenance(for: sample)))
+            }
+          case .heartRateVariability:
+            let unit = HKUnit.secondUnit(with: .milli)
+            recovery = (samples as? [HKQuantitySample] ?? []).compactMap { sample in
+              let value = sample.quantity.doubleValue(for: unit)
+              guard value > 0, value.isFinite else { return nil }
+              return .heartRateVariability(
+                HealthHRVSDNNSample(
+                  id: sample.uuid.uuidString,
+                  date: sample.startDate,
+                  milliseconds: value,
+                  provenance: Self.provenance(for: sample)))
+            }
+          default: recovery = []
+          }
+          continuation.resume(
+            returning: HealthWorkoutPage(
+              workouts: [],
+              anchor: Self.token(for: anchor),
+              reconciliationContext: "anchored-\(stream.rawValue)",
+              deletedHealthKitUUIDs: (deletedObjects ?? []).map(\.uuid.uuidString),
+              sleepSamples: stream == .sleep
+                ? recovery.compactMap {
+                  if case .sleep(let value) = $0 { return value }
+                  return nil
+                }
+                : [],
+              restingHeartRateSamples: stream == .restingHeartRate
+                ? recovery.compactMap {
+                  if case .restingHeartRate(let value) = $0 { return value }
+                  return nil
+                }
+                : [],
+              heartRateVariabilitySamples: stream == .heartRateVariability
+                ? recovery.compactMap {
+                  if case .heartRateVariability(let value) = $0 { return value }
+                  return nil
+                }
+                : []))
+        }
+        store.execute(query)
+      }
+    }
+
+    private static func sleepStage(for value: Int) -> HealthSleepStage {
+      switch value {
+      case 0: .inBed
+      case 1: .asleep
+      case 2: .awake
+      case 3: .asleepCore
+      case 4: .asleepDeep
+      case 5: .asleepREM
+      default: .unknown
+      }
+    }
+
+    private static func provenance(for sample: HKSample) -> HealthRecoverySampleProvenance {
+      let revision = sample.sourceRevision
+      let version = revision.operatingSystemVersion
+      let algorithmVersion =
+        (sample.metadata?["HKAlgorithmVersion"] as? String)
+        ?? (sample.metadata?["AlgorithmVersion"] as? String)
+      return HealthRecoverySampleProvenance(
+        sourceName: revision.source.name,
+        sourceBundleIdentifier: revision.source.bundleIdentifier,
+        sourceProductType: revision.productType,
+        sourceOSVersion: "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
+        deviceName: sample.device?.name,
+        deviceModel: sample.device?.model,
+        algorithmVersion: algorithmVersion)
     }
 
     private static func anchor(from token: String?) -> HKQueryAnchor? {

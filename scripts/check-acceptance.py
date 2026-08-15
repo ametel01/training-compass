@@ -18,7 +18,7 @@ MATRIX = ROOT / "documentation/developer/reference/acceptance-matrix.md"
 BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.md"
 INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights-device-checklist.md"
 
-REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32)
+REQUIRED_SOURCES = (*range(1, 24), 25, 26, 27, 28, 29, 30, 31, 32, 33)
 REQUIRED_BUDGETS = (
     "1.5 seconds",
     "500 milliseconds",

@@ -555,6 +555,20 @@ public struct ProtectedStoreBootstrapper: Sendable {
           .check { $0 >= 0 }
       }
     }
+    migrator.registerMigration("reconstructible_v9_recovery_evidence") { db in
+      try db.create(table: "health_recovery_samples") { table in
+        table.column("stream", .text).notNull()
+        table.column("sample_id", .text).notNull()
+        table.column("sample_json", .text).notNull()
+        table.column("sample_date", .double).notNull()
+        table.column("updated_at", .double).notNull()
+        table.primaryKey(["stream", "sample_id"])
+      }
+      try db.create(
+        index: "health_recovery_samples_stream_date",
+        on: "health_recovery_samples",
+        columns: ["stream", "sample_date"])
+    }
     return migrator
   }
 

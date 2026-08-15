@@ -65,6 +65,7 @@ private struct HealthView: View {
 
   @State private var authorization = HealthAuthorizationSnapshot(state: .notRequested)
   @State private var healthStatus = HealthDataStatus()
+  @State private var recoveryEvidence = HealthRecoveryEvidenceSnapshot()
   @State private var healthHistory = HealthWorkoutHistorySnapshot(state: .loading)
   @State private var isConnecting = false
   @State private var isImporting = false
@@ -123,6 +124,10 @@ private struct HealthView: View {
           Text("Health data is unavailable on this device. Local training remains fully available.")
             .foregroundStyle(.secondary)
         }
+      }
+
+      Section("Recovery Evidence") {
+        RecoveryEvidenceSection(snapshot: recoveryEvidence)
       }
 
       Section("Heart-Rate Zones") {
@@ -245,6 +250,7 @@ private struct HealthView: View {
       authorization = await boundary.authorizationSnapshot()
       await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
+      recoveryEvidence = await boundary.recoveryEvidence()
       healthHistory =
         (try? await boundary.healthWorkoutHistory())
         ?? HealthWorkoutHistorySnapshot(state: .unavailable)
@@ -278,6 +284,7 @@ private struct HealthView: View {
       authorization = try await boundary.connectHealth()
       await model.healthDataRebuildBoundary?.setAuthorization(authorization)
       healthStatus = await boundary.healthDataStatus()
+      recoveryEvidence = await boundary.recoveryEvidence()
       if authorization.state == .authorized {
         try? await boundary.registerHealthObserver()
         await importWorkouts()
@@ -309,6 +316,7 @@ private struct HealthView: View {
         authorization = await boundary.authorizationSnapshot()
         await model.healthDataRebuildBoundary?.setAuthorization(authorization)
         healthStatus = await boundary.healthDataStatus()
+        recoveryEvidence = await boundary.recoveryEvidence()
         healthHistory = try await boundary.healthWorkoutHistory()
         if result.state == .successfulEmpty {
           healthHistory = HealthWorkoutHistorySnapshot(state: .successfulEmpty)
@@ -347,6 +355,7 @@ private struct HealthView: View {
       authorization = await boundary.authorizationSnapshot()
       healthStatus = await boundary.healthDataStatus()
       healthHistory = (try? await boundary.healthWorkoutHistory()) ?? healthHistory
+      recoveryEvidence = await boundary.recoveryEvidence()
     } catch {
       healthStatus = await boundary.healthDataStatus()
       errorMessage =
@@ -437,6 +446,54 @@ private struct HealthStatusRow: View {
       }
     }
     .accessibilityIdentifier("health.status.\(status.stream.rawValue)")
+  }
+}
+
+private struct RecoveryEvidenceSection: View {
+  let snapshot: HealthRecoveryEvidenceSnapshot
+
+  var body: some View {
+    Text(
+      "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context."
+    )
+    .font(.subheadline)
+    ForEach(snapshot.statuses.filter { RecoveryEvidenceStream($0.stream) != nil }) { status in
+      VStack(alignment: .leading, spacing: 3) {
+        HStack {
+          Text(status.stream.displayName).font(.headline)
+          Spacer()
+          Text(status.statusLabel).font(.caption.weight(.semibold))
+        }
+        Text(status.lastCheckedLabel).font(.caption)
+        Text("\(status.contentLabel) · \(status.historyLabel)")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        if !status.isCurrentToday, status.lastSuccessfulCheck != nil {
+          Text("Cached observation; not current for today's guidance.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .accessibilityIdentifier("health.recovery.status.\(status.stream.rawValue)")
+    }
+    if snapshot.isEmpty {
+      Text("No recovery measurements are currently mirrored.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    } else {
+      if !snapshot.sleep.isEmpty {
+        Text("Sleep: \(snapshot.sleep.count) recorded intervals")
+          .font(.caption)
+      }
+      if !snapshot.restingHeartRate.isEmpty {
+        Text("Resting heart rate: \(snapshot.restingHeartRate.count) samples")
+          .font(.caption)
+      }
+      if !snapshot.heartRateVariability.isEmpty {
+        Text("HRV SDNN: \(snapshot.heartRateVariability.count) samples")
+          .font(.caption)
+      }
+    }
   }
 }
 

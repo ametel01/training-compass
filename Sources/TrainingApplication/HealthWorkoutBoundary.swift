@@ -804,6 +804,12 @@ public struct HealthWorkoutHistorySnapshot: Codable, Equatable, Sendable {
 
 public struct HealthWorkoutPage: Codable, Equatable, Sendable {
   public let workouts: [HealthWorkout]
+  /// Recovery samples are carried through the same bounded page/checkpoint
+  /// envelope as workouts. Only the field matching the requested stream is
+  /// populated by a production adapter.
+  public let sleepSamples: [HealthSleepSample]
+  public let restingHeartRateSamples: [HealthRestingHeartRateSample]
+  public let heartRateVariabilitySamples: [HealthHRVSDNNSample]
   /// UUIDs returned by HealthKit's deleted-object collection.  Deletions are
   /// part of the same anchored page as additions and replacements.
   public let deletedHealthKitUUIDs: [String]
@@ -826,15 +832,66 @@ public struct HealthWorkoutPage: Codable, Equatable, Sendable {
     hasLimitedHistory: Bool = false,
     reconciliationContext: String = "initial",
     deletedHealthKitUUIDs: [String] = [],
-    streamFacts: [HealthSyncFact] = []
+    streamFacts: [HealthSyncFact] = [],
+    sleepSamples: [HealthSleepSample] = [],
+    restingHeartRateSamples: [HealthRestingHeartRateSample] = [],
+    heartRateVariabilitySamples: [HealthHRVSDNNSample] = []
   ) {
     self.workouts = workouts
+    self.sleepSamples = sleepSamples
+    self.restingHeartRateSamples = restingHeartRateSamples
+    self.heartRateVariabilitySamples = heartRateVariabilitySamples
     self.deletedHealthKitUUIDs = deletedHealthKitUUIDs
     self.nextPageToken = nextPageToken
     self.anchor = anchor
     self.hasLimitedHistory = hasLimitedHistory
     self.reconciliationContext = reconciliationContext
     self.streamFacts = streamFacts
+  }
+
+  /// Backward-compatible decoding for pages persisted or produced before
+  /// Recovery Evidence fields were introduced.
+  private enum CodingKeys: String, CodingKey {
+    case workouts, sleepSamples, restingHeartRateSamples, heartRateVariabilitySamples
+    case deletedHealthKitUUIDs, nextPageToken, anchor, hasLimitedHistory
+    case reconciliationContext, streamFacts
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      workouts: try container.decodeIfPresent([HealthWorkout].self, forKey: .workouts) ?? [],
+      nextPageToken: try container.decodeIfPresent(String.self, forKey: .nextPageToken),
+      anchor: try container.decodeIfPresent(String.self, forKey: .anchor),
+      hasLimitedHistory:
+        try container.decodeIfPresent(Bool.self, forKey: .hasLimitedHistory) ?? false,
+      reconciliationContext:
+        try container.decodeIfPresent(String.self, forKey: .reconciliationContext) ?? "initial",
+      deletedHealthKitUUIDs:
+        try container.decodeIfPresent([String].self, forKey: .deletedHealthKitUUIDs) ?? [],
+      streamFacts: try container.decodeIfPresent([HealthSyncFact].self, forKey: .streamFacts) ?? [],
+      sleepSamples:
+        try container.decodeIfPresent([HealthSleepSample].self, forKey: .sleepSamples) ?? [],
+      restingHeartRateSamples: try container.decodeIfPresent(
+        [HealthRestingHeartRateSample].self, forKey: .restingHeartRateSamples) ?? [],
+      heartRateVariabilitySamples: try container.decodeIfPresent(
+        [HealthHRVSDNNSample].self, forKey: .heartRateVariabilitySamples) ?? [])
+  }
+
+  public var recoverySamples: [HealthRecoverySample] {
+    sleepSamples.map(HealthRecoverySample.sleep)
+      + restingHeartRateSamples.map(HealthRecoverySample.restingHeartRate)
+      + heartRateVariabilitySamples.map(HealthRecoverySample.heartRateVariability)
+  }
+
+  public func recoverySamples(for stream: HealthSyncStream) -> [HealthRecoverySample] {
+    switch stream {
+    case .sleep: sleepSamples.map(HealthRecoverySample.sleep)
+    case .restingHeartRate: restingHeartRateSamples.map(HealthRecoverySample.restingHeartRate)
+    case .heartRateVariability:
+      heartRateVariabilitySamples.map(HealthRecoverySample.heartRateVariability)
+    default: []
+    }
   }
 }
 
@@ -983,6 +1040,17 @@ public struct HealthStreamStatus: Codable, Equatable, Sendable, Identifiable {
 
   public var isUpdating: Bool { reconciliation == .updating }
 
+  /// A cached observation is current only when its stream completed a
+  /// successful reconciliation on the same local calendar day. The sample's
+  /// own timestamp is deliberately not used as a freshness signal.
+  public func isCurrent(on date: Date = Date(), calendar: Calendar = .current) -> Bool {
+    guard requested, let lastSuccessfulCheck else { return false }
+    return calendar.isDate(lastSuccessfulCheck, inSameDayAs: date)
+      && reconciliation == .idle && failure == nil
+  }
+
+  public var isCurrentToday: Bool { isCurrent() }
+
   /// Compact copy suitable for a status row.  It deliberately describes the
   /// last check, not the timestamp of the newest sample.
   public var statusLabel: String {
@@ -1034,6 +1102,12 @@ public struct HealthDataStatus: Codable, Equatable, Sendable {
   public var isUpdating: Bool { streams.contains { $0.isUpdating } }
   public var hasActionableAttention: Bool { streams.contains { $0.attentionLabel != nil } }
   public var requestedStreams: [HealthStreamStatus] { streams.filter(\.requested) }
+
+  public func currentStreams(on date: Date = Date(), calendar: Calendar = .current)
+    -> [HealthStreamStatus]
+  {
+    streams.filter { $0.isCurrent(on: date, calendar: calendar) }
+  }
 }
 
 public struct HealthSyncCheckpoint: Codable, Equatable, Sendable {
@@ -1083,7 +1157,9 @@ public struct HealthSyncBatchLimits: Codable, Equatable, Sendable {
   public static let `default` = HealthSyncBatchLimits()
 
   public func validate(page: HealthWorkoutPage) throws {
-    let records = page.workouts.count + page.deletedHealthKitUUIDs.count
+    let records =
+      page.workouts.count + page.recoverySamples.count
+      + page.deletedHealthKitUUIDs.count
     guard records <= maxRecords else { throw HealthSyncError.batchTooLarge }
     let encoded = try JSONEncoder().encode(page)
     guard encoded.count <= maxBytes,
@@ -1201,6 +1277,11 @@ public protocol HealthWorkoutRepository: Sendable {
   ) async throws -> HealthRebuildStorageEstimate
   func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
     -> [HealthWorkoutLinkFact]
+  func upsertHealthRecoverySamples(
+    _ samples: [HealthRecoverySample], stream: HealthSyncStream, reconciliationContext: String
+  ) async throws
+  func loadHealthRecoverySamples(for stream: HealthSyncStream) async throws
+    -> [HealthRecoverySample]
 }
 
 extension HealthWorkoutRepository {
@@ -1217,6 +1298,11 @@ extension HealthWorkoutRepository {
     if stream == .workouts && !page.workouts.isEmpty {
       try await upsertHealthWorkouts(
         page.workouts, reconciliationContext: page.reconciliationContext)
+    }
+    let recovery = page.recoverySamples(for: stream)
+    if !recovery.isEmpty {
+      try await upsertHealthRecoverySamples(
+        recovery, stream: stream, reconciliationContext: page.reconciliationContext)
     }
   }
 
@@ -1265,6 +1351,14 @@ extension HealthWorkoutRepository {
   public func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
     -> [HealthWorkoutLinkFact]
   { throw HealthSyncError.unavailable }
+
+  public func upsertHealthRecoverySamples(
+    _ samples: [HealthRecoverySample], stream: HealthSyncStream, reconciliationContext: String
+  ) async throws {}
+
+  public func loadHealthRecoverySamples(for stream: HealthSyncStream) async throws
+    -> [HealthRecoverySample]
+  { [] }
 
 }
 
@@ -1433,6 +1527,31 @@ public actor HealthWorkoutImportBoundary {
     try await repository.loadHealthWorkouts()
   }
 
+  /// Returns the independently mirrored Recovery Evidence streams. A missing
+  /// stream is represented by an empty collection plus its own status; it is
+  /// never inferred from another stream's success.
+  public func recoveryEvidence() async -> HealthRecoveryEvidenceSnapshot {
+    let status = await coordinator.statusSnapshot(authorization: authorization)
+    let sleep = (try? await repository.loadHealthRecoverySamples(for: .sleep)) ?? []
+    let resting = (try? await repository.loadHealthRecoverySamples(for: .restingHeartRate)) ?? []
+    let variability =
+      (try? await repository.loadHealthRecoverySamples(for: .heartRateVariability)) ?? []
+    return HealthRecoveryEvidenceSnapshot(
+      sleep: sleep.compactMap {
+        guard case .sleep(let sample) = $0 else { return nil }
+        return sample
+      },
+      restingHeartRate: resting.compactMap {
+        guard case .restingHeartRate(let sample) = $0 else { return nil }
+        return sample
+      },
+      heartRateVariability: variability.compactMap {
+        guard case .heartRateVariability(let sample) = $0 else { return nil }
+        return sample
+      },
+      statuses: status.streams.filter { RecoveryEvidenceStream($0.stream) != nil })
+  }
+
   /// Returns current Health-only Training Events with source and reconciliation
   /// context. The mirror is the only source of current events, so a deleted
   /// HealthKit UUID is retained only in `deletedHealthKitUUIDs` and never
@@ -1562,7 +1681,13 @@ public actor HealthSyncCoordinator {
     self.authorization = authorization
     self.statuses = Dictionary(
       uniqueKeysWithValues: self.requestedStreams.map {
-        ($0, HealthStreamStatus(stream: $0, authorization: authorization.state))
+        (
+          $0,
+          HealthStreamStatus(
+            stream: $0,
+            requested: authorization.requested.readTypes.contains($0.readType),
+            authorization: authorization.state)
+        )
       })
   }
 
@@ -1633,7 +1758,8 @@ public actor HealthSyncCoordinator {
       return try await inFlight.value
     }
 
-    for stream in requestedStreams {
+    let activeStreams = requestedStreams.filter { statuses[$0]?.requested ?? true }
+    for stream in activeStreams {
       let current = statuses[stream] ?? HealthStreamStatus(stream: stream)
       statuses[stream] = HealthStreamStatus(
         stream: stream, requested: current.requested, authorization: authorization.state,
@@ -1644,7 +1770,7 @@ public actor HealthSyncCoordinator {
     let task = Task { [client, repository, limits] in
       try await Self.reconcile(
         client: client, repository: repository, limits: limits, trigger: trigger,
-        streams: self.requestedStreams, workoutProgress: workoutProgress
+        streams: activeStreams, workoutProgress: workoutProgress
       )
     }
     inFlight = task
@@ -1680,7 +1806,7 @@ public actor HealthSyncCoordinator {
       )
     } catch {
       inFlight = nil
-      for stream in requestedStreams {
+      for stream in activeStreams {
         let current = statuses[stream] ?? HealthStreamStatus(stream: stream)
         statuses[stream] = HealthStreamStatus(
           stream: stream, requested: current.requested, authorization: authorization.state,
@@ -1749,7 +1875,7 @@ public actor HealthSyncCoordinator {
           // source-owned records belong in each mirror.
           try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
           pages += 1
-          changed += page.workouts.count
+          changed += page.workouts.count + page.recoverySamples(for: stream).count
           deleted += page.deletedHealthKitUUIDs.count
           importedCount += stream == .workouts ? page.workouts.count : 0
           limited = limited || page.hasLimitedHistory

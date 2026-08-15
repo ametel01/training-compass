@@ -323,6 +323,15 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         stream == .workouts
         ? Set(try String.fetchAll(db, sql: "SELECT healthkit_uuid FROM health_workouts"))
         : []
+      let existingRecoveryIDs: Set<String> =
+        RecoveryEvidenceStream(stream) != nil
+        ? Set(
+          try String.fetchAll(
+            db,
+            sql: "SELECT sample_id FROM health_recovery_samples WHERE stream = ?",
+            arguments: [stream.rawValue]))
+        : []
+      let recoverySamples = page.recoverySamples(for: stream)
       for workout in page.workouts where stream == .workouts {
         try db.execute(
           sql: """
@@ -394,6 +403,47 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           sql: "DELETE FROM health_workout_deletions WHERE healthkit_uuid = ?",
           arguments: [workout.healthKitUUID]
         )
+      }
+      for sample in recoverySamples {
+        let kind: HealthSyncFact.Kind =
+          existingRecoveryIDs.contains(sample.id) ? .replaced : .added
+        let id =
+          "\(stream.rawValue):\(kind.rawValue):\(sample.id):\(page.nextAnchor ?? "final")"
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO health_sync_facts
+              (id, stream, kind, healthkit_uuid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            id, stream.rawValue, kind.rawValue, sample.id,
+            committedAt.timeIntervalSince1970,
+          ])
+      }
+      for sample in recoverySamples {
+        let encoded = String(
+          decoding: try JSONEncoder().encode(sample), as: UTF8.self)
+        try db.execute(
+          sql: """
+            INSERT INTO health_recovery_samples
+              (stream, sample_id, sample_json, sample_date, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(stream, sample_id) DO UPDATE SET
+              sample_json = excluded.sample_json,
+              sample_date = excluded.sample_date,
+              updated_at = excluded.updated_at
+            """,
+          arguments: [
+            stream.rawValue, sample.id, encoded, sample.date.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970,
+          ])
+      }
+      if RecoveryEvidenceStream(stream) != nil {
+        for uuid in Set(page.deletedHealthKitUUIDs) where !uuid.isEmpty {
+          try db.execute(
+            sql: "DELETE FROM health_recovery_samples WHERE stream = ? AND sample_id = ?",
+            arguments: [stream.rawValue, uuid])
+        }
       }
 
       for uuid in Set(page.deletedHealthKitUUIDs) where stream == .workouts && !uuid.isEmpty {
@@ -525,13 +575,64 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       case .workouts: table = "health_workouts"
       case .heartRate, .distance, .activeEnergy, .sleep, .restingHeartRate,
         .heartRateVariability:
-        // Recovery streams do not yet have a mirror table.  Returning nil is
-        // distinct from a successful empty query and keeps status honest.
-        return -1
+        table = "health_recovery_samples"
+      }
+      if table == "health_recovery_samples" {
+        return try Int.fetchOne(
+          db,
+          sql: "SELECT COUNT(*) FROM \(table) WHERE stream = ?",
+          arguments: [stream.rawValue]) ?? 0
       }
       return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0
     }
-    return .init(stream: stream, recordCount: count < 0 ? nil : count)
+    return .init(stream: stream, recordCount: count)
+  }
+
+  public func upsertHealthRecoverySamples(
+    _ samples: [HealthRecoverySample],
+    stream: HealthSyncStream,
+    reconciliationContext: String
+  ) async throws {
+    guard !samples.isEmpty else { return }
+    let stores = try await readyStores()
+    let now = Date().timeIntervalSince1970
+    try await stores.reconstructible.write { db in
+      for sample in samples where sample.stream.healthSyncStream == stream {
+        let encoded = String(decoding: try JSONEncoder().encode(sample), as: UTF8.self)
+        try db.execute(
+          sql: """
+            INSERT INTO health_recovery_samples
+              (stream, sample_id, sample_json, sample_date, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(stream, sample_id) DO UPDATE SET
+              sample_json = excluded.sample_json,
+              sample_date = excluded.sample_date,
+              updated_at = excluded.updated_at
+            """,
+          arguments: [
+            stream.rawValue, sample.id, encoded, sample.date.timeIntervalSince1970, now,
+          ])
+      }
+    }
+  }
+
+  public func loadHealthRecoverySamples(for stream: HealthSyncStream) async throws
+    -> [HealthRecoverySample]
+  {
+    guard RecoveryEvidenceStream(stream) != nil else { return [] }
+    let stores = try await readyStores()
+    return try await stores.reconstructible.read { db in
+      try String.fetchAll(
+        db,
+        sql: """
+          SELECT sample_json FROM health_recovery_samples
+          WHERE stream = ? ORDER BY sample_date, sample_id
+          """,
+        arguments: [stream.rawValue]
+      ).compactMap { json in
+        try? JSONDecoder().decode(HealthRecoverySample.self, from: Data(json.utf8))
+      }
+    }
   }
 
   public func loadHealthWorkoutDeletionUUIDs() async throws -> [String] {
@@ -644,7 +745,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   ) async throws -> HealthRebuildStorageEstimate {
     let stores = try await readyStores()
     let recordCount = try await stores.reconstructible.read { db -> Int in
-      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_workouts") ?? 0
+      let workouts = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_workouts") ?? 0
+      let recovery = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_recovery_samples") ?? 0
+      return workouts + recovery
     }
     let stagingBytes = max(
       policy.estimatedBytesPerRecord, recordCount * policy.estimatedBytesPerRecord)
@@ -692,6 +795,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try db.execute(sql: "DELETE FROM health_workout_enrichment")
       try db.execute(sql: "DELETE FROM health_workouts")
       try db.execute(sql: "DELETE FROM health_workout_deletions")
+      try db.execute(sql: "DELETE FROM health_recovery_samples")
       try db.execute(sql: "DELETE FROM health_sync_facts")
       try db.execute(sql: "DELETE FROM health_sync_streams")
       try db.execute(
