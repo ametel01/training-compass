@@ -38,6 +38,8 @@ REQUIRED_SOURCES = (
     38,
     39,
     40,
+    41,
+    42,
 )
 REQUIRED_BUDGETS = (
     "1.5 seconds",

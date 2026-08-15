@@ -177,6 +177,7 @@ public struct DefaultHealthRebuildStorageProvider: HealthRebuildStorageProviding
 public actor HealthDataRebuildBoundary {
   private let client: any HealthWorkoutClient
   private let repository: any HealthWorkoutRepository
+  private let writeBackBoundary: HealthWorkoutWriteBackBoundary?
   private let storageProvider: (any HealthRebuildStorageProviding)?
   private let policy: HealthRebuildStoragePolicy
   private let limits: HealthSyncBatchLimits
@@ -190,10 +191,12 @@ public actor HealthDataRebuildBoundary {
     requestedStreams: [HealthSyncStream]? = nil,
     storageProvider: (any HealthRebuildStorageProviding)? = nil,
     policy: HealthRebuildStoragePolicy = .default,
-    limits: HealthSyncBatchLimits = .default
+    limits: HealthSyncBatchLimits = .default,
+    writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.client = client
     self.repository = repository
+    self.writeBackBoundary = writeBackBoundary
     self.authorization = authorization
     let streams = requestedStreams ?? authorization.requested.readTypes.map(HealthSyncStream.init)
     self.requestedStreams = streams.isEmpty ? [.workouts] : streams
@@ -269,6 +272,12 @@ public actor HealthDataRebuildBoundary {
           try Task.checkCancellation()
           let page = try await client.fetchHealthPage(for: stream, after: token)
           try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
+          if stream == .workouts, let writeBackBoundary {
+            for uuid in Set(page.deletedHealthKitUUIDs) {
+              _ = await writeBackBoundary.markDeletedFromHealth(healthKitUUID: uuid)
+            }
+            _ = await writeBackBoundary.reconcileImportedWorkouts(page.workouts)
+          }
           streamPages += 1
           pagesCommitted += 1
           additions += page.workouts.count

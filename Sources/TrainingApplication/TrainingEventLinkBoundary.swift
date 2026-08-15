@@ -303,6 +303,7 @@ public enum TrainingEventLinkError: Error, Equatable, Sendable {
   case warningAcknowledgementRequired
   case confirmationRequired
   case staleCandidate
+  case appAuthoredSummaryDeletionFailed
 }
 
 /// The application seam for explicit external-workout linking. Ranking is
@@ -317,6 +318,7 @@ public struct TrainingEventLinkBoundary: Sendable {
   private let linkRepository: any TrainingEventLinkRepository
   private let clock: any Clock
   private let uuidGenerator: any UUIDGenerator
+  private let writeBackBoundary: HealthWorkoutWriteBackBoundary?
 
   public init(
     cycleRepository: any TrainingCycleRepository,
@@ -324,7 +326,8 @@ public struct TrainingEventLinkBoundary: Sendable {
     healthRepository: any HealthWorkoutRepository,
     linkRepository: any TrainingEventLinkRepository,
     clock: any Clock,
-    uuidGenerator: any UUIDGenerator
+    uuidGenerator: any UUIDGenerator,
+    writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.cycleRepository = cycleRepository
     self.resultRepository = resultRepository
@@ -332,6 +335,7 @@ public struct TrainingEventLinkBoundary: Sendable {
     self.linkRepository = linkRepository
     self.clock = clock
     self.uuidGenerator = uuidGenerator
+    self.writeBackBoundary = writeBackBoundary
   }
 
   public func linkingSnapshot(for sessionID: String) async throws
@@ -392,6 +396,10 @@ public struct TrainingEventLinkBoundary: Sendable {
     let workouts = try await healthRepository.loadHealthWorkouts()
     let persistedLinks = try await linkRepository.loadHealthWorkoutLinkFacts(for: nil)
       .filter(\.isActive)
+    let writeBackRecords = (try? await writeBackBoundary?.records()) ?? []
+    let writeBackBySyncIdentifier = Dictionary(
+      writeBackRecords.map { ($0.syncIdentifier, $0) },
+      uniquingKeysWith: { _, replacement in replacement })
     let checkpoint = try? await healthRepository.loadHealthSyncCheckpoint(for: .workouts)
     let healthCoverage: HealthStreamCoverage =
       checkpoint.map {
@@ -486,9 +494,16 @@ public struct TrainingEventLinkBoundary: Sendable {
             } == true
             ? nil : persistedLink
           let appAuthoredCandidates = workouts.filter {
-            $0.appAuthoredSyncIdentifier
-              == HealthWorkoutWriteBackBoundary.syncIdentifier(for: session.id)
-              && selectedAppAuthoredIDs.contains($0.healthKitUUID)
+            guard
+              $0.appAuthoredSyncIdentifier
+                == HealthWorkoutWriteBackBoundary.syncIdentifier(for: session.id),
+              selectedAppAuthoredIDs.contains($0.healthKitUUID)
+            else { return false }
+            guard let record = writeBackBySyncIdentifier[$0.appAuthoredSyncIdentifier!] else {
+              return true
+            }
+            return record.state != .notShared && record.state != .deletedFromHealth
+              && record.healthKitUUID == $0.healthKitUUID
           }
           let workout =
             link.flatMap { workoutsByID[$0.healthKitUUID] } ?? appAuthoredCandidates.first
@@ -644,6 +659,8 @@ public struct TrainingEventLinkBoundary: Sendable {
       currentCandidate == candidate
     else { throw TrainingEventLinkError.staleCandidate }
 
+    try await deleteAppAuthoredSummaryBeforeExternalLink(sessionID: sessionID)
+
     let fact = HealthWorkoutLinkFact(
       id: uuidGenerator.makeUUID().uuidString,
       healthKitUUID: candidate.healthKitUUID,
@@ -680,6 +697,8 @@ public struct TrainingEventLinkBoundary: Sendable {
     guard let currentCandidate = current.candidates.first(where: { $0.id == candidate.id }),
       currentCandidate == candidate
     else { throw TrainingEventLinkError.staleCandidate }
+
+    try await deleteAppAuthoredSummaryBeforeExternalLink(sessionID: sessionID)
 
     let now = clock.now()
     let completion = CompletedSession(
@@ -730,6 +749,17 @@ public struct TrainingEventLinkBoundary: Sendable {
       activityMatchesStrengthTraining: activityMatches,
       warnings: warnings
     )
+  }
+
+  private func deleteAppAuthoredSummaryBeforeExternalLink(sessionID: String) async throws {
+    guard let writeBackBoundary else { return }
+    do {
+      _ = try await writeBackBoundary.deleteAppAuthoredSummaryForReplacement(sessionID: sessionID)
+    } catch HealthWorkoutWriteBackReplacementError.deletionFailed {
+      throw TrainingEventLinkError.appAuthoredSummaryDeletionFailed
+    } catch {
+      throw TrainingEventLinkError.appAuthoredSummaryDeletionFailed
+    }
   }
 
   private static func candidateRanksBefore(

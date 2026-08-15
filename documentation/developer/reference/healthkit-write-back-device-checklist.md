@@ -56,6 +56,24 @@ HealthKit identifiers, or owner data in evidence artifacts.
     external Health workout. Any duplicate cleanup must name an explicit
     retained object and delete only objects authored by Training Compass.
 
+14. Delete a Training Compass-authored summary in Apple Health. Verify the
+    local Session remains Completed, the detail reports `Deleted from Health`,
+    and no foreground, retry, or read refresh recreates it. Verify the deleted
+    object remains absent from the current Health mirror while the local
+    summary identity is retained.
+15. Reconcile the exact deleted UUID again and verify the existing summary
+    returns to `Saved to Health` without a new write. Reconcile a different UUID
+    carrying the same sync identifier and verify it remains a separate Health
+    Workout until the owner explicitly chooses Restore to Health. Tap Restore
+    to Health and verify a new object is queued/saved with the next sync
+    version and normal failure/access states remain available.
+16. Choose an external Health Workout to replace an app-authored summary.
+    Confirm the action and verify the app-owned object is deleted first and the
+    external link is then created. Force the app-owned deletion to fail and
+    verify no link is created, the prior write-back relationship is unchanged,
+    and a retryable explanation is shown. Confirm an external workout is never
+    deleted or rewritten.
+
 The corresponding automated evidence is `HealthWorkoutWriteBackBoundaryTests`,
 the write-back repository tests, the HealthKit adapter tests, the lifecycle/UI
 integration, and `make verify`.

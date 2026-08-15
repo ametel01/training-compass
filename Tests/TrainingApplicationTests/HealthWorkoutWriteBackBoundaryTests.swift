@@ -221,6 +221,92 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
     XCTAssertEqual(summaries.last?.syncVersion, 2)
   }
 
+  func testExternalDeletionStaysDeletedUntilExplicitRestoreAndExactUUIDCanReconcile() async throws {
+    let repository = WriteBackRepositorySpy()
+    try await repository.saveHealthWorkoutWriteBackPreference(.init(enabled: true))
+    let client = WriteBackClientSpy()
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+    let session = makeCompletedSession()
+    let first = await boundary.queue(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000), choice: .share)
+    XCTAssertEqual(first?.state, .savedToHealth)
+
+    _ = await boundary.markDeletedFromHealth(healthKitUUID: "health-workout")
+    let deleted = try await repository.loadHealthWorkoutWriteBack(sessionID: "session")
+    XCTAssertEqual(deleted?.state, .deletedFromHealth)
+    var saveRequests = await client.saveRequests
+    XCTAssertEqual(saveRequests, 1)
+
+    // Normal queue/retry paths do not recreate an object after the owner's
+    // deletion choice.
+    let queuedAfterDeletion = await boundary.queue(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000), choice: .share)
+    XCTAssertEqual(queuedAfterDeletion?.state, .deletedFromHealth)
+    let retriedAfterDeletion = await boundary.retry(sessionID: "session")
+    XCTAssertEqual(retriedAfterDeletion?.state, .deletedFromHealth)
+    saveRequests = await client.saveRequests
+    XCTAssertEqual(saveRequests, 1)
+
+    // The same UUID returning from Health is safe to reconnect idempotently.
+    let returned = HealthWorkout(
+      healthKitUUID: "health-workout", activityType: HealthWorkoutWriteBackSummary.activityType,
+      startDate: first!.startDate, endDate: first!.endDate, duration: first!.duration,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      appAuthoredSyncIdentifier: first!.syncIdentifier,
+      appAuthoredSyncVersion: first!.syncVersion)
+    _ = await boundary.reconcileImportedWorkouts([returned])
+    let reconciled = try await repository.loadHealthWorkoutWriteBack(sessionID: "session")
+    XCTAssertEqual(reconciled?.state, .savedToHealth)
+    saveRequests = await client.saveRequests
+    XCTAssertEqual(saveRequests, 1)
+
+    _ = await boundary.markDeletedFromHealth(healthKitUUID: "health-workout")
+    let restored = await boundary.restoreToHealth(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000))
+    XCTAssertEqual(restored?.state, .savedToHealth)
+    XCTAssertEqual(restored?.syncVersion, 2)
+    saveRequests = await client.saveRequests
+    XCTAssertEqual(saveRequests, 2)
+    let summaries = await client.summaries
+    XCTAssertEqual(summaries.last?.syncVersion, 2)
+  }
+
+  func testDifferentUUIDDoesNotReplaceExistingSummaryAndDeletionFailureIsRetryable() async throws {
+    let repository = WriteBackRepositorySpy()
+    try await repository.saveHealthWorkoutWriteBackPreference(.init(enabled: true))
+    let client = WriteBackClientSpy()
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+    let session = makeCompletedSession()
+    let saved = await boundary.queue(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000), choice: .share)!
+    _ = await boundary.markDeletedFromHealth(healthKitUUID: saved.healthKitUUID!)
+    let replacement = HealthWorkout(
+      healthKitUUID: "new-health-workout", activityType: HealthWorkoutWriteBackSummary.activityType,
+      startDate: saved.startDate, endDate: saved.endDate, duration: saved.duration,
+      sourceName: "Training Compass",
+      sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier,
+      appAuthoredSyncIdentifier: saved.syncIdentifier,
+      appAuthoredSyncVersion: saved.syncVersion)
+    _ = await boundary.reconcileImportedWorkouts([replacement])
+    let unreconciled = try await repository.loadHealthWorkoutWriteBack(sessionID: "session")
+    XCTAssertEqual(unreconciled?.state, .deletedFromHealth)
+
+    _ = await boundary.restoreToHealth(
+      session: session, completedAt: Date(timeIntervalSince1970: 2_000))
+    await client.setDeleteOutcomes([.failure])
+    do {
+      _ = try await boundary.deleteAppAuthoredSummaryForReplacement(sessionID: "session")
+      XCTFail("A failed HealthKit deletion must prevent replacement")
+    } catch let error as HealthWorkoutWriteBackReplacementError {
+      XCTAssertEqual(error, .deletionFailed)
+    }
+    let afterFailure = try await repository.loadHealthWorkoutWriteBack(sessionID: "session")
+    XCTAssertEqual(afterFailure?.state, .savedToHealth)
+  }
+
   private func makeCompletedSession() -> TodaySessionSnapshot {
     let prescription = TrainingSetPrescription(
       id: "prescription", setNumber: 1, role: .primary, percentage: 0.65,
@@ -296,11 +382,19 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
 
   private(set) var authorizationRequests = 0
   private(set) var saveRequests = 0
+  private(set) var deleteRequests: [String] = []
   private(set) var summaries: [HealthWorkoutWriteBackSummary] = []
   private var authorizationState = HealthAuthorizationState.authorized
   private var saveOutcomes: [SaveOutcome] = []
+  private var deleteOutcomes: [DeleteOutcome] = []
+
+  enum DeleteOutcome: Sendable {
+    case success
+    case failure
+  }
 
   func setSaveOutcomes(_ outcomes: [SaveOutcome]) { saveOutcomes = outcomes }
+  func setDeleteOutcomes(_ outcomes: [DeleteOutcome]) { deleteOutcomes = outcomes }
   func setAuthorizationState(_ state: HealthAuthorizationState) { authorizationState = state }
 
   func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
@@ -336,6 +430,15 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
 
   func workoutExists(syncIdentifier: String) async throws -> Bool {
     summaries.contains { $0.syncIdentifier == syncIdentifier }
+  }
+
+  func deleteWorkout(healthKitUUID: String) async throws {
+    deleteRequests.append(healthKitUUID)
+    guard !deleteOutcomes.isEmpty else { return }
+    switch deleteOutcomes.removeFirst() {
+    case .success: return
+    case .failure: throw WriteBackTerminalFailure()
+    }
   }
 }
 

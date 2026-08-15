@@ -367,6 +367,9 @@ private struct HealthView: View {
         healthStatus = await boundary.healthDataStatus()
         recoveryEvidence = await boundary.recoveryEvidence()
         healthHistory = try await boundary.healthWorkoutHistory()
+        if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
+          writeBackRecords = (try? await writeBackBoundary.records()) ?? writeBackRecords
+        }
         if result.state == .successfulEmpty {
           healthHistory = HealthWorkoutHistorySnapshot(state: .successfulEmpty)
         }
@@ -405,6 +408,9 @@ private struct HealthView: View {
       healthStatus = await boundary.healthDataStatus()
       healthHistory = (try? await boundary.healthWorkoutHistory()) ?? healthHistory
       recoveryEvidence = await boundary.recoveryEvidence()
+      if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
+        writeBackRecords = (try? await writeBackBoundary.records()) ?? writeBackRecords
+      }
     } catch {
       healthStatus = await boundary.healthDataStatus()
       errorMessage =
@@ -2597,6 +2603,17 @@ private struct TodayView: View {
 
   @ViewBuilder
   private func writeBackRecoveryActions(for record: HealthWorkoutWriteBackRecord) -> some View {
+    if record.state == .deletedFromHealth {
+      Button("Restore to Health") {
+        Task { await restoreDeletedWriteBack(record.sessionID) }
+      }
+      .accessibilityIdentifier("today.write-back.restore")
+      Text(
+        "The Health summary was deleted outside Training Compass. Restore creates a new version only when you choose it."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    }
     if record.state == .healthAccessNeeded {
       Button("Check Health Access") {
         Task { await checkWriteBackAccess() }
@@ -2631,6 +2648,17 @@ private struct TodayView: View {
     guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
     writeBackRecord = await boundary.retry(sessionID: sessionID)
     writeBackAccessMessage = nil
+    await reload()
+  }
+
+  private func restoreDeletedWriteBack(_ sessionID: String) async {
+    guard let today, today.session.id == sessionID,
+      let completion = today.completion,
+      let boundary = model.healthWorkoutWriteBackBoundary
+    else { return }
+    writeBackRecord = await boundary.restoreToHealth(
+      session: today,
+      completedAt: Date(timeIntervalSince1970: TimeInterval(completion.confirmedAt)))
     await reload()
   }
 
@@ -2672,6 +2700,10 @@ private struct TodayView: View {
       await reload()
     } catch TrainingEventLinkError.staleCandidate {
       errorMessage = "The Session or Health Workout changed. Review the candidates again."
+      await reload()
+    } catch TrainingEventLinkError.appAuthoredSummaryDeletionFailed {
+      errorMessage =
+        "The Training Compass Health summary could not be deleted. No external link was created; try again."
       await reload()
     } catch {
       errorMessage = "The Training Event link could not be saved."

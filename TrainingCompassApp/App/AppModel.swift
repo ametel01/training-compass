@@ -191,7 +191,10 @@ final class AppModel {
         guard let healthClient = dependencies.healthKit as? any HealthWorkoutClient,
           let healthRepository = repository as? any HealthWorkoutRepository
         else { return nil }
-        return HealthWorkoutImportBoundary(client: healthClient, repository: healthRepository)
+        return HealthWorkoutImportBoundary(
+          client: healthClient,
+          repository: healthRepository,
+          writeBackBoundary: healthWorkoutWriteBackBoundary)
       }(),
       healthDataRebuildBoundary: {
         guard let healthClient = dependencies.healthKit as? any HealthWorkoutClient,
@@ -201,7 +204,8 @@ final class AppModel {
         return HealthDataRebuildBoundary(
           client: healthClient,
           repository: healthRepository,
-          storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider())
+          storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider(),
+          writeBackBoundary: healthWorkoutWriteBackBoundary)
       }(),
       healthWorkoutRouteBoundary: {
         // Deterministic UI acceptance scenarios use synthetic workout IDs and
@@ -229,7 +233,8 @@ final class AppModel {
           healthRepository: healthRepository,
           linkRepository: linkRepository,
           clock: dependencies.clock,
-          uuidGenerator: dependencies.uuidGenerator
+          uuidGenerator: dependencies.uuidGenerator,
+          writeBackBoundary: healthWorkoutWriteBackBoundary
         )
       }(),
       rollingWorkoutOverviewBoundary: {

@@ -1456,7 +1456,8 @@ public actor HealthWorkoutImportBoundary {
   public init(
     client: any HealthWorkoutClient,
     repository: any HealthWorkoutRepository,
-    authorization: HealthAuthorizationSnapshot = .init(state: .notRequested)
+    authorization: HealthAuthorizationSnapshot = .init(state: .notRequested),
+    writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.client = client
     self.repository = repository
@@ -1464,7 +1465,8 @@ public actor HealthWorkoutImportBoundary {
       client: client,
       repository: repository,
       requestedStreams: authorization.requested.readTypes.map(HealthSyncStream.init),
-      authorization: authorization
+      authorization: authorization,
+      writeBackBoundary: writeBackBoundary
     )
     self.authorization = authorization
   }
@@ -1805,6 +1807,7 @@ public actor HealthSyncCoordinator {
   private let repository: any HealthWorkoutRepository
   private let limits: HealthSyncBatchLimits
   private let requestedStreams: [HealthSyncStream]
+  private let writeBackBoundary: HealthWorkoutWriteBackBoundary?
   private var inFlight: Task<HealthSyncResult, Error>?
   private var authorization: HealthAuthorizationSnapshot
   private var statuses: [HealthSyncStream: HealthStreamStatus]
@@ -1814,12 +1817,14 @@ public actor HealthSyncCoordinator {
     repository: any HealthWorkoutRepository,
     limits: HealthSyncBatchLimits = .default,
     requestedStreams: [HealthSyncStream] = [.workouts],
-    authorization: HealthAuthorizationSnapshot = .init(state: .notRequested)
+    authorization: HealthAuthorizationSnapshot = .init(state: .notRequested),
+    writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.client = client
     self.repository = repository
     self.limits = limits
     self.requestedStreams = requestedStreams.isEmpty ? [.workouts] : requestedStreams
+    self.writeBackBoundary = writeBackBoundary
     self.authorization = authorization
     self.statuses = Dictionary(
       uniqueKeysWithValues: self.requestedStreams.map {
@@ -1909,10 +1914,11 @@ public actor HealthSyncCoordinator {
         reconciliation: .updating, lastSuccessfulCheck: current.lastSuccessfulCheck,
         failure: current.failure, attemptCount: current.attemptCount + 1)
     }
-    let task = Task { [client, repository, limits] in
+    let task = Task { [client, repository, limits, writeBackBoundary] in
       try await Self.reconcile(
         client: client, repository: repository, limits: limits, trigger: trigger,
-        streams: activeStreams, workoutProgress: workoutProgress
+        streams: activeStreams, workoutProgress: workoutProgress,
+        writeBackBoundary: writeBackBoundary
       )
     }
     inFlight = task
@@ -1995,7 +2001,8 @@ public actor HealthSyncCoordinator {
     limits: HealthSyncBatchLimits,
     trigger: HealthSyncTrigger,
     streams: [HealthSyncStream],
-    workoutProgress: (@Sendable (HealthWorkoutImportProgress) async -> Void)?
+    workoutProgress: (@Sendable (HealthWorkoutImportProgress) async -> Void)?,
+    writeBackBoundary: HealthWorkoutWriteBackBoundary?
   ) async throws -> HealthSyncResult {
     var outcomes: [StreamOutcome] = []
     var importedCount = 0
@@ -2016,6 +2023,12 @@ public actor HealthSyncCoordinator {
           // reconstructible mirror table yet. The repository decides which
           // source-owned records belong in each mirror.
           try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
+          if stream == .workouts, let writeBackBoundary {
+            for uuid in Set(page.deletedHealthKitUUIDs) {
+              _ = await writeBackBoundary.markDeletedFromHealth(healthKitUUID: uuid)
+            }
+            _ = await writeBackBoundary.reconcileImportedWorkouts(page.workouts)
+          }
           pages += 1
           changed += page.workouts.count + page.recoverySamples(for: stream).count
           deleted += page.deletedHealthKitUUIDs.count
