@@ -3,6 +3,7 @@
 DerivedData/
 *.xcresult
 xcuserdata/
+TrainingCompass.xcodeproj/project.xcworkspace/
 .DS_Store
 evidence/device/*.json
 !evidence/device/.gitkeep

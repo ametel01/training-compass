@@ -3,9 +3,9 @@ set -euo pipefail
 
 milestone=${1:-gate-0}
 case "$milestone" in
-  gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh) ;;
+  gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back) ;;
   *)
-    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh" >&2
+    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back" >&2
     exit 2
     ;;
 esac
@@ -20,14 +20,18 @@ if [[ ! -f "$evidence_path" ]]; then
 fi
 python3 - "$evidence_path" "$milestone" <<'PY'
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 path, milestone = sys.argv[1:]
 record = json.loads(Path(path).read_text())
+current_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 if record.get("result") != "pass":
     raise SystemExit("Release verification refused: device evidence is not passing.")
-if milestone != "personal-team-refresh" and "measurements" not in record:
+if record.get("sourceRevision") != current_revision:
+    raise SystemExit("Release verification refused: device evidence was recorded for another revision.")
+if milestone not in {"personal-team-refresh", "healthkit-write-back"} and "measurements" not in record:
     raise SystemExit("Release verification refused: release measurements are missing.")
 if milestone == "gate-0" and record.get("ownerDataAccepted") is not True:
     raise SystemExit("Release verification refused: owner-data approval is missing.")
@@ -114,5 +118,23 @@ if milestone == "personal-team-refresh":
         "Owner confirmed important local data continuity.",
     ]:
         raise SystemExit("Release verification refused: Personal Team privacy-safe notes are missing.")
+if milestone == "healthkit-write-back":
+    required = {
+        "optInBoundary",
+        "localIndependence",
+        "retryRecovery",
+        "versionReplacement",
+        "correctionReopen",
+        "conflictRepair",
+        "externalDeletion",
+        "exactUUIDRestoration",
+        "ownershipSafeReplacement",
+        "erasureDeletion",
+        "erasureFailureRecovery",
+        "privacy",
+    }
+    checks = record.get("writeBackChecks", {})
+    if not all(checks.get(key) is True for key in required):
+        raise SystemExit("Release verification refused: HealthKit Write-back checks are incomplete.")
 PY
 echo "${milestone} release protocol passed."

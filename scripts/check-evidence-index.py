@@ -21,6 +21,7 @@ REQUIRED_TOP_LEVEL = {
     "compatibility",
     "rawMeasurements",
     "verdicts",
+    "releaseVerdict",
     "waivers",
 }
 REQUIRED_ARTIFACT_PATHS = (
@@ -29,6 +30,8 @@ REQUIRED_ARTIFACT_PATHS = (
     "documentation/developer/reference/migration-compatibility.md",
     "documentation/developer/reference/evidence-index.md",
     "documentation/developer/how-to-guides/record-release-evidence.md",
+    "documentation/developer/reference/final-release-checklist.md",
+    "documentation/developer/reference/healthkit-write-back-device-checklist.md",
     "TrainingCompassApp/Resources/PrivacyInfo.xcprivacy",
 )
 FORBIDDEN_TERMS = {
@@ -100,6 +103,31 @@ def main() -> int:
     for entitlement in entitlements:
         if entitlement.get("keys") != ["com.apple.developer.healthkit"]:
             errors.append("entitlements must contain only the reviewed HealthKit capability")
+    release_verdict = value.get("releaseVerdict")
+    if not isinstance(release_verdict, dict):
+        errors.append("releaseVerdict must be an object")
+    else:
+        if release_verdict.get("milestone") != 6:
+            errors.append("releaseVerdict.milestone must be 6")
+        if release_verdict.get("status") not in {"blocked", "eligible"}:
+            errors.append("releaseVerdict.status must be blocked or eligible")
+        required_milestones = [
+            "gate-0",
+            "health-foundation",
+            "unified-events",
+            "training-insights",
+            "recovery-evidence",
+            "personal-team-refresh",
+        ]
+        if release_verdict.get("requiredMilestones") != required_milestones:
+            errors.append("releaseVerdict.requiredMilestones is incomplete")
+        accepted = release_verdict.get("acceptedMilestones")
+        if not isinstance(accepted, list) or any(item not in required_milestones for item in accepted):
+            errors.append("releaseVerdict.acceptedMilestones is invalid")
+        if not isinstance(release_verdict.get("writeBackEvidence"), bool):
+            errors.append("releaseVerdict.writeBackEvidence must be boolean")
+        if release_verdict.get("gitRevision") != value.get("gitRevision"):
+            errors.append("releaseVerdict.gitRevision must match gitRevision")
     if errors:
         print("Evidence index check failed:", file=sys.stderr)
         for error in errors:

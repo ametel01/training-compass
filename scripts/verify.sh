@@ -8,6 +8,7 @@ python3 ./scripts/check-personal-team-refresh.py
 make verify-performance
 ./scripts/check-privacy.sh
 make verify-evidence
+python3 ./scripts/check-final-release.py
 ./scripts/generate-fixtures.sh
 swift build
 swift test

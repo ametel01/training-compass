@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 
 subprocess_environment = os.environ.copy()
@@ -141,7 +142,7 @@ def sanitized_checks(value: object) -> object:
 def sanitized_device_evidence(record: dict) -> dict:
     sanitized = {
         key: record[key]
-        for key in ("build", "deviceModel", "iOSVersion", "milestone", "ownerDataAccepted", "result")
+        for key in ("build", "deviceModel", "iOSVersion", "milestone", "ownerDataAccepted", "result", "sourceRevision")
         if key in record
     }
     sanitized["measurements"] = measurement_evidence(record)
@@ -156,6 +157,7 @@ unified_events_evidence = device_evidence("unified-events")
 training_insights_evidence = device_evidence("training-insights")
 recovery_evidence = device_evidence("recovery-evidence")
 personal_team_refresh_evidence = device_evidence("personal-team-refresh")
+healthkit_write_back_evidence = device_evidence("healthkit-write-back")
 automated_pass = acceptance_result == 0 and all(
     os.environ.get(name) == "pass"
     for name in ("VERIFY_RESULT", "MIGRATION_RESULT", "PRIVACY_RESULT", "UI_RESULT")
@@ -244,6 +246,70 @@ personal_team_refresh_accepted = (
     and all(personal_team_checks.get(key) is True for key in required_personal_team_checks)
     and automated_pass
 )
+write_back_checks = healthkit_write_back_evidence.get("writeBackChecks", {})
+required_write_back_checks = {
+    "optInBoundary",
+    "localIndependence",
+    "retryRecovery",
+    "versionReplacement",
+    "correctionReopen",
+    "conflictRepair",
+    "externalDeletion",
+    "exactUUIDRestoration",
+    "ownershipSafeReplacement",
+    "erasureDeletion",
+    "erasureFailureRecovery",
+    "privacy",
+}
+write_back_accepted = (
+    healthkit_write_back_evidence.get("result") == "pass"
+    and all(write_back_checks.get(key) is True for key in required_write_back_checks)
+    and automated_pass
+)
+def check_release_measurements(milestone: str, record: dict) -> bool:
+    if milestone == "personal-team-refresh":
+        return True
+    path = Path(f"evidence/device/{milestone}.json")
+    if not path.exists():
+        return False
+    measurements = record.get("measurements")
+    if not isinstance(measurements, dict):
+        return False
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as temporary:
+        json.dump(measurements, temporary)
+        temporary_path = Path(temporary.name)
+    command = ["python3", "scripts/check-release-envelope.py", str(temporary_path), "--require-protocol"]
+    if milestone == "unified-events" and record.get("unifiedEventChecks", {}).get("routeOnDemand") == "notAvailable":
+        command.append("--route-not-available")
+    try:
+        return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+release_measurements_accepted = all(
+    check_release_measurements(milestone, record)
+    for milestone, record in (
+        ("gate-0", gate_zero_evidence),
+        ("health-foundation", health_foundation_evidence),
+        ("unified-events", unified_events_evidence),
+        ("training-insights", training_insights_evidence),
+        ("recovery-evidence", recovery_evidence),
+        ("personal-team-refresh", personal_team_refresh_evidence),
+    )
+)
+accepted_milestones = [
+    milestone
+    for milestone, accepted in (
+        ("gate-0", owner_data_accepted),
+        ("health-foundation", health_foundation_accepted),
+        ("unified-events", unified_events_accepted),
+        ("training-insights", training_insights_accepted),
+        ("recovery-evidence", recovery_evidence_accepted),
+        ("personal-team-refresh", personal_team_refresh_accepted and release_measurements_accepted),
+    )
+    if accepted
+]
+release_eligible = len(accepted_milestones) == 6 and write_back_accepted
 entitlements = [
     {
         "path": str(path),
@@ -256,6 +322,7 @@ git_revision = output("git", "rev-parse", "HEAD")
 commands = [
     "make bootstrap",
     "make verify",
+    "make verify-final-release",
     "make acceptance",
     "make test-ui",
     "make fixtures",
@@ -323,6 +390,7 @@ record = {
             "trainingInsights": sanitized_device_evidence(training_insights_evidence),
             "recoveryEvidence": sanitized_device_evidence(recovery_evidence),
             "personalTeamRefresh": sanitized_device_evidence(personal_team_refresh_evidence),
+            "healthkitWriteBack": sanitized_device_evidence(healthkit_write_back_evidence),
         },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
@@ -361,6 +429,21 @@ record = {
     },
     "healthFoundationAccepted": health_foundation_accepted,
     "ownerDataAccepted": owner_data_accepted,
+    "releaseVerdict": {
+        "milestone": 6,
+        "status": "eligible" if release_eligible else "blocked",
+        "acceptedMilestones": accepted_milestones,
+        "writeBackEvidence": write_back_accepted,
+        "requiredMilestones": [
+            "gate-0",
+            "health-foundation",
+            "unified-events",
+            "training-insights",
+            "recovery-evidence",
+            "personal-team-refresh",
+        ],
+        "gitRevision": git_revision,
+    },
     "platform": platform.platform(),
     "swiftVersion": output("swift", "--version").splitlines()[0],
     "compatibility": migration_evidence(),
@@ -372,7 +455,7 @@ record = {
         "migrationGate": automated_verdict("MIGRATION_RESULT"),
         "performanceGate": "pass" if performance_result == 0 else "fail",
         "privacyGate": automated_verdict("PRIVACY_RESULT"),
-        "releaseGate": "eligible" if owner_data_accepted else "blocked",
+        "releaseGate": "eligible" if release_eligible else "blocked",
         "uiGate": automated_verdict("UI_RESULT"),
         "unifiedEventsGate": "eligible" if unified_events_accepted else "blocked",
         "trainingInsightsGate": "eligible" if training_insights_accepted else "blocked",
@@ -383,6 +466,7 @@ record = {
     "trainingInsightsAccepted": training_insights_accepted,
     "recoveryEvidenceAccepted": recovery_evidence_accepted,
     "personalTeamRefreshAccepted": personal_team_refresh_accepted,
+    "writeBackAccepted": write_back_accepted,
     "waivers": [],
 }
 encoded = json.dumps(record, indent=2, sort_keys=True) + "\n"

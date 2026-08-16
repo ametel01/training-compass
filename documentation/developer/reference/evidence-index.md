@@ -13,10 +13,11 @@ The index has a closed top-level contract:
 | `commands` and `commandRevisions` | Canonical commands and the revision that produced each result. |
 | `environment` | Coarse host, Swift, and Xcode metadata; no device identifier or owner data. |
 | `fixtureSeed` and `algorithmVersions` | Deterministic fixture and migration/performance algorithm identities. |
-| `artifacts` | Hashes and sanitized references for the matrix, runbooks, dependency graph, capabilities, entitlements, privacy manifest, logging allowlist, migration table, and milestone results. |
+| `artifacts` | Hashes and sanitized references for the matrix, runbooks, dependency graph, capabilities, entitlements, privacy manifest, logging allowlist, migration table, and milestone results. Each attended result carries the source revision used to collect it. |
 | `compatibility` | Historical migration/export compatibility summary and fixture hash. |
 | `rawMeasurements` | Only the named release-envelope measurements and coarse device conditions. |
 | `verdicts` | Automated and attended milestone decisions. Missing device evidence remains `blocked`. |
+| `releaseVerdict` | Milestone 6 status, required/accepted milestone list, dedicated Write-back evidence result, and the exact revision used for the final release decision. |
 | `waivers` | Empty or explicit owner-accepted, time-bounded waivers with measurement, comparison, scope, effect, and expiry. |
 
 The dependency graph is reduced to package identity, version, and dependency

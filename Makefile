@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify verify-performance verify-evidence test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
+.PHONY: help bootstrap verify verify-performance verify-evidence verify-final-release test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
 
 help:
 	@echo "Training Compass Gate 0 commands"
@@ -9,16 +9,17 @@ help:
 	@echo "  make verify"
 	@echo "  make verify-performance"
 	@echo "  make verify-evidence"
+	@echo "  make verify-final-release"
 	@echo "  make acceptance"
 	@echo "  make test-ui"
 	@echo "  make fixtures"
 	@echo "  make verify-migrations"
-	@echo "  make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh"
+	@echo "  make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back"
 	@echo "  make device-smoke MILESTONE=health-foundation"
 	@echo "  make device-smoke MILESTONE=unified-events"
 	@echo "  make device-smoke MILESTONE=training-insights"
 	@echo "  make device-smoke MILESTONE=recovery-evidence"
-	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh"
+	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back"
 	@echo "  make evidence"
 	@echo "  make personal-team-refresh"
 	@echo "  make install-personal-team-refresh-reminder"
@@ -35,6 +36,9 @@ verify-performance:
 
 verify-evidence:
 	@python3 ./scripts/check-evidence-index.py
+
+verify-final-release:
+	@./scripts/verify-final-release.sh
 
 acceptance:
 	@python3 ./scripts/check-acceptance.py

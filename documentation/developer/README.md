@@ -73,11 +73,18 @@ measurements, verdicts, milestone records, and waivers. See the [evidence
 index reference](reference/evidence-index.md) and [release evidence
 runbook](how-to-guides/record-release-evidence.md).
 
+Issue #48 adds the final release-hardening gate. `make verify-final-release`
+repeats the automated checks, requires all six owner-usable Acceptance Device
+records plus the dedicated Write-back/erasure record, regenerates the
+exact-revision evidence index, and accepts only an eligible Milestone 6 release
+verdict. See the [final release checklist](reference/final-release-checklist.md).
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)
 - [Release-candidate checklist](reference/release-candidate-checklist.md)
 - [Personal Team refresh checklist](reference/personal-team-refresh-device-checklist.md)
+- [Final release checklist](reference/final-release-checklist.md)
 
 ## Reference
 

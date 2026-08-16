@@ -2,8 +2,8 @@
 set -euo pipefail
 
 milestone=${1:-}
-if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" && "$milestone" != "recovery-evidence" && "$milestone" != "personal-team-refresh" ]]; then
-  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh" >&2
+if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" && "$milestone" != "recovery-evidence" && "$milestone" != "personal-team-refresh" && "$milestone" != "healthkit-write-back" ]]; then
+  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back" >&2
   exit 2
 fi
 
@@ -29,6 +29,10 @@ if [[ "$milestone" == "personal-team-refresh" ]]; then
   checklist="documentation/developer/reference/personal-team-refresh-device-checklist.md"
   evidence_name="personal-team-refresh"
 fi
+if [[ "$milestone" == "healthkit-write-back" ]]; then
+  checklist="documentation/developer/reference/healthkit-write-back-device-checklist.md"
+  evidence_name="healthkit-write-back"
+fi
 cat "$checklist"
 
 if [[ -z "${RESULT:-}" ]]; then
@@ -44,7 +48,7 @@ fi
 : "${DEVICE_MODEL:?DEVICE_MODEL is required}"
 : "${IOS_VERSION:?IOS_VERSION is required}"
 if [[ "$RESULT" == "pass" ]]; then
-  if [[ "$milestone" != "personal-team-refresh" ]]; then
+  if [[ "$milestone" != "personal-team-refresh" && "$milestone" != "healthkit-write-back" ]]; then
     : "${MEASUREMENTS_FILE:?MEASUREMENTS_FILE is required for a passing release record}"
     if [[ "$milestone" == "unified-events" && "${UNIFIED_ROUTE_ON_DEMAND:-}" == "not_available" ]]; then
       python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available --require-protocol
@@ -55,14 +59,15 @@ if [[ "$RESULT" == "pass" ]]; then
 fi
 
 mkdir -p evidence/device
-python3 - "$RESULT" "$DEVICE_MODEL" "$IOS_VERSION" "${MEASUREMENTS_FILE:-}" "$milestone" "$evidence_name" <<'PY'
+source_revision=$(git rev-parse HEAD)
+python3 - "$RESULT" "$DEVICE_MODEL" "$IOS_VERSION" "${MEASUREMENTS_FILE:-}" "$milestone" "$evidence_name" "$source_revision" <<'PY'
 import json
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-result, device, ios, measurements_path, milestone, evidence_name = sys.argv[1:]
+result, device, ios, measurements_path, milestone, evidence_name, source_revision = sys.argv[1:]
 record = {
     "build": evidence_name,
     "deviceModel": device,
@@ -71,6 +76,7 @@ record = {
     "ownerDataAccepted": result == "pass",
     "recordedAt": datetime.now(timezone.utc).isoformat(),
     "result": result,
+    "sourceRevision": source_revision,
 }
 if measurements_path:
     record["measurements"] = json.loads(Path(measurements_path).read_text())
@@ -154,6 +160,23 @@ check_schemas = {
             "PERSONAL_TEAM_LAUNCH": "launchSmokeTest",
             "PERSONAL_TEAM_DATA_CONTINUITY": "dataContinuity",
             "PERSONAL_TEAM_PRIVACY": "privacy",
+        },
+    ),
+    "healthkit-write-back": (
+        "writeBackChecks",
+        {
+            "WRITE_BACK_OPT_IN": "optInBoundary",
+            "WRITE_BACK_LOCAL_INDEPENDENCE": "localIndependence",
+            "WRITE_BACK_RETRY_RECOVERY": "retryRecovery",
+            "WRITE_BACK_VERSION_REPLACEMENT": "versionReplacement",
+            "WRITE_BACK_CORRECTION_REOPEN": "correctionReopen",
+            "WRITE_BACK_CONFLICT_REPAIR": "conflictRepair",
+            "WRITE_BACK_EXTERNAL_DELETION": "externalDeletion",
+            "WRITE_BACK_EXACT_UUID_RESTORATION": "exactUUIDRestoration",
+            "WRITE_BACK_OWNERSHIP_SAFE_REPLACEMENT": "ownershipSafeReplacement",
+            "WRITE_BACK_ERASURE_DELETION": "erasureDeletion",
+            "WRITE_BACK_ERASURE_FAILURE_RECOVERY": "erasureFailureRecovery",
+            "WRITE_BACK_PRIVACY": "privacy",
         },
     ),
 }
