@@ -1,13 +1,14 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify verify-performance test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
+.PHONY: help bootstrap verify verify-performance verify-evidence test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
 
 help:
 	@echo "Training Compass Gate 0 commands"
 	@echo "  make bootstrap"
 	@echo "  make verify"
 	@echo "  make verify-performance"
+	@echo "  make verify-evidence"
 	@echo "  make acceptance"
 	@echo "  make test-ui"
 	@echo "  make fixtures"
@@ -31,6 +32,9 @@ verify:
 verify-performance:
 	@python3 ./scripts/check-verification-envelope.py fixtures/verification-envelope.json
 	@python3 ./scripts/check-performance-protocol.py fixtures/performance-protocol.json
+
+verify-evidence:
+	@python3 ./scripts/check-evidence-index.py
 
 acceptance:
 	@python3 ./scripts/check-acceptance.py

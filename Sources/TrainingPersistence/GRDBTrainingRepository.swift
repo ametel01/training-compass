@@ -64,6 +64,15 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     GRDBTrainingRepository(applicationRoot: root)
   }
 
+  public static func applicationDataRoot(fallback root: URL) -> URL {
+    #if targetEnvironment(simulator)
+      return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appending(path: "TrainingCompass", directoryHint: .isDirectory)
+    #else
+      return root
+    #endif
+  }
+
   public func prepareStores() async throws {
     if stores == nil {
       try recoverPendingErasure()
@@ -119,6 +128,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       )
       try removeIfPresent(locations.authoritativeDirectory)
       try removeIfPresent(locations.reconstructibleDirectory)
+      try removeIfPresent(locations.diagnosticsDirectory)
 
       try reachErasurePhase(
         .removingTemporaryExports,
@@ -3003,13 +3013,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private func actualLocations() -> StoreLocations {
-    #if targetEnvironment(simulator)
-      let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appending(path: "TrainingCompass", directoryHint: .isDirectory)
-      return StoreLocations(root: simulatorRoot)
-    #else
-      return StoreLocations(root: root)
-    #endif
+    StoreLocations(root: Self.applicationDataRoot(fallback: root))
   }
 
   private func erasureMarker(for locations: StoreLocations) -> URL {
@@ -3023,6 +3027,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     do {
       try removeIfPresent(locations.authoritativeDirectory)
       try removeIfPresent(locations.reconstructibleDirectory)
+      try removeIfPresent(locations.diagnosticsDirectory)
       try removeIfPresent(temporaryExportDirectory)
       try erasurePreferences.removeAll()
       try removeIfPresent(marker)

@@ -7,6 +7,7 @@ python3 ./scripts/check-acceptance.py
 python3 ./scripts/check-personal-team-refresh.py
 make verify-performance
 ./scripts/check-privacy.sh
+make verify-evidence
 ./scripts/generate-fixtures.sh
 swift build
 swift test

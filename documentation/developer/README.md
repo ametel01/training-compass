@@ -63,6 +63,16 @@ protocol metadata before accepting a passing release measurement; rebuild work
 pauses at the next durable page under constrained resources and resumes
 without destructive mutation.
 
+Issue #47 adds the bounded production diagnostic store and the final evidence
+handoff. Diagnostics keep only the newest seven days or 200 events, serialize
+only the operation, duration, record/byte counts, peak memory, result category,
+and coarse device conditions, and leave export plus cleanup explicit. The
+evidence index sanitizes dependency metadata and records command revisions,
+fixture and algorithm versions, environment, compatibility results, raw
+measurements, verdicts, milestone records, and waivers. See the [evidence
+index reference](reference/evidence-index.md) and [release evidence
+runbook](how-to-guides/record-release-evidence.md).
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)
@@ -82,6 +92,7 @@ without destructive mutation.
 - [Recovery Evidence and Guidance device checklist](reference/recovery-evidence-device-checklist.md)
 - [Unified Events and Enrichment device checklist](reference/unified-events-device-checklist.md)
 - [Migration compatibility](reference/migration-compatibility.md)
+- [Evidence index](reference/evidence-index.md)
 - [Privacy checklist](reference/privacy-checklist.md)
 
 ## Explanation

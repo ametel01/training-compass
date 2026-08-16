@@ -49,6 +49,19 @@ for module, allowed in ALLOWED_IMPORTS.items():
             if imported not in allowed:
                 errors.append(f"{source.relative_to(ROOT)} imports forbidden module {imported}")
 
+# HealthKit framework records and route coordinates must not become application
+# or persistence API types. The adapter is the only allowed owner of HK* names.
+framework_record_pattern = re.compile(r"\bHK[A-Z][A-Za-z0-9_]*\b")
+for directory in (ROOT / "Sources/TrainingDomain", ROOT / "Sources/TrainingInsights",
+                  ROOT / "Sources/TrainingApplication", ROOT / "Sources/TrainingPersistence",
+                  ROOT / "TrainingCompassApp"):
+    for source in sorted(directory.rglob("*.swift")):
+        matches = framework_record_pattern.findall(source.read_text())
+        if matches:
+            errors.append(
+                f"{source.relative_to(ROOT)} exposes framework records: {sorted(set(matches))}"
+            )
+
 swift_environment = os.environ.copy()
 # Apple's Python launcher can inject the Command Line Tools SDKROOT even when
 # xcode-select points at full Xcode. Let Swift resolve the SDK from the active

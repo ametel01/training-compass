@@ -57,7 +57,22 @@ def automated_verdict(name: str) -> str:
         raise SystemExit(f"{name} must be pass, fail, or not_run")
     return value
 
-dependency_graph = json.loads(output("swift", "package", "show-dependencies", "--format", "json"))
+raw_dependency_graph = json.loads(output("swift", "package", "show-dependencies", "--format", "json"))
+
+def sanitized_dependency(node: dict) -> dict:
+    return {
+        key: node[key]
+        for key in ("identity", "name", "version")
+        if key in node and node[key] not in (None, "unspecified")
+    } | {
+        "dependencies": [
+            sanitized_dependency(child)
+            for child in node.get("dependencies", [])
+            if isinstance(child, dict)
+        ]
+    }
+
+dependency_graph = sanitized_dependency(raw_dependency_graph)
 def device_evidence(milestone: str) -> dict:
     path = Path(f"evidence/device/{milestone}.json")
     if path.exists():
@@ -79,6 +94,61 @@ def fixture_evidence(path: str, result: str) -> dict:
         record["schemaVersion"] = value.get("schemaVersion", value.get("version"))
         record["algorithmVersion"] = value.get("algorithmVersion")
     return record
+
+def artifact(path: str) -> dict:
+    value = Path(path)
+    return {
+        "path": path,
+        "sha256": sha256(path) if value.exists() else None,
+        "result": "present" if value.exists() else "missing",
+    }
+
+def measurement_evidence(record: dict) -> dict:
+    allowed = {
+        "coldLaunchP95Ms", "foregroundResumeP95Ms", "localMutationP95Ms",
+        "ordinaryQueryP95Ms", "insightP95Ms", "recoveryImportP95Ms",
+        "recoveryBaselineP95Ms", "recoveryGuidanceP95Ms", "routeProcessingP95Ms",
+        "foregroundPeakMiB", "backgroundPeakMiB", "combinedStoresGiB",
+        "authoritativeStoreMiB", "routeGeometryMiB", "authoritativeMigrationP95S",
+        "reconstructibleMigrationP95S", "exportImportStagingP95S", "backgroundSliceS",
+        "storageAvailableMiB", "healthReconciliationP95S", "healthRebuildP95S",
+        "healthForegroundPeakMiB", "recoveryPeakMiB", "recoveryPageRecords",
+        "recoveryTransientBufferMiB", "mainActorContinuousSliceP95Ms",
+        "firstHealthContentP95S", "dailyDeltaProcessingP95S",
+        "fullEnvelopeProcessingP95Minutes", "healthKitWaitP95S",
+        "appControlledReconciliationP95S", "normalUseBatteryDeltaPercent",
+        "rebuildBatteryDeltaPercent", "normalUseThermalState", "rebuildThermalState",
+        "normalUseEnergyBudgetPass", "rebuildEnergyBudgetPass", "lowPowerPausePass",
+        "batteryPausePass", "thermalPausePass", "interruptionRecovery",
+    }
+    measurements = record.get("measurements", {})
+    return {
+        "result": record.get("result", "missing"),
+        "deviceModel": record.get("deviceModel", "not_recorded"),
+        "iOSVersion": record.get("iOSVersion", "not_recorded"),
+        "measurements": {key: measurements[key] for key in sorted(allowed) if key in measurements},
+    }
+
+def sanitized_checks(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: sanitized_checks(child)
+            for key, child in value.items()
+            if isinstance(child, (bool, dict)) or child in {"verified", "notAvailable", "failed"}
+        }
+    return value if isinstance(value, bool) else None
+
+def sanitized_device_evidence(record: dict) -> dict:
+    sanitized = {
+        key: record[key]
+        for key in ("build", "deviceModel", "iOSVersion", "milestone", "ownerDataAccepted", "result")
+        if key in record
+    }
+    sanitized["measurements"] = measurement_evidence(record)
+    for key, value in record.items():
+        if key.endswith("Checks") and isinstance(value, dict):
+            sanitized[key] = sanitized_checks(value)
+    return sanitized
 
 gate_zero_evidence = device_evidence("gate-0")
 health_foundation_evidence = device_evidence("health-foundation")
@@ -174,59 +244,115 @@ personal_team_refresh_accepted = (
     and all(personal_team_checks.get(key) is True for key in required_personal_team_checks)
     and automated_pass
 )
-entitlements = [str(path) for path in Path(".").rglob("*.entitlements") if ".build" not in path.parts]
+entitlements = [
+    {
+        "path": str(path),
+        "keys": sorted(json.loads(output("plutil", "-convert", "json", "-o", "-", str(path))).keys()),
+    }
+    for path in Path(".").rglob("*.entitlements")
+    if ".build" not in path.parts
+]
+git_revision = output("git", "rev-parse", "HEAD")
+commands = [
+    "make bootstrap",
+    "make verify",
+    "make acceptance",
+    "make test-ui",
+    "make fixtures",
+    "make verify-migrations",
+    "make verify-performance",
+    "make device-smoke MILESTONE=gate-0",
+    "make device-smoke MILESTONE=health-foundation",
+    "make device-smoke MILESTONE=unified-events",
+    "make device-smoke MILESTONE=training-insights",
+    "make device-smoke MILESTONE=recovery-evidence",
+    "make device-smoke MILESTONE=personal-team-refresh",
+    "make verify-release MILESTONE=gate-0",
+    "make verify-release MILESTONE=health-foundation",
+    "make verify-release MILESTONE=unified-events",
+    "make verify-release MILESTONE=training-insights",
+    "make verify-release MILESTONE=recovery-evidence",
+    "make verify-release MILESTONE=personal-team-refresh",
+    "make evidence",
+]
+fixture_versions = {
+    name: fixture_evidence(path, "pass" if result == 0 else "fail")
+    for name, path, result in (
+        ("verificationEnvelope", "fixtures/verification-envelope.json", performance_result),
+        ("performanceProtocol", "fixtures/performance-protocol.json", performance_result),
+        ("migrationCompatibility", "fixtures/migration-compatibility.json", 0),
+    )
+}
+milestone_evidence = {
+    "gate0": measurement_evidence(gate_zero_evidence),
+    "healthFoundation": measurement_evidence(health_foundation_evidence),
+    "unifiedEvents": measurement_evidence(unified_events_evidence),
+    "trainingInsights": measurement_evidence(training_insights_evidence),
+    "recoveryEvidence": measurement_evidence(recovery_evidence),
+    "personalTeamRefresh": measurement_evidence(personal_team_refresh_evidence),
+}
 record = {
-    "commands": [
-        "make bootstrap",
-        "make verify",
-        "make acceptance",
-        "make test-ui",
-        "make fixtures",
-        "make verify-migrations",
-        "make verify-performance",
-        "make device-smoke MILESTONE=gate-0",
-        "make device-smoke MILESTONE=health-foundation",
-        "make device-smoke MILESTONE=unified-events",
-        "make device-smoke MILESTONE=training-insights",
-        "make device-smoke MILESTONE=recovery-evidence",
-        "make device-smoke MILESTONE=personal-team-refresh",
-        "make verify-release MILESTONE=gate-0",
-        "make verify-release MILESTONE=health-foundation",
-        "make verify-release MILESTONE=unified-events",
-        "make verify-release MILESTONE=training-insights",
-        "make verify-release MILESTONE=recovery-evidence",
-        "make verify-release MILESTONE=personal-team-refresh",
-        "make evidence",
-    ],
+    "schemaVersion": 1,
+    "commands": commands,
+    "commandRevisions": [{"command": command, "revision": git_revision} for command in commands],
     "fixtureSeed": 21571,
-    "gitRevision": output("git", "rev-parse", "HEAD"),
+    "gitRevision": git_revision,
+    "environment": {
+        "platform": platform.platform(),
+        "architecture": platform.machine(),
+        "swiftVersion": output("swift", "--version").splitlines()[0],
+        "xcodeVersion": (output("xcodebuild", "-version") if subprocess.run(["xcodebuild", "-version"], env=subprocess_environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 else "unavailable"),
+    },
+    "algorithmVersions": {
+        "verificationEnvelope": "verification-envelope-lcg-v1",
+        "performanceProtocol": "release-performance-protocol-v1",
+        "migrationCompatibility": "migration-compatibility-v1",
+        "diagnosticSchema": "privacy-diagnostic-v1",
+    },
     "artifacts": {
         "acceptanceMatrix": "documentation/developer/reference/acceptance-matrix.md",
         "acceptanceMatrixSha256": sha256("documentation/developer/reference/acceptance-matrix.md"),
         "releaseCandidateChecklist": "documentation/developer/reference/release-candidate-checklist.md",
         "releaseCandidateChecklistSha256": sha256("documentation/developer/reference/release-candidate-checklist.md"),
         "acceptanceContract": "pass" if acceptance_result == 0 else "fail",
-        "deviceEvidence": gate_zero_evidence,
+        "deviceEvidence": sanitized_device_evidence(gate_zero_evidence),
         "milestoneDeviceEvidence": {
-            "gate0": gate_zero_evidence,
-            "healthFoundation": health_foundation_evidence,
-            "unifiedEvents": unified_events_evidence,
-            "trainingInsights": training_insights_evidence,
-            "recoveryEvidence": recovery_evidence,
-            "personalTeamRefresh": personal_team_refresh_evidence,
+            "gate0": sanitized_device_evidence(gate_zero_evidence),
+            "healthFoundation": sanitized_device_evidence(health_foundation_evidence),
+            "unifiedEvents": sanitized_device_evidence(unified_events_evidence),
+            "trainingInsights": sanitized_device_evidence(training_insights_evidence),
+            "recoveryEvidence": sanitized_device_evidence(recovery_evidence),
+            "personalTeamRefresh": sanitized_device_evidence(personal_team_refresh_evidence),
         },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
+        "capabilities": {
+            "healthKit": True,
+            "requiredDeviceCapabilities": ["arm64"],
+            "networking": False,
+            "remoteConfiguration": False,
+            "analytics": False,
+            "crashReporting": False,
+        },
         "fileAttributeVerification": gate_zero_evidence.get("result", "missing"),
-        "loggingAllowlist": ["pre_data_stores_ready", "pre_data_stores_failed"],
+        "loggingAllowlist": [
+            "pre_data_stores_ready",
+            "pre_data_stores_failed",
+            "operation",
+            "durationMilliseconds",
+            "recordCount",
+            "byteCount",
+            "peakMemoryMiB",
+            "resultCategory",
+            "deviceConditions",
+        ],
         "migrationVerification": automated_verdict("MIGRATION_RESULT"),
         "migrationCompatibility": migration_evidence(),
-        "verificationEnvelope": fixture_evidence(
-            "fixtures/verification-envelope.json", "pass" if performance_result == 0 else "fail"
-        ),
-        "performanceProtocol": fixture_evidence(
-            "fixtures/performance-protocol.json", "pass" if performance_result == 0 else "fail"
-        ),
+        "verificationEnvelope": fixture_versions["verificationEnvelope"],
+        "performanceProtocol": fixture_versions["performanceProtocol"],
+        "migrationTable": artifact("documentation/developer/reference/migration-compatibility.md"),
+        "evidenceIndexReference": artifact("documentation/developer/reference/evidence-index.md"),
+        "releaseRunbook": artifact("documentation/developer/how-to-guides/record-release-evidence.md"),
         "privacyManifest": {
             "path": "TrainingCompassApp/Resources/PrivacyInfo.xcprivacy",
             "sha256": sha256("TrainingCompassApp/Resources/PrivacyInfo.xcprivacy"),
@@ -237,6 +363,8 @@ record = {
     "ownerDataAccepted": owner_data_accepted,
     "platform": platform.platform(),
     "swiftVersion": output("swift", "--version").splitlines()[0],
+    "compatibility": migration_evidence(),
+    "rawMeasurements": milestone_evidence,
     "verdicts": {
         "automatedChangeGate": automated_verdict("VERIFY_RESULT"),
         "acceptanceMatrixGate": "pass" if acceptance_result == 0 else "fail",
@@ -262,3 +390,4 @@ path = Path("evidence/gate-zero-environment.json")
 path.write_text(encoded)
 print(path)
 PY
+python3 scripts/check-evidence-index.py

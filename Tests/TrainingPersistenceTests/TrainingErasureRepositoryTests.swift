@@ -6,6 +6,14 @@ import XCTest
 @testable import TrainingPersistence
 
 final class TrainingErasureRepositoryTests: XCTestCase {
+  func testApplicationDiagnosticsRootMatchesRepositoryStoreRoot() {
+    let fallback = temporaryRoot("path")
+    let applicationRoot = GRDBTrainingRepository.applicationDataRoot(fallback: fallback)
+    XCTAssertEqual(
+      StoreLocations(root: applicationRoot).diagnosticsDirectory,
+      applicationRoot.appending(path: "diagnostics", directoryHint: .isDirectory))
+  }
+
   func testConfirmedErasureClosesAndRemovesBothStoresAndTemporaryExports() async throws {
     let root = temporaryRoot("complete")
     let exports = root.appending(path: "temporary-exports", directoryHint: .isDirectory)
@@ -27,6 +35,10 @@ final class TrainingErasureRepositoryTests: XCTestCase {
     try Data("shared-locally-only".utf8).write(
       to: exports.appending(path: "archive.trainingcompass"))
     let locations = StoreLocations(root: root)
+    try FileManager.default.createDirectory(
+      at: locations.diagnosticsDirectory, withIntermediateDirectories: true)
+    try Data("privacy-safe-diagnostic".utf8).write(
+      to: locations.diagnosticsDirectory.appending(path: "diagnostic.json"))
 
     try await repository.eraseAllData(progress: nil)
 
@@ -38,6 +50,8 @@ final class TrainingErasureRepositoryTests: XCTestCase {
     XCTAssertFalse(
       FileManager.default.fileExists(
         atPath: root.appending(path: "training-compass-erasure.pending").path()))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: locations.diagnosticsDirectory.path()))
     let removeCalls = preferences.removeCallCount
     XCTAssertEqual(removeCalls, 1)
 

@@ -15,6 +15,10 @@ public struct StoreLocations: Equatable, Sendable {
     root.appending(path: "reconstructible", directoryHint: .isDirectory)
   }
 
+  public var diagnosticsDirectory: URL {
+    root.appending(path: "diagnostics", directoryHint: .isDirectory)
+  }
+
   public var authoritativeDatabase: URL {
     authoritativeDirectory.appending(path: "authoritative.sqlite", directoryHint: .notDirectory)
   }

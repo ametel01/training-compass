@@ -123,12 +123,20 @@ final class AppModel {
   static func live() -> AppModel {
     UIDevice.current.isBatteryMonitoringEnabled = true
     let fileSystem = FoundationApplicationFileSystem()
+    let applicationRoot: URL?
     let repository: any TrainingRepository
     do {
       let root = try fileSystem.applicationSupportDirectory()
+      applicationRoot = root
       repository = GRDBTrainingRepository.applicationRepository(root: root)
     } catch {
+      applicationRoot = nil
       repository = UnavailableTrainingRepository()
+    }
+    let diagnosticStore = applicationRoot.map {
+      PrivacyDiagnosticStore(
+        directory: GRDBTrainingRepository.applicationDataRoot(fallback: $0)
+          .appending(path: "diagnostics", directoryHint: .isDirectory))
     }
     let dependencies = ApplicationDependencies(
       clock: SystemClock(),
@@ -140,7 +148,7 @@ final class AppModel {
       importFileSystem: FoundationTrainingImportFileSystem(),
       repository: repository,
       healthKit: PreDataHealthKitAdapter(),
-      logger: UnifiedPrivacyLogger()
+      logger: UnifiedPrivacyLogger(store: diagnosticStore)
     )
     let healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary? = {
       guard let writeBackClient = dependencies.healthKit as? any HealthWorkoutWriteBackClient,
@@ -350,12 +358,38 @@ private struct FoundationApplicationFileSystem: ApplicationFileSystem {
 }
 
 private actor UnifiedPrivacyLogger: PrivacyLogger {
+  private let store: PrivacyDiagnosticStore?
   private let logger = Logger(
     subsystem: "com.ametel01.trainingcompass",
     category: "application"
   )
 
+  init(store: PrivacyDiagnosticStore? = nil) {
+    self.store = store
+  }
+
   func record(_ event: PrivacyLogEvent) async {
     logger.notice("event=\(event.rawValue, privacy: .public)")
+    let diagnostic = PrivacyDiagnostic(
+      operation: event == .preDataStoresReady ? .preDataStoresReady : .preDataStoresFailed,
+      durationMilliseconds: 0,
+      recordCount: 0,
+      byteCount: 0,
+      peakMemoryMiB: 0,
+      resultCategory: event == .preDataStoresReady ? .success : .failure,
+      deviceConditions: .init(
+        lowPowerMode: false,
+        thermalState: .unknown,
+        batteryState: .unknown,
+        availableStorageMiB: 0
+      )
+    )
+    if let store {
+      do {
+        try await store.append(diagnostic)
+      } catch {
+        logger.error("privacy diagnostic persistence failed")
+      }
+    }
   }
 }
