@@ -5,3 +5,11 @@ Training Compass is a private, local-first iPhone training app. The current exec
 The app targets stable iOS 26 with Swift 6 strict concurrency. Today becomes available after an Active Training Cycle has a Session scheduled for the current date, while Cycle becomes available after the default schedule's lifts are configured in TMs. Progress shows transparent per-lift e1RM history derived from eligible normal-week Primary Plus Set Results and remains explainable when no eligible data exists. Health presents source-aware Recovery Evidence and independent Personal Recovery Baselines, with an optional neutral Recovery Guidance self-check that is withheld unless current, successful, comparable evidence from at least two families is available; it never scores, diagnoses, predicts, or prescribes. Owners may separately opt into a minimized Traditional Strength Training HealthKit summary for completed Sessions; authorization is requested only after enablement, each completion can opt out, detailed 5/3/1 facts remain local, and write-back failures never block local history. TMs also provides an inspectable, versioned Training Compass Export with a sensitive-data confirmation, SHA-256 integrity digest, optional source-labelled HealthKit reference material, and temporary-file cleanup after sharing. A validated export can be restored through an export-first, all-or-nothing replacement import; HealthKit reference material is never installed as live data.
 
 See the [developer documentation](documentation/developer/README.md) for architecture, verification, privacy, migrations, and Acceptance Device evidence.
+
+For the owner's free Xcode Personal Team install, use the attended refresh
+workflow only after creating a verified Training Compass Export. Set the team,
+device, and export environment described in the [Personal Team refresh
+checklist](documentation/developer/reference/personal-team-refresh-device-checklist.md),
+then run `make personal-team-refresh`. The workflow updates the existing app in
+place, inspects its development profile, launch-smoke-tests it, and records a
+privacy-safe result; it never stores credentials or uninstalls the app.

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance
+.PHONY: help bootstrap verify test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
 
 help:
 	@echo "Training Compass Gate 0 commands"
@@ -11,13 +11,15 @@ help:
 	@echo "  make test-ui"
 	@echo "  make fixtures"
 	@echo "  make verify-migrations"
-	@echo "  make device-smoke MILESTONE=gate-0"
+	@echo "  make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh"
 	@echo "  make device-smoke MILESTONE=health-foundation"
 	@echo "  make device-smoke MILESTONE=unified-events"
 	@echo "  make device-smoke MILESTONE=training-insights"
 	@echo "  make device-smoke MILESTONE=recovery-evidence"
-	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence"
+	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh"
 	@echo "  make evidence"
+	@echo "  make personal-team-refresh"
+	@echo "  make install-personal-team-refresh-reminder"
 
 bootstrap:
 	@./scripts/bootstrap.sh
@@ -45,3 +47,9 @@ verify-release:
 
 evidence:
 	@./scripts/evidence.sh
+
+personal-team-refresh:
+	@./scripts/refresh-personal-team.sh
+
+install-personal-team-refresh-reminder:
+	@./scripts/install-personal-team-refresh-reminder.sh

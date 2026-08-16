@@ -38,10 +38,19 @@ after launch or foreground entry, access and terminal failures wait for explicit
 Check Health Access/Try Again actions, cancellation never loses intent, and a
 quiet aggregate Settings count remains independent of Health read refresh.
 
+Issue #44 adds the private-build maintenance loop: a checked-in, attended
+Personal Team refresh script, a per-user LaunchAgent reminder, embedded-profile
+inspection, in-place `devicectl` installation and launch smoke test, and a
+privacy-safe refresh result. See the [Personal Team refresh Acceptance Device
+checklist](reference/personal-team-refresh-device-checklist.md). The workflow
+requires a verified Training Compass Export and explicit owner confirmation of
+important local data; it never stores credentials or uninstalls the app.
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)
 - [Release-candidate checklist](reference/release-candidate-checklist.md)
+- [Personal Team refresh checklist](reference/personal-team-refresh-device-checklist.md)
 
 ## Reference
 

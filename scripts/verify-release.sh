@@ -3,9 +3,9 @@ set -euo pipefail
 
 milestone=${1:-gate-0}
 case "$milestone" in
-  gate-0|health-foundation|unified-events|training-insights|recovery-evidence) ;;
+  gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh) ;;
   *)
-    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence" >&2
+    echo "Usage: make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh" >&2
     exit 2
     ;;
 esac
@@ -27,7 +27,7 @@ path, milestone = sys.argv[1:]
 record = json.loads(Path(path).read_text())
 if record.get("result") != "pass":
     raise SystemExit("Release verification refused: device evidence is not passing.")
-if "measurements" not in record:
+if milestone != "personal-team-refresh" and "measurements" not in record:
     raise SystemExit("Release verification refused: release measurements are missing.")
 if milestone == "gate-0" and record.get("ownerDataAccepted") is not True:
     raise SystemExit("Release verification refused: owner-data approval is missing.")
@@ -90,5 +90,29 @@ if milestone == "recovery-evidence":
     }
     if not all(checks.get(key) is True for key in required):
         raise SystemExit("Release verification refused: Recovery Evidence and Guidance checks are incomplete.")
+if milestone == "personal-team-refresh":
+    checks = record.get("personalTeamRefreshChecks", {})
+    required = {
+        "stableIdentity",
+        "preflight",
+        "profileInspection",
+        "inPlaceInstall",
+        "launchSmokeTest",
+        "dataContinuity",
+        "privacy",
+    }
+    if not all(checks.get(key) is True for key in required):
+        raise SystemExit("Release verification refused: Personal Team refresh checks are incomplete.")
+    profile = record.get("profile", {})
+    if not profile.get("creationDate") or profile.get("creationDate") == "not_recorded":
+        raise SystemExit("Release verification refused: Personal Team profile creation date is missing.")
+    if not profile.get("expirationDate") or profile.get("expirationDate") == "not_recorded":
+        raise SystemExit("Release verification refused: Personal Team profile expiration date is missing.")
+    if record.get("privacySafeNotes") != [
+        "No credentials or device identifiers recorded.",
+        "Existing app was updated in place.",
+        "Owner confirmed important local data continuity.",
+    ]:
+        raise SystemExit("Release verification refused: Personal Team privacy-safe notes are missing.")
 PY
 echo "${milestone} release protocol passed."

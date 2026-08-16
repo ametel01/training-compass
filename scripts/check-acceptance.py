@@ -19,6 +19,7 @@ BUDGETS = ROOT / "documentation/developer/reference/release-candidate-checklist.
 INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights-device-checklist.md"
 RECOVERY_CHECKLIST = ROOT / "documentation/developer/reference/recovery-evidence-device-checklist.md"
 WRITE_BACK_CHECKLIST = ROOT / "documentation/developer/reference/healthkit-write-back-device-checklist.md"
+PERSONAL_TEAM_CHECKLIST = ROOT / "documentation/developer/reference/personal-team-refresh-device-checklist.md"
 
 REQUIRED_SOURCES = (
     *range(1, 24),
@@ -41,6 +42,7 @@ REQUIRED_SOURCES = (
     41,
     42,
     43,
+    44,
 )
 REQUIRED_BUDGETS = (
     "1.5 seconds",
@@ -118,6 +120,8 @@ def main() -> int:
         errors.append("Recovery Evidence and Guidance Acceptance Device checklist is missing")
     if not WRITE_BACK_CHECKLIST.exists():
         errors.append("HealthKit Write-back Acceptance Device checklist is missing")
+    if not PERSONAL_TEAM_CHECKLIST.exists():
+        errors.append("Personal Team refresh Acceptance Device checklist is missing")
 
     rows = matrix_rows(matrix)
     sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
@@ -251,6 +255,20 @@ def main() -> int:
             errors.append(
                 f"acceptance matrix omits HealthKit Write-back recovery contract: {contract}"
             )
+
+    required_personal_team_contracts = (
+        "one explicit bundle ID",
+        "verified Training Compass Export",
+        "Apple authentication",
+        "login-keychain signing identity",
+        "Developer Mode",
+        "installs over the existing app without uninstall",
+        "never stores credentials",
+        "temporary inability to launch",
+    )
+    for contract in required_personal_team_contracts:
+        if contract.lower() not in matrix.lower() and contract.lower() not in PERSONAL_TEAM_CHECKLIST.read_text().lower():
+            errors.append(f"acceptance contract omits Personal Team refresh boundary: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

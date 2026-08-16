@@ -49,6 +49,7 @@ health_foundation_evidence = device_evidence("health-foundation")
 unified_events_evidence = device_evidence("unified-events")
 training_insights_evidence = device_evidence("training-insights")
 recovery_evidence = device_evidence("recovery-evidence")
+personal_team_refresh_evidence = device_evidence("personal-team-refresh")
 automated_pass = acceptance_result == 0 and all(
     os.environ.get(name) == "pass"
     for name in ("VERIFY_RESULT", "MIGRATION_RESULT", "PRIVACY_RESULT", "UI_RESULT")
@@ -122,6 +123,21 @@ recovery_evidence_accepted = (
     and all(recovery_checks.get(key) is True for key in required_recovery_checks)
     and automated_pass
 )
+personal_team_checks = personal_team_refresh_evidence.get("personalTeamRefreshChecks", {})
+required_personal_team_checks = {
+    "stableIdentity",
+    "preflight",
+    "profileInspection",
+    "inPlaceInstall",
+    "launchSmokeTest",
+    "dataContinuity",
+    "privacy",
+}
+personal_team_refresh_accepted = (
+    personal_team_refresh_evidence.get("result") == "pass"
+    and all(personal_team_checks.get(key) is True for key in required_personal_team_checks)
+    and automated_pass
+)
 entitlements = [str(path) for path in Path(".").rglob("*.entitlements") if ".build" not in path.parts]
 record = {
     "commands": [
@@ -136,11 +152,13 @@ record = {
         "make device-smoke MILESTONE=unified-events",
         "make device-smoke MILESTONE=training-insights",
         "make device-smoke MILESTONE=recovery-evidence",
+        "make device-smoke MILESTONE=personal-team-refresh",
         "make verify-release MILESTONE=gate-0",
         "make verify-release MILESTONE=health-foundation",
         "make verify-release MILESTONE=unified-events",
         "make verify-release MILESTONE=training-insights",
         "make verify-release MILESTONE=recovery-evidence",
+        "make verify-release MILESTONE=personal-team-refresh",
         "make evidence",
     ],
     "fixtureSeed": 21571,
@@ -158,6 +176,7 @@ record = {
             "unifiedEvents": unified_events_evidence,
             "trainingInsights": training_insights_evidence,
             "recoveryEvidence": recovery_evidence,
+            "personalTeamRefresh": personal_team_refresh_evidence,
         },
         "dependencyGraph": dependency_graph,
         "entitlements": entitlements,
@@ -185,10 +204,12 @@ record = {
         "unifiedEventsGate": "eligible" if unified_events_accepted else "blocked",
         "trainingInsightsGate": "eligible" if training_insights_accepted else "blocked",
         "recoveryEvidenceGate": "eligible" if recovery_evidence_accepted else "blocked",
+        "personalTeamRefreshGate": "eligible" if personal_team_refresh_accepted else "blocked",
     },
     "unifiedEventsAccepted": unified_events_accepted,
     "trainingInsightsAccepted": training_insights_accepted,
     "recoveryEvidenceAccepted": recovery_evidence_accepted,
+    "personalTeamRefreshAccepted": personal_team_refresh_accepted,
     "waivers": [],
 }
 encoded = json.dumps(record, indent=2, sort_keys=True) + "\n"

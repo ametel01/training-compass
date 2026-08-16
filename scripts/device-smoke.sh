@@ -2,8 +2,8 @@
 set -euo pipefail
 
 milestone=${1:-}
-if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" && "$milestone" != "recovery-evidence" ]]; then
-  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence" >&2
+if [[ "$milestone" != "gate-0" && "$milestone" != "health-foundation" && "$milestone" != "unified-events" && "$milestone" != "training-insights" && "$milestone" != "recovery-evidence" && "$milestone" != "personal-team-refresh" ]]; then
+  echo "Usage: make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh" >&2
   exit 2
 fi
 
@@ -25,6 +25,10 @@ if [[ "$milestone" == "recovery-evidence" ]]; then
   checklist="documentation/developer/reference/recovery-evidence-device-checklist.md"
   evidence_name="recovery-evidence"
 fi
+if [[ "$milestone" == "personal-team-refresh" ]]; then
+  checklist="documentation/developer/reference/personal-team-refresh-device-checklist.md"
+  evidence_name="personal-team-refresh"
+fi
 cat "$checklist"
 
 if [[ -z "${RESULT:-}" ]]; then
@@ -40,11 +44,13 @@ fi
 : "${DEVICE_MODEL:?DEVICE_MODEL is required}"
 : "${IOS_VERSION:?IOS_VERSION is required}"
 if [[ "$RESULT" == "pass" ]]; then
-  : "${MEASUREMENTS_FILE:?MEASUREMENTS_FILE is required for a passing release record}"
-  if [[ "$milestone" == "unified-events" && "${UNIFIED_ROUTE_ON_DEMAND:-}" == "not_available" ]]; then
-    python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available
-  else
-    python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE"
+  if [[ "$milestone" != "personal-team-refresh" ]]; then
+    : "${MEASUREMENTS_FILE:?MEASUREMENTS_FILE is required for a passing release record}"
+    if [[ "$milestone" == "unified-events" && "${UNIFIED_ROUTE_ON_DEMAND:-}" == "not_available" ]]; then
+      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available
+    else
+      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE"
+    fi
   fi
 fi
 
@@ -68,6 +74,24 @@ record = {
 }
 if measurements_path:
     record["measurements"] = json.loads(Path(measurements_path).read_text())
+if milestone == "personal-team-refresh":
+    creation_date = os.environ.get("PERSONAL_TEAM_PROFILE_CREATION_DATE", "")
+    expiration_date = os.environ.get("PERSONAL_TEAM_PROFILE_EXPIRATION_DATE", "")
+    if result == "pass" and (not creation_date or not expiration_date):
+        raise SystemExit(
+            "PERSONAL_TEAM_PROFILE_CREATION_DATE and PERSONAL_TEAM_PROFILE_EXPIRATION_DATE "
+            "are required for a passing personal-team-refresh record"
+        )
+    record["profile"] = {
+        "creationDate": creation_date or "not_recorded",
+        "expirationDate": expiration_date or "not_recorded",
+        "kind": "Personal Team development profile",
+    }
+    record["privacySafeNotes"] = [
+        "No credentials or device identifiers recorded.",
+        "Existing app was updated in place.",
+        "Owner confirmed important local data continuity.",
+    ]
 check_schemas = {
     "health-foundation": (
         "healthChecks",
@@ -118,6 +142,18 @@ check_schemas = {
             "RECOVERY_RESOURCE_BUDGET": "resourceBudget",
             "RECOVERY_PRIOR_DATA": "priorDataContinuity",
             "RECOVERY_PRIVACY": "privacy",
+        },
+    ),
+    "personal-team-refresh": (
+        "personalTeamRefreshChecks",
+        {
+            "PERSONAL_TEAM_STABLE_IDENTITY": "stableIdentity",
+            "PERSONAL_TEAM_PREFLIGHT": "preflight",
+            "PERSONAL_TEAM_PROFILE": "profileInspection",
+            "PERSONAL_TEAM_IN_PLACE": "inPlaceInstall",
+            "PERSONAL_TEAM_LAUNCH": "launchSmokeTest",
+            "PERSONAL_TEAM_DATA_CONTINUITY": "dataContinuity",
+            "PERSONAL_TEAM_PRIVACY": "privacy",
         },
     ),
 }
