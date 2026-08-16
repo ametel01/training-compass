@@ -43,6 +43,7 @@ REQUIRED_SOURCES = (
     42,
     43,
     44,
+    45,
 )
 REQUIRED_BUDGETS = (
     "1.5 seconds",
@@ -269,6 +270,18 @@ def main() -> int:
     for contract in required_personal_team_contracts:
         if contract.lower() not in matrix.lower() and contract.lower() not in PERSONAL_TEAM_CHECKLIST.read_text().lower():
             errors.append(f"acceptance contract omits Personal Team refresh boundary: {contract}")
+
+    required_migration_contracts = (
+        "authoritative v1–v16",
+        "reconstructible v1–v10",
+        "20%",
+        "TrainingMigrationCompatibilityVerifier",
+        "privacy-safe diagnostics",
+        "Health Data Rebuild-only",
+    )
+    for contract in required_migration_contracts:
+        if contract not in matrix and contract not in (ROOT / "documentation/developer/reference/migration-compatibility.md").read_text():
+            errors.append(f"acceptance contract omits migration compatibility boundary: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

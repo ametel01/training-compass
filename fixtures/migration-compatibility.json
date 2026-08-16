@@ -1,0 +1,270 @@
+{
+  "authoritative" : [
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v1_gate_zero",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 1,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v2_lift_configuration",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 2,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v3_schedule_template",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 3,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v4_training_cycle",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 4,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v5_set_results",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 5,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v6_session_logging_completion",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 6,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v7_session_corrections",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 7,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v8_training_week_template_source",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 8,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v9_cycle_lifecycle_notes",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 9,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v10_cycle_lifecycle_targets",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 10,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v11_training_max_proposals",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 11,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v12_health_workout_link_facts",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 12,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v13_training_event_links",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 13,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v14_heart_rate_configuration",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 14,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v15_running_comparison_exclusions",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 15,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    },
+    {
+      "completedMigrationCount" : 16,
+      "deterministic" : true,
+      "finalSchemaVersion" : 16,
+      "migrationIdentifier" : "authoritative_v16_health_workout_write_back",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 16,
+      "store" : "authoritative",
+      "targetVersion" : 16
+    }
+  ],
+  "exportSchemaVersions" : [
+    1
+  ],
+  "exportVerified" : true,
+  "reconstructible" : [
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v1_gate_zero",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 1,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v2_health_workouts",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 2,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v3_health_sync_ledger",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 3,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v4_health_rebuild_state",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 4,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v5_workout_enrichment",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 5,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v6_workout_routes",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 6,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v7_running_environment",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 7,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v8_running_elevation",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 8,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v9_recovery_evidence",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 9,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    },
+    {
+      "completedMigrationCount" : 10,
+      "deterministic" : true,
+      "finalSchemaVersion" : 10,
+      "migrationIdentifier" : "reconstructible_v10_write_back_metadata",
+      "preservedGateZeroMarker" : true,
+      "sourceVersion" : 10,
+      "store" : "reconstructible",
+      "targetVersion" : 10
+    }
+  ]
+}

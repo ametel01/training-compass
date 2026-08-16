@@ -6,7 +6,7 @@ on-demand simplified routes, the Unified Events and Enrichment milestone, the
 Rolling Workout Overview, transparent Heart-Rate Zones, Training and Running
 Insights, independent Recovery Evidence, Recovery Guidance, and optional
 HealthKit Session write-back from GitHub issues #1 through #23 and #25 through
-#43 and #44. A row is
+#43 through #45. A row is
 evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
@@ -107,6 +107,7 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #43: Integrate Write-back deletion into Full App Erasure | Mixed failure, retry, and acknowledged local-only continuation | One or more app-authored summaries fail deletion because of permission, lock, restart, or a terminal error | 21571 | Successful deletions are marked durably; remaining UUIDs stay authoritative; Retry repeats safely; Erase Local Data Anyway requires an explicit second choice and states that remaining HealthKit copies, backups, shared exports, and other-source workouts remain | Application, persistence, adapter, UI, privacy, device, release evidence | Yes | `HealthWorkoutWriteBackBoundaryTests`; `TrainingErasureBoundaryTests`; `TrainingCompassUITests`; write-back device checklist; `make verify` |
 | Issue #44: Automate attended Personal Team refreshes | Stable identity and owner recovery prerequisite | Full Xcode 26+, the free Personal Team session, one explicit bundle ID, a paired owner iPhone, and a verified Training Compass Export are available | Missing Xcode, Apple authentication, login-keychain signing identity, pairing/trust, cable, recent unlock, Developer Mode, team/device/export input, or stable project settings | Preflight reports every named condition without storing credentials; the workflow refuses to proceed without the verified export and explicit attended device confirmation | Scripts, project configuration, documentation, privacy, device evidence | Yes | `scripts/refresh-personal-team.sh`; `scripts/check-personal-team-refresh.py`; Personal Team refresh checklist; `make verify` |
 | Issue #44: Automate attended Personal Team refreshes | In-place build, profile, install, launch, and continuity | Preflight passes and the owner is present in the logged-in macOS session | Build/signing failure, invalid or expiring embedded profile, install/launch failure, or local-data continuity not confirmed | The Release app is built with automatic signing, the profile's exact App ID/team and dates are inspected, `devicectl` installs over the existing app without uninstall, launch smoke test runs, and the owner confirms important local data; failed steps leave the existing app installed | Scripts, application delivery, documentation, privacy, device evidence | Yes | `scripts/refresh-personal-team.sh`; `scripts/install-personal-team-refresh-reminder.sh`; Personal Team refresh checklist; `make verify` |
+| Issue #45: Verify every historical schema and export upgrade | Historical authoritative/reconstructible prefixes or a released Training Compass Export are available | Direct upgrade from authoritative v1–v16, reconstructible v1–v10, and export v1; injected failure at migration, validation, staging, rebuild, and swap phases; low-space refusal | 21571 | Current migrators upgrade every prefix deterministically in one call; every failure leaves the original or complete replacement; staging and rollback space includes a 20% margin; progress and privacy-safe diagnostics are inspectable; reconstructible failures remain Health Data Rebuild-only | Persistence, application, scripts, documentation, privacy, release evidence | No | `TrainingMigrationCompatibilityVerifier`; `fixtures/migration-compatibility.json`; `make verify-migrations`; migration compatibility reference |
 
 ## Required scenario-variant coverage
 
@@ -160,6 +161,7 @@ must name the automated evidence that proves the boundary.
 | Issue #42 | External deletion, exact-UUID return, explicit restoration, and ownership-safe replacement | Completed app-authored summaries, deletion tombstones, and optional external replacement candidates exist | Deleted state, exact UUID return, new UUID separation, restore versioning, queued/saving/failure states, deletion failure, stale replacement, restart, and repeated reconciliation remain explicit | Local Sessions remain intact; no automatic recreation follows deletion; exact UUID reconnects only the same object; Restore is explicit and creates the next version; replacement deletes only the app-owned object before linking and leaves prior relationships unchanged on failure | Application, persistence, adapter, UI, privacy, device, release evidence |
 | Issue #43 | Full App Erasure with optional Write-back deletion | Durable app-authored write-back identities exist or no summaries are present | Delete-first success, mixed failure, permission/lock/restart, retry, cancellation, target ownership, and acknowledged local-only continuation remain explicit | Complete deletion proceeds to clean local first launch; incomplete deletion never silently erases the local identities needed for retry; local-only continuation names remaining external copies and never claims backup/shared/other-source deletion | Application, persistence, adapter, UI, privacy, device, release evidence |
 | Issue #44 | Attended Personal Team refresh and day-five reminder | Stable bundle/team identity and a verified export are present in the owner session | Preflight failures, profile mismatch/expiry, device unavailable, signing failure, install/launch failure, missed reminder, and data-continuity confirmation | The user-attended path updates in place, records only privacy-safe checks and profile dates, keeps the existing app on failure, and documents temporary inability to launch after expiry rather than data deletion | Scripts, project configuration, documentation, device, privacy, recovery | Yes |
+| Issue #45 | Historical schema and export compatibility | Every released store/export prefix and current migrator are available | One direct deterministic upgrade per prefix, direct v1 import, injected destructive-phase failures, low-space refusal, and progress capture | Raw privacy-safe results and a summarized verdict are retained; original or complete new state remains valid; only Health Data Rebuild can repair reconstructible data | Persistence, application, scripts, documentation, privacy, release evidence |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -202,6 +204,13 @@ stable identity, explicit preflight failures, verified export prerequisite,
 profile inspection, in-place install and launch, local-data continuity, and
 privacy-safe maintenance evidence remain separate from public distribution or
 unattended renewal.
+Issue #45 adds the direct historical schema/export compatibility gate. The
+independent migration sequences remain append-only; every released prefix is
+upgraded directly and twice for deterministic comparison, while low-space and
+failure tests retain either the original or the complete replacement. Raw
+results contain only versions, counts, migration names, and booleans in the
+checked-in compatibility fixture; no owner data or HealthKit identifiers are
+recorded.
 Issue #28 adds the rolling workout
 projection on Progress. Issue #29 adds owner-configured, source-aware
 Heart-Rate Zones with explicit coverage and historical recalculation from

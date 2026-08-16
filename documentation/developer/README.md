@@ -46,6 +46,14 @@ checklist](reference/personal-team-refresh-device-checklist.md). The workflow
 requires a verified Training Compass Export and explicit owner confirmation of
 important local data; it never stores credentials or uninstalls the app.
 
+Issue #45 adds the migration compatibility gate. Every released authoritative
+and reconstructible schema prefix is built and upgraded directly to the current
+version twice, the results are compared deterministically, and the released
+export schema is validated. Migration and replacement-import space checks
+reserve rollback/staging storage plus a 20 percent margin; failures leave the
+original or complete replacement and write only privacy-safe diagnostics. Run
+`make verify-migrations` to refresh the checked-in compatibility evidence.
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)

@@ -40,4 +40,14 @@ public struct StoreLocations: Equatable, Sendable {
   public var reconstructibleDatabase: URL {
     reconstructibleDirectory.appending(path: "reconstructible.sqlite", directoryHint: .notDirectory)
   }
+
+  public var authoritativeMigrationDiagnostic: URL {
+    authoritativeDirectory.appending(
+      path: "authoritative.migration-diagnostic.json", directoryHint: .notDirectory)
+  }
+
+  public var reconstructibleMigrationDiagnostic: URL {
+    reconstructibleDirectory.appending(
+      path: "reconstructible.migration-diagnostic.json", directoryHint: .notDirectory)
+  }
 }

@@ -164,6 +164,31 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
+  /// During replacement import the current authoritative file must remain
+  /// available as a rollback copy while the new SQLite file is staged. Count
+  /// both sides of that coexistence and add the same recovery margin used by
+  /// the import boundary. This check is deliberately conservative: SQLite
+  /// journals and filesystem allocation can exceed the logical JSON size.
+  public func requiredImportSpaceBytes(archiveBytes: Int64) async throws -> Int64 {
+    let currentBytes: Int64
+    let databaseURL = actualLocations().authoritativeDatabase
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: databaseURL.path()),
+      let fileSize = attributes[.size] as? NSNumber
+    {
+      currentBytes = max(0, fileSize.int64Value)
+    } else {
+      currentBytes = 0
+    }
+    let archive = max(0, archiveBytes)
+    let (coexistence, overflow) = archive.addingReportingOverflow(currentBytes)
+    guard !overflow else { return Int64.max }
+    let (minimum, minimumOverflow) = coexistence.addingReportingOverflow(64 * 1024)
+    guard !minimumOverflow else { return Int64.max }
+    let margin = Double(minimum) * 1.2
+    guard margin.isFinite, margin < Double(Int64.max) else { return Int64.max }
+    return Int64(margin.rounded(.up))
+  }
+
   public func replaceAuthoritativeData(
     _ data: TrainingAuthoritativeExportData,
     progress: TrainingImportProgressHandler?
@@ -2944,7 +2969,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       if fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
         try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
       }
-      fileManager.createFile(atPath: locations.authoritativeSwapMarker.path(), contents: nil)
+      guard fileManager.createFile(atPath: locations.authoritativeSwapMarker.path(), contents: nil)
+      else {
+        throw TrainingImportError.replacementFailed("swap marker unavailable")
+      }
       let hadCurrent = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
       if hadCurrent {
         try fileManager.moveItem(
@@ -3061,6 +3089,13 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         )
       }
     }
+    // Historical exports carry the Gate 0 marker's original schema value. The
+    // staged database has already run the current migration chain, so
+    // normalize that marker before invariant validation.
+    try db.execute(
+      sql: "UPDATE gate_zero_metadata SET schema_version = ?, owner_data_accepted = 0",
+      arguments: [ProtectedStoreBootstrapper.authoritativeMigrator.migrations.count]
+    )
   }
 
   private static func validateStagedStore(_ db: Database) throws {
@@ -3104,7 +3139,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try Int.fetchOne(
         db,
         sql:
-          "SELECT COUNT(*) FROM gate_zero_metadata WHERE schema_version = 1 AND owner_data_accepted = 0"
+          "SELECT COUNT(*) FROM gate_zero_metadata WHERE schema_version = ? AND owner_data_accepted = 0",
+        arguments: [ProtectedStoreBootstrapper.authoritativeMigrator.migrations.count]
       ) ?? 0
     guard metadataCount == 1, metadataValid == 1 else {
       throw TrainingImportError.invariantViolation("gate zero metadata")

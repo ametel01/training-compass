@@ -2,6 +2,16 @@ import Foundation
 import GRDB
 import TrainingPersistence
 
+let compatibilityReport = try TrainingMigrationCompatibilityVerifier().verify()
+guard compatibilityReport.passed else {
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "historical compatibility")
+}
+if let outputPath = ProcessInfo.processInfo.environment["MIGRATION_EVIDENCE_PATH"] {
+  let encoder = JSONEncoder()
+  encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+  try encoder.encode(compatibilityReport).write(to: URL(filePath: outputPath), options: [.atomic])
+}
+
 enum MigrationVerificationError: Error {
   case databasesAreNotSeparate
   case expectedInterruption
@@ -92,7 +102,8 @@ let reconstructibleTables = try reopenedStores.reconstructible.read { db in
       sql: """
         SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
           ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts',
-           'health_rebuild_state', 'health_workout_enrichment', 'health_workout_routes')
+           'health_rebuild_state', 'health_workout_enrichment', 'health_workout_routes',
+           'health_recovery_samples')
         """
     ))
 }
@@ -100,13 +111,15 @@ guard
   reconstructibleTables == [
     "health_workouts", "health_workout_deletions", "health_sync_streams", "health_sync_facts",
     "health_rebuild_state", "health_workout_enrichment", "health_workout_routes",
+    "health_recovery_samples",
   ]
 else {
-  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v8")
+  throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v10")
 }
 
 print(
-  "Authoritative v16 and reconstructible v8 migration interruption, retry, and idempotence passed.")
+  "Authoritative v16 and reconstructible v10 migration interruption, retry, idempotence, and every historical direct-upgrade path passed (\(compatibilityReport.migrationCount) prefixes; export v1)."
+)
 
 final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
 {

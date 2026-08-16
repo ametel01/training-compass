@@ -28,6 +28,26 @@ if acceptance_result != 0:
 def sha256(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+def migration_evidence() -> dict:
+    path = Path("fixtures/migration-compatibility.json")
+    if not path.exists():
+        return {"path": str(path), "result": "missing"}
+    report = json.loads(path.read_text())
+    return {
+        "path": str(path),
+        "sha256": sha256(str(path)),
+        "result": "pass" if report.get("authoritative")
+        and report.get("reconstructible")
+        and report.get("exportSchemaVersions") == [1]
+        and report.get("exportVerified") is True
+        and all(item.get("deterministic") and item.get("preservedGateZeroMarker") and item.get("finalSchemaVersion") == item.get("targetVersion") for item in report["authoritative"] + report["reconstructible"])
+        else "fail",
+        "authoritativePrefixes": len(report.get("authoritative", [])),
+        "reconstructiblePrefixes": len(report.get("reconstructible", [])),
+        "exportSchemaVersions": report.get("exportSchemaVersions", []),
+        "exportVerified": report.get("exportVerified", False),
+    }
+
 def automated_verdict(name: str) -> str:
     value = os.environ.get(name, "not_run")
     if value not in {"pass", "fail", "not_run"}:
@@ -183,6 +203,7 @@ record = {
         "fileAttributeVerification": gate_zero_evidence.get("result", "missing"),
         "loggingAllowlist": ["pre_data_stores_ready", "pre_data_stores_failed"],
         "migrationVerification": automated_verdict("MIGRATION_RESULT"),
+        "migrationCompatibility": migration_evidence(),
         "privacyManifest": {
             "path": "TrainingCompassApp/Resources/PrivacyInfo.xcprivacy",
             "sha256": sha256("TrainingCompassApp/Resources/PrivacyInfo.xcprivacy"),

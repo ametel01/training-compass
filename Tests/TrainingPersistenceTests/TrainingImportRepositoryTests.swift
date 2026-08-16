@@ -6,6 +6,22 @@ import XCTest
 @testable import TrainingPersistence
 
 final class TrainingImportRepositoryTests: XCTestCase {
+  func testCompatibilityExportFixtureRoundTripsThroughStagingAndImport() async throws {
+    let destinationRoot = temporaryRoot("compatibility-fixture")
+    defer { try? FileManager.default.removeItem(at: destinationRoot) }
+    let destination = GRDBTrainingRepository(root: destinationRoot)
+    let data = try TrainingCompassExport.makeCompatibilityFixture().encodedData()
+
+    let result = try await TrainingImportBoundary(repository: destination).importArchive(
+      data: data,
+      confirmation: .confirmed
+    )
+
+    XCTAssertEqual(result.recordCount, 1)
+    let lifts = try await destination.loadLiftConfigurations()
+    XCTAssertEqual(lifts.count, 0)
+  }
+
   func testValidatedExportReplacesCurrentAuthoritativeDataAndRegeneratesProjection() async throws {
     let sourceRoot = temporaryRoot("source")
     let destinationRoot = temporaryRoot("destination")
@@ -77,6 +93,51 @@ final class TrainingImportRepositoryTests: XCTestCase {
     XCTAssertTrue(isEmpty)
   }
 
+  func testEveryReplacementPhaseFailureLeavesTheOriginalAuthoritativeDataValid() async throws {
+    let sourceRoot = temporaryRoot("phase-source")
+    defer { try? FileManager.default.removeItem(at: sourceRoot) }
+    let source = GRDBTrainingRepository(root: sourceRoot)
+    let sourceLift = try LiftConfiguration(
+      id: "lift-squat", identity: .progression(.squat), trainingMax: try TrainingMax(kg: 100)
+    )
+    _ = try await source.saveLiftConfiguration(
+      sourceLift, expectedBefore: nil, auditID: "source-audit", occurredAt: 10, action: .created
+    )
+    let archiveData = try await makeArchiveData(source: source)
+
+    for phase in [
+      TrainingImportPhase.staging,
+      .migrating,
+      .validatingStaging,
+      .regeneratingProjections,
+      .closingCurrentStore,
+      .swappingAuthoritativeStore,
+    ] {
+      let destinationRoot = temporaryRoot("phase-destination")
+      defer { try? FileManager.default.removeItem(at: destinationRoot) }
+      let observer = FailingImportPhaseObserver(failingPhase: phase)
+      let destination = GRDBTrainingRepository(root: destinationRoot, phaseObserver: observer)
+      let originalLift = try LiftConfiguration(
+        id: "lift-bench", identity: .progression(.benchPress), trainingMax: try TrainingMax(kg: 80)
+      )
+      _ = try await destination.saveLiftConfiguration(
+        originalLift, expectedBefore: nil, auditID: "original-audit", occurredAt: 11,
+        action: .created
+      )
+      let boundary = TrainingImportBoundary(repository: destination)
+
+      do {
+        _ = try await boundary.importArchive(
+          data: archiveData, confirmation: .confirmedAfterExport)
+        XCTFail("Expected injected failure at \(phase)")
+      } catch is TrainingImportError {
+        // The phase observer deliberately simulates termination/failure.
+      }
+      let remainingLiftIDs = try await destination.loadLiftConfigurations().map(\.id)
+      XCTAssertEqual(remainingLiftIDs, [originalLift.id])
+    }
+  }
+
   private func makeArchiveData(source: GRDBTrainingRepository) async throws -> Data {
     let boundary = TrainingExportBoundary(
       repository: source,
@@ -107,3 +168,15 @@ private struct FixedTimeZone: TimeZoneProvider {
 private struct FixedUUIDGenerator: UUIDGenerator {
   func makeUUID() -> UUID { UUID(uuidString: "00000000-0000-0000-0000-000000000001")! }
 }
+
+private struct FailingImportPhaseObserver: TrainingImportPhaseObserver {
+  let failingPhase: TrainingImportPhase
+
+  func didReach(_ phase: TrainingImportPhase) throws {
+    if phase == failingPhase {
+      throw InjectedImportFailure()
+    }
+  }
+}
+
+private struct InjectedImportFailure: Error {}

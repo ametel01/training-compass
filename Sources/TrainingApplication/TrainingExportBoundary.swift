@@ -232,6 +232,63 @@ public struct TrainingCompassExport: Codable, Equatable, Sendable {
   public static func decode(_ data: Data) throws -> TrainingCompassExport {
     try TrainingExportCodec.decode(data)
   }
+
+  /// Builds the deterministic, empty v1 archive retained by the migration
+  /// compatibility verifier. It uses the same codec and integrity envelope as
+  /// production exports, while containing no user data.
+  public static func makeCompatibilityFixture() throws -> TrainingCompassExport {
+    let tableNames = [
+      "gate_zero_metadata", "lifts", "lift_configuration_audit", "schedule_templates",
+      "schedule_template_sessions", "schedule_template_audit", "training_cycles",
+      "training_cycle_audit", "set_results", "set_result_audit", "omitted_sets",
+      "additional_sets", "session_completions", "session_correction_audit",
+      "training_max_proposals", "training_max_history", "health_workout_link_facts",
+      "heart_rate_configuration", "running_comparison_exclusions", "health_workout_write_backs",
+    ]
+    let data = TrainingAuthoritativeExportData(
+      tables: tableNames.map { name in
+        if name == "gate_zero_metadata" {
+          return TrainingExportTable(
+            name: name,
+            records: [
+              TrainingExportRecord(
+                id: "gate-zero",
+                fields: [
+                  "schema_version": .integer(1),
+                  "owner_data_accepted": .integer(0),
+                ]
+              )
+            ]
+          )
+        }
+        return TrainingExportTable(name: name, records: [])
+      })
+    let summary = TrainingExportSummary(
+      recordCount: 1,
+      tableCounts: Dictionary(
+        uniqueKeysWithValues: tableNames.map { ($0, $0 == "gate_zero_metadata" ? 1 : 0) }),
+      readableText: "Training Compass compatibility fixture"
+    )
+    let manifest = TrainingExportManifest(
+      generatorVersion: "compatibility/1",
+      createdAt: 0,
+      creationContext: TrainingExportCreationContext(timeZoneIdentifier: "UTC")
+    )
+    let unsigned = TrainingCompassExport(
+      manifest: manifest,
+      summary: summary,
+      authoritativeData: data,
+      healthKitMirror: nil,
+      integrity: TrainingExportIntegrity(digest: "")
+    )
+    return TrainingCompassExport(
+      manifest: manifest,
+      summary: summary,
+      authoritativeData: data,
+      healthKitMirror: nil,
+      integrity: TrainingExportIntegrity(digest: try TrainingExportCodec.digest(for: unsigned))
+    )
+  }
 }
 
 public enum TrainingExportConfirmation: Codable, Equatable, Sendable {

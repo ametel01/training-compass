@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-swift run training-migration-verifier
+mkdir -p fixtures
+MIGRATION_EVIDENCE_PATH="fixtures/migration-compatibility.json" \
+  swift run training-migration-verifier
 
 if xcodebuild -version >/dev/null 2>&1; then
   swift test --filter ProtectedStoreBootstrapTests

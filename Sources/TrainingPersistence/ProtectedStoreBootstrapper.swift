@@ -15,13 +15,19 @@ public final class TrainingStores: @unchecked Sendable {
 public struct ProtectedStoreBootstrapper: Sendable {
   private let protection: any StoreProtectionManaging
   private let checkpoint: any StoreBootstrapCheckpointing
+  private let spaceProvider: any StoreMigrationSpaceProviding
+  private let progress: StoreMigrationProgressHandler?
 
   public init(
     protection: any StoreProtectionManaging = FileManagerStoreProtection(),
-    checkpoint: any StoreBootstrapCheckpointing = NoOpStoreBootstrapCheckpoint()
+    checkpoint: any StoreBootstrapCheckpointing = NoOpStoreBootstrapCheckpoint(),
+    spaceProvider: any StoreMigrationSpaceProviding = FoundationStoreMigrationSpaceProvider(),
+    progress: StoreMigrationProgressHandler? = nil
   ) {
     self.protection = protection
     self.checkpoint = checkpoint
+    self.spaceProvider = spaceProvider
+    self.progress = progress
   }
 
   public func open(in root: URL) throws -> TrainingStores {
@@ -50,9 +56,54 @@ public struct ProtectedStoreBootstrapper: Sendable {
       configuration: configuration
     )
 
-    try Self.authoritativeMigrator.migrate(authoritative)
+    emit(
+      .init(
+        phase: .checkingSpace,
+        fraction: 0,
+        message: "Checking recoverable migration space."
+      ))
+    try checkMigrationSpace(for: locations.authoritativeDatabase, at: locations.root)
+    try checkMigrationSpace(for: locations.reconstructibleDatabase, at: locations.root)
+
+    emit(
+      .init(
+        phase: .migratingAuthoritative,
+        fraction: 0.1,
+        message: "Migrating Locally Authoritative Data."
+      ))
+    do {
+      try Self.authoritativeMigrator.migrate(authoritative)
+      try updateSchemaVersion(authoritative, to: Self.authoritativeMigrator.migrations.count)
+      try? FileManager.default.removeItem(at: locations.authoritativeMigrationDiagnostic)
+    } catch {
+      writeDiagnostic(
+        store: .authoritative,
+        database: authoritative,
+        migrator: Self.authoritativeMigrator,
+        location: locations.authoritativeMigrationDiagnostic
+      )
+      throw error
+    }
     try checkpoint.didMigrateAuthoritativeStore()
-    try Self.reconstructibleMigrator.migrate(reconstructible)
+    emit(
+      .init(
+        phase: .migratingReconstructible,
+        fraction: 0.55,
+        message: "Migrating the reconstructible Health mirror."
+      ))
+    do {
+      try Self.reconstructibleMigrator.migrate(reconstructible)
+      try updateSchemaVersion(reconstructible, to: Self.reconstructibleMigrator.migrations.count)
+      try? FileManager.default.removeItem(at: locations.reconstructibleMigrationDiagnostic)
+    } catch {
+      writeDiagnostic(
+        store: .reconstructible,
+        database: reconstructible,
+        migrator: Self.reconstructibleMigrator,
+        location: locations.reconstructibleMigrationDiagnostic
+      )
+      throw error
+    }
 
     try protection.applyCompleteFileProtection(to: locations.authoritativeDatabase)
     try protection.applyCompleteFileProtection(to: locations.reconstructibleDatabase)
@@ -62,10 +113,71 @@ public struct ProtectedStoreBootstrapper: Sendable {
     try protection.verifyCompleteFileProtection(at: locations.reconstructibleDatabase)
     try protection.verifyExcludedFromBackup(at: locations.reconstructibleDirectory)
 
+    emit(
+      .init(
+        phase: .completed,
+        fraction: 1,
+        message: "Protected stores are ready."
+      ))
+
     return TrainingStores(
       authoritative: authoritative,
       reconstructible: reconstructible
     )
+  }
+
+  private func emit(_ value: StoreMigrationProgress) {
+    progress?(value)
+  }
+
+  private func updateSchemaVersion(_ database: DatabaseQueue, to version: Int) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE gate_zero_metadata SET schema_version = ?",
+        arguments: [version]
+      )
+    }
+  }
+
+  private func checkMigrationSpace(for database: URL, at root: URL) throws {
+    let currentBytes: Int64
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: database.path()),
+      let fileSize = attributes[.size] as? NSNumber
+    {
+      currentBytes = max(0, fileSize.int64Value)
+    } else {
+      currentBytes = 0
+    }
+    let (recoveryCopy, recoveryOverflow) = currentBytes.addingReportingOverflow(currentBytes)
+    let (withJournal, journalOverflow) = recoveryCopy.addingReportingOverflow(64 * 1024)
+    let required =
+      recoveryOverflow || journalOverflow
+      ? Int64.max
+      : Int64((Double(withJournal) * 1.2).rounded(.up))
+    let available = try spaceProvider.availableMigrationSpaceBytes(at: root)
+    guard available >= required else {
+      throw StoreMigrationError.insufficientSpace(
+        requiredBytes: required, availableBytes: available)
+    }
+  }
+
+  private func writeDiagnostic(
+    store: TrainingStoreKind,
+    database: DatabaseQueue,
+    migrator: DatabaseMigrator,
+    location: URL
+  ) {
+    let applied = (try? database.read { db in try migrator.appliedIdentifiers(db) }) ?? []
+    let attemptedIndex =
+      migrator.migrations.firstIndex { !applied.contains($0) } ?? migrator.migrations.count - 1
+    let diagnostic = StoreMigrationDiagnostic(
+      store: store,
+      attemptedVersion: max(1, attemptedIndex + 1),
+      attemptedMigration: migrator.migrations.indices.contains(attemptedIndex)
+        ? migrator.migrations[attemptedIndex] : "unknown"
+    )
+    guard let data = try? JSONEncoder().encode(diagnostic) else { return }
+    try? data.write(to: location, options: [.atomic])
   }
 
   /// Applies the same protection and backup invariants to a database installed

@@ -147,10 +147,21 @@ public struct FoundationTrainingImportFileSystem: TrainingImportFileSystem {
 
 public protocol TrainingReplacementImportRepository: Sendable {
   func authoritativeStoreIsEmpty() async throws -> Bool
+  /// Returns the total free space needed while the old store, its rollback
+  /// copy, and the isolated replacement coexist. Implementations should
+  /// include the 20 percent recovery margin in this value.
+  func requiredImportSpaceBytes(archiveBytes: Int64) async throws -> Int64
   func replaceAuthoritativeData(
     _ data: TrainingAuthoritativeExportData,
     progress: TrainingImportProgressHandler?
   ) async throws
+}
+
+extension TrainingReplacementImportRepository {
+  public func requiredImportSpaceBytes(archiveBytes: Int64) async throws -> Int64 {
+    let safeBytes = max(archiveBytes, 0)
+    return Int64((Double(safeBytes) * 1.2).rounded(.up))
+  }
 }
 
 public struct TrainingImportBoundary: Sendable {
@@ -191,7 +202,8 @@ public struct TrainingImportBoundary: Sendable {
       throw TrainingImportError.replacementConfirmationRequired
     }
 
-    let requiredBytes = Int64((Double(data.count) * 1.2).rounded(.up))
+    let requiredBytes = try await repository.requiredImportSpaceBytes(
+      archiveBytes: Int64(data.count))
     emit(
       .init(
         phase: .checkingSpace,
