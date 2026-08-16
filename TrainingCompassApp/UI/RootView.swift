@@ -4510,6 +4510,8 @@ private struct TrainingErasureView: View {
   @State private var showingConfirmation = false
   @State private var isErasing = false
   @State private var errorMessage: String?
+  @State private var deleteHealthKitWriteBacks = false
+  @State private var pendingHealthKitDeletion: HealthWorkoutWriteBackDeletionResult?
 
   var body: some View {
     NavigationStack {
@@ -4518,6 +4520,16 @@ private struct TrainingErasureView: View {
           Text(TrainingErasureCopy.confirmationMessage)
             .font(.callout)
           Text(TrainingErasureCopy.externalCopiesMessage)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        Section("HealthKit summaries (optional)") {
+          Toggle(
+            "Delete Training Compass HealthKit summaries first",
+            isOn: $deleteHealthKitWriteBacks
+          )
+          .accessibilityIdentifier("erase.delete-healthkit")
+          Text(TrainingErasureCopy.healthKitChoiceMessage)
             .font(.callout)
             .foregroundStyle(.secondary)
         }
@@ -4544,9 +4556,27 @@ private struct TrainingErasureView: View {
         .accessibilityIdentifier("erase.confirmation")
       } message: {
         Text(
-          TrainingErasureCopy.confirmationMessage + "\n\n"
-            + TrainingErasureCopy.externalCopiesMessage
+          confirmationMessage
         )
+      }
+      .alert(
+        "HealthKit summaries remain",
+        isPresented: Binding(
+          get: { pendingHealthKitDeletion != nil },
+          set: { if !$0 { pendingHealthKitDeletion = nil } }
+        )
+      ) {
+        Button("Cancel", role: .cancel) {}
+        Button("Retry") {
+          Task { await erase(deleteHealthKitWriteBacks: true) }
+        }
+        .accessibilityIdentifier("erase.retry-healthkit")
+        Button("Erase Local Data Anyway", role: .destructive) {
+          Task { await erase(deleteHealthKitWriteBacks: false) }
+        }
+        .accessibilityIdentifier("erase.local-anyway")
+      } message: {
+        Text(healthKitDeletionFailureMessage)
       }
       .alert(
         "Could not erase app data",
@@ -4563,16 +4593,44 @@ private struct TrainingErasureView: View {
   }
 
   private func erase() async {
+    await erase(deleteHealthKitWriteBacks: deleteHealthKitWriteBacks)
+  }
+
+  private func erase(deleteHealthKitWriteBacks: Bool) async {
     isErasing = true
     defer { isErasing = false }
     do {
-      try await model.eraseAllData()
-      dismiss()
+      let result = try await model.eraseAllData(
+        deleteHealthKitWriteBacks: deleteHealthKitWriteBacks)
+      switch result {
+      case .completed:
+        dismiss()
+      case .healthKitDeletionIncomplete(let deletion):
+        pendingHealthKitDeletion = deletion
+      }
     } catch let error as TrainingErasureError {
       errorMessage = error.privacySafeDescription
     } catch {
       errorMessage = TrainingErasureError.cleanupFailed.privacySafeDescription
     }
+  }
+
+  private var confirmationMessage: String {
+    let healthChoice: String
+    if deleteHealthKitWriteBacks {
+      healthChoice = TrainingErasureCopy.healthKitChoiceMessage
+    } else {
+      healthChoice = "HealthKit summaries remain outside this local-erasure action."
+    }
+    return TrainingErasureCopy.confirmationMessage + "\n\n"
+      + healthChoice + "\n\n" + TrainingErasureCopy.externalCopiesMessage
+  }
+
+  private var healthKitDeletionFailureMessage: String {
+    let failure = pendingHealthKitDeletion?.failure?.privacySafeDescription
+    return [failure, TrainingErasureCopy.healthKitDeletionFailureMessage]
+      .compactMap { $0 }
+      .joined(separator: " ")
   }
 }
 

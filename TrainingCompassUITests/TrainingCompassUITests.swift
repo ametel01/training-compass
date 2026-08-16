@@ -79,8 +79,21 @@ final class TrainingCompassUITests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(localScope.exists)
     XCTAssertTrue(externalCopies.exists)
+    let deleteHealthKit = app.switches["erase.delete-healthkit"]
+    XCTAssertTrue(deleteHealthKit.exists)
+    let ownershipCopy = "targets only objects authored by Training Compass"
+    XCTAssertTrue(
+      app.staticTexts.containing(
+        NSPredicate(format: "label CONTAINS %@", ownershipCopy)
+      ).firstMatch.exists
+    )
 
-    app.buttons["erase.confirm"].tap()
+    let eraseButton = app.buttons["erase.confirm"]
+    if !eraseButton.exists {
+      app.swipeUp()
+    }
+    XCTAssertTrue(eraseButton.waitForExistence(timeout: 5))
+    eraseButton.tap()
     XCTAssertTrue(app.alerts["Erase All App Data"].waitForExistence(timeout: 5))
     app.alerts.buttons["Cancel"].tap()
     XCTAssertTrue(app.navigationBars["Erase All App Data"].exists)

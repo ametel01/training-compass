@@ -307,6 +307,106 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
     XCTAssertEqual(afterFailure?.state, .savedToHealth)
   }
 
+  func testDeleteAllSummariesPreservesRemainingIdentityAcrossMixedFailureAndRetry() async throws {
+    let repository = WriteBackRepositorySpy()
+    await repository.seedRecords([
+      HealthWorkoutWriteBackRecord(
+        sessionID: "first", syncIdentifier: "sync.first", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+        healthKitUUID: "health-first"),
+      HealthWorkoutWriteBackRecord(
+        sessionID: "second", syncIdentifier: "sync.second", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 3), endDate: Date(timeIntervalSince1970: 4),
+        healthKitUUID: "health-second"),
+      HealthWorkoutWriteBackRecord(
+        sessionID: "pending", syncIdentifier: "sync.pending", state: .queued,
+        startDate: Date(timeIntervalSince1970: 5), endDate: Date(timeIntervalSince1970: 6)),
+    ])
+    let client = WriteBackClientSpy()
+    await client.setDeleteOutcomes([.success, .failure])
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+
+    let partial = await boundary.deleteAllAppAuthoredSummaries()
+
+    XCTAssertFalse(partial.isComplete)
+    XCTAssertEqual(partial.deletedSyncIdentifiers, ["sync.first"])
+    XCTAssertEqual(partial.remainingRecords.map(\.sessionID), ["second"])
+    let partialDeleteRequests = await client.deleteRequests
+    XCTAssertEqual(partialDeleteRequests, ["health-first", "health-second"])
+    let firstAfterPartial = try await repository.loadHealthWorkoutWriteBack(sessionID: "first")
+    XCTAssertEqual(firstAfterPartial?.state, .deletedFromHealth)
+
+    await client.setDeleteOutcomes([.success])
+    let restartedBoundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+    let completed = await restartedBoundary.deleteAllAppAuthoredSummaries()
+
+    XCTAssertTrue(completed.isComplete)
+    XCTAssertEqual(completed.remainingRecords, [])
+    let secondAfterRetry = try await repository.loadHealthWorkoutWriteBack(sessionID: "second")
+    XCTAssertEqual(secondAfterRetry?.state, .deletedFromHealth)
+    let allDeleteRequests = await client.deleteRequests
+    XCTAssertEqual(allDeleteRequests, ["health-first", "health-second", "health-second"])
+  }
+
+  func testDeleteAllSummariesPassesStableSyncIdentityForOwnershipCheck() async throws {
+    let repository = WriteBackRepositorySpy()
+    let record = HealthWorkoutWriteBackRecord(
+      sessionID: "session", syncIdentifier: "sync.session", state: .savedToHealth,
+      startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+      healthKitUUID: "health-workout")
+    await repository.seedRecords([record])
+    let client = WriteBackClientSpy()
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+
+    _ = await boundary.deleteAllAppAuthoredSummaries()
+
+    let expectedDeleteIdentities = await client.expectedDeleteIdentities
+    XCTAssertEqual(
+      expectedDeleteIdentities.map { "\($0.0)|\($0.1)" }, ["health-workout|sync.session"])
+  }
+
+  func testDeleteAllSummariesBlocksLocalErasureForSavedRecordWithoutUUID() async throws {
+    let repository = WriteBackRepositorySpy()
+    await repository.seedRecords([
+      HealthWorkoutWriteBackRecord(
+        sessionID: "session", syncIdentifier: "sync.session", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2))
+    ])
+    let client = WriteBackClientSpy()
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+
+    let result = await boundary.deleteAllAppAuthoredSummaries()
+
+    XCTAssertFalse(result.isComplete)
+    XCTAssertEqual(result.failure, .failed)
+    XCTAssertEqual(result.remainingRecords.map(\.sessionID), ["session"])
+    let deleteRequests = await client.deleteRequests
+    XCTAssertTrue(deleteRequests.isEmpty)
+  }
+
+  func testDeleteAllSummariesMapsPermissionFailureWithoutDroppingIdentity() async throws {
+    let repository = WriteBackRepositorySpy()
+    await repository.seedRecords([
+      HealthWorkoutWriteBackRecord(
+        sessionID: "session", syncIdentifier: "sync.session", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+        healthKitUUID: "health-workout")
+    ])
+    let client = WriteBackClientSpy()
+    await client.setDeleteOutcomes([.authorizationDenied])
+    let boundary = HealthWorkoutWriteBackBoundary(
+      repository: repository, client: client, clock: WriteBackClock())
+
+    let result = await boundary.deleteAllAppAuthoredSummaries()
+
+    XCTAssertEqual(result.failure, .authorizationDenied)
+    XCTAssertEqual(result.remainingRecords.map(\.sessionID), ["session"])
+  }
+
   private func makeCompletedSession() -> TodaySessionSnapshot {
     let prescription = TrainingSetPrescription(
       id: "prescription", setNumber: 1, role: .primary, percentage: 0.65,
@@ -335,7 +435,7 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
 
 private actor WriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
   private var preferenceValue = HealthWorkoutWriteBackPreference()
-  private var record: HealthWorkoutWriteBackRecord?
+  private var records: [String: HealthWorkoutWriteBackRecord] = [:]
   private var links: [HealthWorkoutLinkFact] = []
 
   func loadHealthWorkoutWriteBackPreference() async throws -> HealthWorkoutWriteBackPreference {
@@ -349,15 +449,15 @@ private actor WriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
   }
 
   func loadHealthWorkoutWriteBack(sessionID: String) async throws -> HealthWorkoutWriteBackRecord? {
-    record?.sessionID == sessionID ? record : nil
+    records[sessionID]
   }
 
   func loadHealthWorkoutWriteBacks() async throws -> [HealthWorkoutWriteBackRecord] {
-    record.map { [$0] } ?? []
+    records.values.sorted { $0.sessionID < $1.sessionID }
   }
 
   func saveHealthWorkoutWriteBack(_ record: HealthWorkoutWriteBackRecord) async throws {
-    self.record = record
+    records[record.sessionID] = record
   }
 
   func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
@@ -367,6 +467,9 @@ private actor WriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
   }
 
   func setLinks(_ links: [HealthWorkoutLinkFact]) { self.links = links }
+  func seedRecords(_ records: [HealthWorkoutWriteBackRecord]) {
+    self.records = Dictionary(uniqueKeysWithValues: records.map { ($0.sessionID, $0) })
+  }
 }
 
 private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
@@ -383,6 +486,7 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
   private(set) var authorizationRequests = 0
   private(set) var saveRequests = 0
   private(set) var deleteRequests: [String] = []
+  private(set) var expectedDeleteIdentities: [(String, String)] = []
   private(set) var summaries: [HealthWorkoutWriteBackSummary] = []
   private var authorizationState = HealthAuthorizationState.authorized
   private var saveOutcomes: [SaveOutcome] = []
@@ -391,6 +495,8 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
   enum DeleteOutcome: Sendable {
     case success
     case failure
+    case authorizationDenied
+    case protectedDataUnavailable
   }
 
   func setSaveOutcomes(_ outcomes: [SaveOutcome]) { saveOutcomes = outcomes }
@@ -438,7 +544,15 @@ private actor WriteBackClientSpy: HealthWorkoutWriteBackClient {
     switch deleteOutcomes.removeFirst() {
     case .success: return
     case .failure: throw WriteBackTerminalFailure()
+    case .authorizationDenied: throw HealthWorkoutWriteBackClientError.authorizationDenied
+    case .protectedDataUnavailable:
+      throw HealthWorkoutWriteBackClientError.protectedDataUnavailable
     }
+  }
+
+  func deleteWorkout(healthKitUUID: String, expectedSyncIdentifier: String) async throws {
+    expectedDeleteIdentities.append((healthKitUUID, expectedSyncIdentifier))
+    try await deleteWorkout(healthKitUUID: healthKitUUID)
   }
 }
 

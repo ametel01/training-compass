@@ -74,6 +74,22 @@ HealthKit identifiers, or owner data in evidence artifacts.
     and a retryable explanation is shown. Confirm an external workout is never
     deleted or rewritten.
 
+17. Open Full App Erasure and confirm it names the local stores, local
+    write-back ledger, backups, shared exports, and other-source HealthKit
+    workouts separately. Leave the optional HealthKit deletion choice off once
+    and cancel; verify neither local data nor HealthKit is touched. Reopen it,
+    select deletion of Training Compass summaries, and confirm the destructive
+    prompt explains that deletion runs before local erasure and targets only
+    Training Compass-authored objects.
+18. With at least two app-authored summaries, inject or observe one successful
+    deletion followed by a permission, lock, or terminal failure. Verify the
+    successful record is durably marked deleted, remaining UUIDs survive a
+    restart, and local erasure does not start. Retry until all deletions
+    succeed and verify first launch has no retained local write-back state. If
+    deletion remains incomplete, choose **Erase Local Data Anyway** explicitly
+    and verify the message says some HealthKit copies remain; backups, shared
+    exports, and another source's workouts are never claimed erased.
+
 The corresponding automated evidence is `HealthWorkoutWriteBackBoundaryTests`,
 the write-back repository tests, the HealthKit adapter tests, the lifecycle/UI
 integration, and `make verify`.

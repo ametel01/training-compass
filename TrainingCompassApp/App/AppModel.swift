@@ -103,15 +103,21 @@ final class AppModel {
     heartRateConfigurationRevision += 1
   }
 
-  func eraseAllData() async throws {
+  @discardableResult
+  func eraseAllData(deleteHealthKitWriteBacks: Bool = false) async throws
+    -> TrainingErasureResult
+  {
     guard let trainingErasureBoundary else {
       throw TrainingErasureError.unavailable
     }
     isErasing = true
     defer { isErasing = false }
-    _ = try await trainingErasureBoundary.erase(confirmation: .confirmed)
+    let result = try await trainingErasureBoundary.erase(
+      confirmation: .confirmed, deleteHealthKitWriteBacks: deleteHealthKitWriteBacks)
+    guard result == .completed else { return result }
     phase = .preparing
     await prepare()
+    return result
   }
 
   static func live() -> AppModel {
@@ -185,7 +191,8 @@ final class AppModel {
         TrainingImportBoundary(repository: $0, fileSystem: dependencies.importFileSystem)
       },
       trainingErasureBoundary: (repository as? any TrainingErasureRepository).map {
-        TrainingErasureBoundary(repository: $0)
+        TrainingErasureBoundary(
+          repository: $0, healthWorkoutWriteBackBoundary: healthWorkoutWriteBackBoundary)
       },
       healthWorkoutImportBoundary: {
         guard let healthClient = dependencies.healthKit as? any HealthWorkoutClient,

@@ -39,6 +39,93 @@ final class TrainingErasureBoundaryTests: XCTestCase {
     let confirmedCalls = await repository.eraseCallCount
     XCTAssertEqual(confirmedCalls, 1)
   }
+
+  func testHealthKitDeletionPrecedesLocalErasureAndStopsOnPartialFailure() async throws {
+    let repository = ErasureRepositorySpy()
+    let writeBackRepository = ErasureWriteBackRepositorySpy()
+    await writeBackRepository.seed(
+      HealthWorkoutWriteBackRecord(
+        sessionID: "session", syncIdentifier: "sync.session", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+        healthKitUUID: "health-workout"))
+    let client = ErasureHealthClientSpy()
+    await client.setDeleteFailure(true)
+    let writeBackBoundary = HealthWorkoutWriteBackBoundary(
+      repository: writeBackRepository, client: client, clock: ErasureClock())
+    let boundary = TrainingErasureBoundary(
+      repository: repository, healthWorkoutWriteBackBoundary: writeBackBoundary)
+
+    let partial = try await boundary.erase(
+      confirmation: .confirmed, deleteHealthKitWriteBacks: true)
+
+    guard case .healthKitDeletionIncomplete(let deletion) = partial else {
+      return XCTFail("Local erasure must wait for HealthKit deletion")
+    }
+    XCTAssertFalse(deletion.isComplete)
+    let eraseCallsAfterPartial = await repository.eraseCallCount
+    let deleteCallsAfterPartial = await client.deleteRequestCount
+    XCTAssertEqual(eraseCallsAfterPartial, 0)
+    XCTAssertEqual(deleteCallsAfterPartial, 1)
+
+    await client.setDeleteFailure(false)
+    let completed = try await boundary.erase(
+      confirmation: .confirmed, deleteHealthKitWriteBacks: true)
+
+    XCTAssertEqual(completed, .completed)
+    let eraseCallsAfterCompletion = await repository.eraseCallCount
+    XCTAssertEqual(eraseCallsAfterCompletion, 1)
+  }
+
+  func testCancellationDoesNotAttemptHealthKitDeletion() async throws {
+    let repository = ErasureRepositorySpy()
+    let writeBackRepository = ErasureWriteBackRepositorySpy()
+    let client = ErasureHealthClientSpy()
+    let writeBackBoundary = HealthWorkoutWriteBackBoundary(
+      repository: writeBackRepository, client: client, clock: ErasureClock())
+    let boundary = TrainingErasureBoundary(
+      repository: repository, healthWorkoutWriteBackBoundary: writeBackBoundary)
+
+    do {
+      _ = try await boundary.erase(
+        confirmation: .cancelled, deleteHealthKitWriteBacks: true)
+      XCTFail("Cancellation should not start external deletion")
+    } catch let error as TrainingErasureError {
+      XCTAssertEqual(error, .confirmationRequired)
+    }
+    let deleteCallsAfterCancellation = await client.deleteRequestCount
+    let eraseCallsAfterCancellation = await repository.eraseCallCount
+    XCTAssertEqual(deleteCallsAfterCancellation, 0)
+    XCTAssertEqual(eraseCallsAfterCancellation, 0)
+  }
+
+  func testAcknowledgedLocalOnlyContinuationErasesAfterDeletionFailure() async throws {
+    let repository = ErasureRepositorySpy()
+    let writeBackRepository = ErasureWriteBackRepositorySpy()
+    await writeBackRepository.seed(
+      HealthWorkoutWriteBackRecord(
+        sessionID: "session", syncIdentifier: "sync.session", state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+        healthKitUUID: "health-workout"))
+    let client = ErasureHealthClientSpy()
+    await client.setDeleteFailure(true)
+    let writeBackBoundary = HealthWorkoutWriteBackBoundary(
+      repository: writeBackRepository, client: client, clock: ErasureClock())
+    let boundary = TrainingErasureBoundary(
+      repository: repository, healthWorkoutWriteBackBoundary: writeBackBoundary)
+
+    let incomplete = try await boundary.erase(
+      confirmation: .confirmed, deleteHealthKitWriteBacks: true)
+    guard case .healthKitDeletionIncomplete = incomplete else {
+      return XCTFail("The failed external deletion should require an explicit second choice")
+    }
+
+    let completed = try await boundary.erase(
+      confirmation: .confirmed, deleteHealthKitWriteBacks: false)
+
+    XCTAssertEqual(completed, .completed)
+    let eraseCalls = await repository.eraseCallCount
+    XCTAssertEqual(eraseCalls, 1)
+  }
 }
 
 private actor ErasureRepositorySpy: TrainingErasureRepository {
@@ -48,4 +135,58 @@ private actor ErasureRepositorySpy: TrainingErasureRepository {
     eraseCallCount += 1
     progress?(.init(phase: .completed, fraction: 1, message: "Erased"))
   }
+}
+
+private actor ErasureWriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
+  private var record: HealthWorkoutWriteBackRecord?
+
+  func loadHealthWorkoutWriteBackPreference() async throws -> HealthWorkoutWriteBackPreference {
+    .init(enabled: true)
+  }
+
+  func saveHealthWorkoutWriteBackPreference(
+    _ preference: HealthWorkoutWriteBackPreference
+  ) async throws {}
+
+  func loadHealthWorkoutWriteBack(sessionID: String) async throws -> HealthWorkoutWriteBackRecord? {
+    record?.sessionID == sessionID ? record : nil
+  }
+
+  func loadHealthWorkoutWriteBacks() async throws -> [HealthWorkoutWriteBackRecord] {
+    record.map { [$0] } ?? []
+  }
+
+  func saveHealthWorkoutWriteBack(_ record: HealthWorkoutWriteBackRecord) async throws {
+    self.record = record
+  }
+
+  func loadHealthWorkoutLinkFacts(
+    forLocalEntityID localEntityID: String
+  ) async throws -> [HealthWorkoutLinkFact] {
+    []
+  }
+
+  func seed(_ record: HealthWorkoutWriteBackRecord) { self.record = record }
+}
+
+private actor ErasureHealthClientSpy: HealthWorkoutWriteBackClient {
+  private(set) var deleteRequestCount = 0
+  private var deleteFailure = false
+
+  func requestWriteAuthorization() async throws -> HealthAuthorizationSnapshot {
+    .init(state: .authorized)
+  }
+  func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String { "health" }
+  func workoutExists(syncIdentifier: String) async throws -> Bool { false }
+
+  func deleteWorkout(healthKitUUID: String) async throws {
+    deleteRequestCount += 1
+    if deleteFailure { throw HealthWorkoutWriteBackClientError.protectedDataUnavailable }
+  }
+
+  func setDeleteFailure(_ value: Bool) { deleteFailure = value }
+}
+
+private struct ErasureClock: Clock {
+  func now() -> Date { Date(timeIntervalSince1970: 10) }
 }

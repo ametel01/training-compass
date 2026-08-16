@@ -61,6 +61,7 @@ public enum TrainingErasureError: Error, Equatable, Sendable {
 
 public enum TrainingErasureResult: Equatable, Sendable {
   case completed
+  case healthKitDeletionIncomplete(HealthWorkoutWriteBackDeletionResult)
 }
 
 /// These strings are shared by the boundary and the UI so the confirmation
@@ -80,34 +81,58 @@ public enum TrainingErasureCopy {
     """
 
   public static let externalCopiesMessage = """
-    device or iCloud backups, previously shared exports, and HealthKit data are separate copies outside this local-erasure promise.
+    device or iCloud backups, previously shared exports, and HealthKit data outside Training Compass-authored summaries are separate copies outside this local-erasure promise. Backups, shared exports, and workouts saved by another source remain.
+    """
+
+  public static let healthKitChoiceMessage = """
+    Optionally delete Training Compass HealthKit summaries first. This targets only objects authored by Training Compass. It does not remove HealthKit backups, shared exports, or workouts saved by another source.
+    """
+
+  public static let healthKitDeletionFailureMessage = """
+    Some Training Compass Health summaries remain in HealthKit. Retry to delete them, or choose Erase Local Data Anyway to remove local evidence while leaving those external copies in HealthKit.
     """
 }
 
 public struct TrainingErasureBoundary: Sendable {
   private let repository: any TrainingErasureRepository
+  private let healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary?
   private let progress: TrainingErasureProgressHandler?
 
   public init(
     repository: any TrainingErasureRepository,
+    healthWorkoutWriteBackBoundary: HealthWorkoutWriteBackBoundary? = nil,
     progress: TrainingErasureProgressHandler? = nil
   ) {
     self.repository = repository
+    self.healthWorkoutWriteBackBoundary = healthWorkoutWriteBackBoundary
     self.progress = progress
   }
 
   public func erase(
-    confirmation: TrainingErasureConfirmation
+    confirmation: TrainingErasureConfirmation,
+    deleteHealthKitWriteBacks: Bool = false
   ) async throws -> TrainingErasureResult {
     guard confirmation == .confirmed else { throw TrainingErasureError.confirmationRequired }
+    if deleteHealthKitWriteBacks {
+      guard let healthWorkoutWriteBackBoundary else {
+        return .healthKitDeletionIncomplete(
+          .init(deletedSyncIdentifiers: [], remainingRecords: [], failure: .unavailable))
+      }
+      let deletion = await healthWorkoutWriteBackBoundary.deleteAllAppAuthoredSummaries()
+      guard deletion.isComplete else {
+        return .healthKitDeletionIncomplete(deletion)
+      }
+    }
     try await repository.eraseAllData(progress: progress)
     return .completed
   }
 
   public func eraseAllData(
-    confirmation: TrainingErasureConfirmation
+    confirmation: TrainingErasureConfirmation,
+    deleteHealthKitWriteBacks: Bool = false
   ) async throws -> TrainingErasureResult {
-    try await erase(confirmation: confirmation)
+    try await erase(
+      confirmation: confirmation, deleteHealthKitWriteBacks: deleteHealthKitWriteBacks)
   }
 }
 

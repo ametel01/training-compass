@@ -147,6 +147,23 @@ public enum HealthWorkoutWriteBackClientError: Error, Equatable, Sendable {
   case protectedDataUnavailable
 }
 
+public enum HealthWorkoutWriteBackDeletionFailure: String, Codable, Equatable, Sendable {
+  case unavailable
+  case authorizationDenied
+  case protectedDataUnavailable
+  case failed
+  case persistenceFailed
+
+  public var privacySafeDescription: String {
+    switch self {
+    case .unavailable: "HealthKit deletion is unavailable on this device."
+    case .authorizationDenied: "HealthKit deletion access is unavailable."
+    case .protectedDataUnavailable: "HealthKit is locked. Unlock the device and retry."
+    case .failed, .persistenceFailed: "Some Training Compass Health summaries could not be deleted."
+    }
+  }
+}
+
 /// A replacement with an external Health Workout is a two-phase owner action:
 /// the Training Compass object must be deleted before the external link is
 /// committed.  Keeping this error distinct lets the UI offer a retry without
@@ -160,6 +177,7 @@ public protocol HealthWorkoutWriteBackClient: Sendable {
   func saveWorkout(_ summary: HealthWorkoutWriteBackSummary) async throws -> String
   func workoutExists(syncIdentifier: String) async throws -> Bool
   func deleteWorkout(healthKitUUID: String) async throws
+  func deleteWorkout(healthKitUUID: String, expectedSyncIdentifier: String) async throws
 }
 
 extension HealthWorkoutWriteBackClient {
@@ -169,6 +187,11 @@ extension HealthWorkoutWriteBackClient {
   public func deleteWorkout(healthKitUUID: String) async throws {
     _ = healthKitUUID
     throw HealthWorkoutWriteBackClientError.unavailable
+  }
+
+  public func deleteWorkout(healthKitUUID: String, expectedSyncIdentifier: String) async throws {
+    _ = expectedSyncIdentifier
+    try await deleteWorkout(healthKitUUID: healthKitUUID)
   }
 }
 
@@ -212,6 +235,26 @@ public struct HealthWorkoutWriteBackRepairResult: Codable, Equatable, Sendable {
     self.syncIdentifier = syncIdentifier
     self.retainedHealthKitUUID = retainedHealthKitUUID
     self.deletedHealthKitUUIDs = deletedHealthKitUUIDs
+  }
+}
+
+public struct HealthWorkoutWriteBackDeletionResult: Codable, Equatable, Sendable {
+  public let deletedSyncIdentifiers: [String]
+  public let remainingRecords: [HealthWorkoutWriteBackRecord]
+  public let failure: HealthWorkoutWriteBackDeletionFailure?
+
+  public init(
+    deletedSyncIdentifiers: [String],
+    remainingRecords: [HealthWorkoutWriteBackRecord],
+    failure: HealthWorkoutWriteBackDeletionFailure? = nil
+  ) {
+    self.deletedSyncIdentifiers = deletedSyncIdentifiers
+    self.remainingRecords = remainingRecords
+    self.failure = failure
+  }
+
+  public var isComplete: Bool {
+    remainingRecords.isEmpty && failure == nil
   }
 }
 
@@ -325,6 +368,62 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
 
   public func records() async throws -> [HealthWorkoutWriteBackRecord] {
     try await repository.loadHealthWorkoutWriteBacks()
+  }
+
+  /// Deletes only summaries whose durable write-back record identifies an
+  /// external HealthKit object. The adapter rechecks source ownership and the
+  /// stable sync identifier before deleting. Successful records are marked
+  /// deleted while failed records retain their UUID for a later retry.
+  public func deleteAllAppAuthoredSummaries() async -> HealthWorkoutWriteBackDeletionResult {
+    await withDeliveryLane {
+      guard let records = try? await self.repository.loadHealthWorkoutWriteBacks() else {
+        return .init(
+          deletedSyncIdentifiers: [], remainingRecords: [], failure: .unavailable)
+      }
+
+      var deletedSyncIdentifiers: [String] = []
+      var remainingRecords: [HealthWorkoutWriteBackRecord] = []
+      var failure: HealthWorkoutWriteBackDeletionFailure?
+      for record in records where record.state != .notShared && record.state != .deletedFromHealth {
+        guard let healthKitUUID = record.healthKitUUID else {
+          // A saved record without a durable UUID may still refer to an
+          // app-authored object found by sync identity. Preserve its local
+          // identity and require an explicit retry rather than erasing it.
+          if record.state == .savedToHealth {
+            remainingRecords.append(record)
+            failure = failure ?? .failed
+          }
+          continue
+        }
+        do {
+          try await self.client.deleteWorkout(
+            healthKitUUID: healthKitUUID, expectedSyncIdentifier: record.syncIdentifier)
+          let deleted = HealthWorkoutWriteBackRecord(
+            sessionID: record.sessionID,
+            syncIdentifier: record.syncIdentifier,
+            syncVersion: record.syncVersion,
+            state: .deletedFromHealth,
+            startDate: record.startDate,
+            endDate: record.endDate,
+            healthKitUUID: healthKitUUID,
+            updatedAt: self.clock.now())
+          do {
+            try await self.repository.saveHealthWorkoutWriteBack(deleted)
+            deletedSyncIdentifiers.append(record.syncIdentifier)
+          } catch {
+            remainingRecords.append(record)
+            failure = failure ?? .persistenceFailed
+          }
+        } catch {
+          remainingRecords.append(record)
+          failure = failure ?? Self.deletionFailure(for: error)
+        }
+      }
+      return .init(
+        deletedSyncIdentifiers: deletedSyncIdentifiers,
+        remainingRecords: remainingRecords,
+        failure: failure)
+    }
   }
 
   /// Records that HealthKit removed an app-authored object without recreating
@@ -780,6 +879,17 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
       sessionID: session.session.id,
       syncIdentifier: Self.syncIdentifier(for: session.session.id),
       startDate: min(start, completedAt), endDate: completedAt)
+  }
+
+  private static func deletionFailure(for error: any Error)
+    -> HealthWorkoutWriteBackDeletionFailure
+  {
+    switch error as? HealthWorkoutWriteBackClientError {
+    case .unavailable: .unavailable
+    case .authorizationDenied: .authorizationDenied
+    case .protectedDataUnavailable, .inaccessible: .protectedDataUnavailable
+    case nil: .failed
+    }
   }
 
   private func withDeliveryLane<T: Sendable>(

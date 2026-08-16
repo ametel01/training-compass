@@ -176,6 +176,10 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
   }
 
   public func deleteWorkout(healthKitUUID: String) async throws {
+    try await deleteWorkout(healthKitUUID: healthKitUUID, expectedSyncIdentifier: "")
+  }
+
+  public func deleteWorkout(healthKitUUID: String, expectedSyncIdentifier: String) async throws {
     #if canImport(HealthKit)
       guard HKHealthStore.isHealthDataAvailable(),
         let uuid = UUID(uuidString: healthKitUUID)
@@ -201,6 +205,11 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         workout.sourceRevision.source.bundleIdentifier
           == TrainingEventLinkBoundary.trainingCompassBundleIdentifier
       else { throw HealthWorkoutWriteBackClientError.authorizationDenied }
+      if !expectedSyncIdentifier.isEmpty {
+        guard
+          (workout.metadata?[HKMetadataKeySyncIdentifier] as? String) == expectedSyncIdentifier
+        else { throw HealthWorkoutWriteBackClientError.authorizationDenied }
+      }
       try await withCheckedThrowingContinuation {
         (continuation: CheckedContinuation<Void, any Error>) in
         store.delete(workout) { success, error in

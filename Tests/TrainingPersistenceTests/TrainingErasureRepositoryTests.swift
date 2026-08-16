@@ -17,6 +17,12 @@ final class TrainingErasureRepositoryTests: XCTestCase {
       temporaryExportDirectory: exports
     )
     try await repository.prepareStores()
+    try await repository.saveHealthWorkoutWriteBack(
+      HealthWorkoutWriteBackRecord(
+        sessionID: "erasure-session", syncIdentifier: "sync.erasure-session",
+        state: .savedToHealth,
+        startDate: Date(timeIntervalSince1970: 1), endDate: Date(timeIntervalSince1970: 2),
+        healthKitUUID: "health-erasure"))
     try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
     try Data("shared-locally-only".utf8).write(
       to: exports.appending(path: "archive.trainingcompass"))
@@ -42,6 +48,8 @@ final class TrainingErasureRepositoryTests: XCTestCase {
     )
     let isEmptyAfterRestart = try await restarted.authoritativeStoreIsEmpty()
     XCTAssertTrue(isEmptyAfterRestart)
+    let writeBacksAfterRestart = try await restarted.loadHealthWorkoutWriteBacks()
+    XCTAssertTrue(writeBacksAfterRestart.isEmpty)
   }
 
   func testInterruptedErasureIsCompletedBeforeRestartOpensStores() async throws {
