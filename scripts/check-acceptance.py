@@ -20,6 +20,8 @@ INSIGHTS_CHECKLIST = ROOT / "documentation/developer/reference/training-insights
 RECOVERY_CHECKLIST = ROOT / "documentation/developer/reference/recovery-evidence-device-checklist.md"
 WRITE_BACK_CHECKLIST = ROOT / "documentation/developer/reference/healthkit-write-back-device-checklist.md"
 PERSONAL_TEAM_CHECKLIST = ROOT / "documentation/developer/reference/personal-team-refresh-device-checklist.md"
+VERIFICATION_ENVELOPE = ROOT / "fixtures/verification-envelope.json"
+PERFORMANCE_PROTOCOL = ROOT / "fixtures/performance-protocol.json"
 
 REQUIRED_SOURCES = (
     *range(1, 24),
@@ -44,6 +46,7 @@ REQUIRED_SOURCES = (
     43,
     44,
     45,
+    46,
 )
 REQUIRED_BUDGETS = (
     "1.5 seconds",
@@ -65,6 +68,11 @@ REQUIRED_BUDGETS = (
     "4 MiB",
     "8 MiB",
     "20%",
+    "100 milliseconds",
+    "10 seconds",
+    "30 minutes",
+    "ten measured runs",
+    "one conditioning run",
 )
 
 
@@ -123,6 +131,10 @@ def main() -> int:
         errors.append("HealthKit Write-back Acceptance Device checklist is missing")
     if not PERSONAL_TEAM_CHECKLIST.exists():
         errors.append("Personal Team refresh Acceptance Device checklist is missing")
+    if not VERIFICATION_ENVELOPE.exists():
+        errors.append("Verification Data Envelope fixture is missing")
+    if not PERFORMANCE_PROTOCOL.exists():
+        errors.append("performance protocol fixture is missing")
 
     rows = matrix_rows(matrix)
     sources = {int(match.group(1)) for row in rows if (match := re.match(r"Issue #(\d+):", row[0]))}
@@ -282,6 +294,19 @@ def main() -> int:
     for contract in required_migration_contracts:
         if contract not in matrix and contract not in (ROOT / "documentation/developer/reference/migration-compatibility.md").read_text():
             errors.append(f"acceptance contract omits migration compatibility boundary: {contract}")
+
+    required_performance_contracts = (
+        "HealthKit wait time separated from app-controlled work",
+        "no continuous main-actor slice exceeds 100 milliseconds",
+        "first Health content is durable within ten seconds",
+        "daily delta processing is at most two seconds",
+        "full-envelope processing at most 30 minutes",
+        "low-power, battery, thermal, storage, interruption, and over-budget paths",
+        "privacy-safe raw measurements, verdicts, and any time-bounded waiver",
+    )
+    for contract in required_performance_contracts:
+        if contract not in matrix and contract not in BUDGETS.read_text():
+            errors.append(f"acceptance contract omits performance envelope boundary: {contract}")
 
     if errors:
         print("Acceptance contract check failed:")

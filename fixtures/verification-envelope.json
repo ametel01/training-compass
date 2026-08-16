@@ -1,0 +1,25 @@
+{
+  "algorithmVersion" : "verification-envelope-lcg-v1",
+  "coverageYears" : 15,
+  "healthWorkouts" : 25000,
+  "heartRateSamples" : 10000000,
+  "hrvSamples" : 100000,
+  "identifierSamples" : [
+    "1597407B-1042-8E16-C923-08FB1265652D",
+    "EFB919B7-BF9C-9D38-833F-30867985EC27",
+    "CB82E554-CACC-5D2A-C95D-F8FEB0FDB7B1",
+    "8787EE63-6826-9A6C-AF18-DCEF5DA83A4B"
+  ],
+  "ownerDataAccepted" : false,
+  "referenceDate" : "2026-01-01T00:00:00Z",
+  "restingHeartRateSamples" : 50000,
+  "routeRetainedPoints" : 2000,
+  "routes" : 2000,
+  "schemaVersion" : 1,
+  "seed" : 21571,
+  "sessions" : 10000,
+  "sets" : 250000,
+  "sleepIntervals" : 250000,
+  "timeZoneIdentifier" : "Etc/UTC",
+  "trainingCycles" : 500
+}

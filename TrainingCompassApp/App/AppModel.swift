@@ -212,6 +212,7 @@ final class AppModel {
           client: healthClient,
           repository: healthRepository,
           storageProvider: storageProvider ?? DefaultHealthRebuildStorageProvider(),
+          resourceProvider: DeviceHealthRebuildResourceProvider(),
           writeBackBoundary: healthWorkoutWriteBackBoundary)
       }(),
       healthWorkoutRouteBoundary: {
@@ -288,9 +289,37 @@ private actor DeviceHealthWorkoutRouteResourceProvider: HealthWorkoutRouteResour
       }
     let batteryLevel: Double? = await MainActor.run {
       let level = UIDevice.current.batteryLevel
-      return level < 0 ? 0 : Double(level)
+      return level < 0 ? nil : Double(level)
     }
     return HealthWorkoutRouteResourceSnapshot(
+      availableStorageBytes: Int(min(Int64(Int.max), max(0, available))),
+      lowPowerModeEnabled: processInfo.isLowPowerModeEnabled,
+      batteryLevel: batteryLevel,
+      thermalState: thermalState)
+  }
+}
+
+private actor DeviceHealthRebuildResourceProvider: HealthRebuildResourceProviding {
+  func currentHealthRebuildResources() async -> HealthRebuildResourceSnapshot {
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+      .first
+    let available =
+      (try? root?.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage) ?? Int64.max
+    let processInfo = ProcessInfo.processInfo
+    let thermalState: HealthRebuildThermalState =
+      switch processInfo.thermalState {
+      case .nominal: .nominal
+      case .fair: .fair
+      case .serious: .serious
+      case .critical: .critical
+      @unknown default: .serious
+      }
+    let batteryLevel: Double? = await MainActor.run {
+      let level = UIDevice.current.batteryLevel
+      return level < 0 ? nil : Double(level)
+    }
+    return HealthRebuildResourceSnapshot(
       availableStorageBytes: Int(min(Int64(Int.max), max(0, available))),
       lowPowerModeEnabled: processInfo.isLowPowerModeEnabled,
       batteryLevel: batteryLevel,

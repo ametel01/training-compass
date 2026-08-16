@@ -6,7 +6,7 @@ on-demand simplified routes, the Unified Events and Enrichment milestone, the
 Rolling Workout Overview, transparent Heart-Rate Zones, Training and Running
 Insights, independent Recovery Evidence, Recovery Guidance, and optional
 HealthKit Session write-back from GitHub issues #1 through #23 and #25 through
-#43 through #45. A row is
+#43 through #46. A row is
 evidence-backed only when
 its latest evidence pointer is current; a `Yes` device check means the
 Acceptance Device checklist must be completed for that scenario.
@@ -108,6 +108,7 @@ Acceptance Device checklist must be completed for that scenario.
 | Issue #44: Automate attended Personal Team refreshes | Stable identity and owner recovery prerequisite | Full Xcode 26+, the free Personal Team session, one explicit bundle ID, a paired owner iPhone, and a verified Training Compass Export are available | Missing Xcode, Apple authentication, login-keychain signing identity, pairing/trust, cable, recent unlock, Developer Mode, team/device/export input, or stable project settings | Preflight reports every named condition without storing credentials; the workflow refuses to proceed without the verified export and explicit attended device confirmation | Scripts, project configuration, documentation, privacy, device evidence | Yes | `scripts/refresh-personal-team.sh`; `scripts/check-personal-team-refresh.py`; Personal Team refresh checklist; `make verify` |
 | Issue #44: Automate attended Personal Team refreshes | In-place build, profile, install, launch, and continuity | Preflight passes and the owner is present in the logged-in macOS session | Build/signing failure, invalid or expiring embedded profile, install/launch failure, or local-data continuity not confirmed | The Release app is built with automatic signing, the profile's exact App ID/team and dates are inspected, `devicectl` installs over the existing app without uninstall, launch smoke test runs, and the owner confirms important local data; failed steps leave the existing app installed | Scripts, application delivery, documentation, privacy, device evidence | Yes | `scripts/refresh-personal-team.sh`; `scripts/install-personal-team-refresh-reminder.sh`; Personal Team refresh checklist; `make verify` |
 | Issue #45: Verify every historical schema and export upgrade | Historical authoritative/reconstructible prefixes or a released Training Compass Export are available | Direct upgrade from authoritative v1–v16, reconstructible v1–v10, and export v1; injected failure at migration, validation, staging, rebuild, and swap phases; low-space refusal | 21571 | Current migrators upgrade every prefix deterministically in one call; every failure leaves the original or complete replacement; staging and rollback space includes a 20% margin; progress and privacy-safe diagnostics are inspectable; reconstructible failures remain Health Data Rebuild-only | Persistence, application, scripts, documentation, privacy, release evidence | No | `TrainingMigrationCompatibilityVerifier`; `fixtures/migration-compatibility.json`; `make verify-migrations`; migration compatibility reference |
+| Issue #46: Enforce performance, scale, and Device Energy budgets | The resolved single-user Verification Data Envelope is loaded in a Release build on the Acceptance Device | Deterministic 15-year envelope with 25,000 Health Workouts, 10,000,000 heart-rate samples, 250,000 sleep intervals, 50,000 resting-heart-rate samples, 100,000 HRV samples, 500 cycles, 10,000 Sessions, 250,000 sets, and 2,000 bounded routes; ten measured runs after one conditioning run; HealthKit wait time separated from app-controlled work; low-power, battery, thermal, storage, interruption, and over-budget paths | 21571 | P95 cold launch, resume, mutation, query, and insight budgets pass; no continuous main-actor slice exceeds 100 milliseconds; first Health content is durable within ten seconds; daily delta processing is at most two seconds and full-envelope processing at most 30 minutes; peak memory, stores, route storage, resource pressure, energy, and non-destructive pause/resume budgets pass; privacy-safe raw measurements, verdicts, and any time-bounded waiver are retained | Application, persistence, scripts, documentation, privacy, device, release evidence | Yes | `SyntheticFixtureGeneratorTests`; `HealthDataRebuildBoundaryTests`; `fixtures/verification-envelope.json`; `fixtures/performance-protocol.json`; `scripts/check-verification-envelope.py`; `scripts/check-performance-protocol.py`; `scripts/check-release-envelope.py`; `make verify-performance`; release-candidate checklist |
 
 ## Required scenario-variant coverage
 
@@ -162,6 +163,7 @@ must name the automated evidence that proves the boundary.
 | Issue #43 | Full App Erasure with optional Write-back deletion | Durable app-authored write-back identities exist or no summaries are present | Delete-first success, mixed failure, permission/lock/restart, retry, cancellation, target ownership, and acknowledged local-only continuation remain explicit | Complete deletion proceeds to clean local first launch; incomplete deletion never silently erases the local identities needed for retry; local-only continuation names remaining external copies and never claims backup/shared/other-source deletion | Application, persistence, adapter, UI, privacy, device, release evidence |
 | Issue #44 | Attended Personal Team refresh and day-five reminder | Stable bundle/team identity and a verified export are present in the owner session | Preflight failures, profile mismatch/expiry, device unavailable, signing failure, install/launch failure, missed reminder, and data-continuity confirmation | The user-attended path updates in place, records only privacy-safe checks and profile dates, keeps the existing app on failure, and documents temporary inability to launch after expiry rather than data deletion | Scripts, project configuration, documentation, device, privacy, recovery | Yes |
 | Issue #45 | Historical schema and export compatibility | Every released store/export prefix and current migrator are available | One direct deterministic upgrade per prefix, direct v1 import, injected destructive-phase failures, low-space refusal, and progress capture | Raw privacy-safe results and a summarized verdict are retained; original or complete new state remains valid; only Health Data Rebuild can repair reconstructible data | Persistence, application, scripts, documentation, privacy, release evidence |
+| Issue #46 | Performance, scale, and Device Energy envelope | Deterministic Verification Data Envelope is loaded on the Acceptance Device | Release build, one conditioning run, ten measured runs, P95 app-controlled latency, memory/storage, energy, pause/resume, and HealthKit wait separation | The release gate blocks responsiveness or resource regressions; over-budget work remains correct and non-destructive; measurements and waivers remain privacy-safe and inspectable | Application, persistence, scripts, documentation, privacy, device, release evidence |
 
 Issues #13 through #15 cover the owner-data recovery loop: deterministic
 export, integrity verification, validated staging migration, recoverable
@@ -211,6 +213,17 @@ failure tests retain either the original or the complete replacement. Raw
 results contain only versions, counts, migration names, and booleans in the
 checked-in compatibility fixture; no owner data or HealthKit identifiers are
 recorded.
+Issue #46 adds the deterministic single-user Verification Data Envelope and
+the release performance protocol. The envelope records only its seed, UTC
+reference date, scale counts, and four deterministic identifier samples; it
+never materializes owner records or HealthKit measurements. Acceptance Device
+runs use one conditioning run followed by ten Release-build runs at P95,
+report HealthKit wait separately from app-controlled work, and retain only
+coarse privacy-safe measurements and verdicts. Health rebuild work pauses
+before the next page under storage, Low Power, battery, or serious/critical
+thermal pressure and resumes from the last durable checkpoint without
+destructive mutation. Any allowed variance is time-bounded and records the
+measurement, comparison, scope, effect, expiry, and explicit owner acceptance.
 Issue #28 adds the rolling workout
 projection on Progress. Issue #29 adds owner-configured, source-aware
 Heart-Rate Zones with explicit coverage and historical recalculation from

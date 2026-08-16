@@ -24,6 +24,9 @@ def output(*command: str) -> str:
 acceptance_result = subprocess.run(["python3", "scripts/check-acceptance.py"]).returncode
 if acceptance_result != 0:
     raise SystemExit("Acceptance contract check failed")
+performance_result = subprocess.run(["make", "verify-performance"]).returncode
+if performance_result != 0:
+    raise SystemExit("Performance protocol check failed")
 
 def sha256(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -63,6 +66,19 @@ def device_evidence(milestone: str) -> dict:
         "result": "missing",
         "requiredCommand": f"make device-smoke MILESTONE={milestone}",
     }
+
+def fixture_evidence(path: str, result: str) -> dict:
+    fixture = Path(path)
+    record = {
+        "path": path,
+        "sha256": sha256(path) if fixture.exists() else None,
+        "result": result if fixture.exists() else "missing",
+    }
+    if fixture.exists():
+        value = json.loads(fixture.read_text())
+        record["schemaVersion"] = value.get("schemaVersion", value.get("version"))
+        record["algorithmVersion"] = value.get("algorithmVersion")
+    return record
 
 gate_zero_evidence = device_evidence("gate-0")
 health_foundation_evidence = device_evidence("health-foundation")
@@ -167,6 +183,7 @@ record = {
         "make test-ui",
         "make fixtures",
         "make verify-migrations",
+        "make verify-performance",
         "make device-smoke MILESTONE=gate-0",
         "make device-smoke MILESTONE=health-foundation",
         "make device-smoke MILESTONE=unified-events",
@@ -204,6 +221,12 @@ record = {
         "loggingAllowlist": ["pre_data_stores_ready", "pre_data_stores_failed"],
         "migrationVerification": automated_verdict("MIGRATION_RESULT"),
         "migrationCompatibility": migration_evidence(),
+        "verificationEnvelope": fixture_evidence(
+            "fixtures/verification-envelope.json", "pass" if performance_result == 0 else "fail"
+        ),
+        "performanceProtocol": fixture_evidence(
+            "fixtures/performance-protocol.json", "pass" if performance_result == 0 else "fail"
+        ),
         "privacyManifest": {
             "path": "TrainingCompassApp/Resources/PrivacyInfo.xcprivacy",
             "sha256": sha256("TrainingCompassApp/Resources/PrivacyInfo.xcprivacy"),
@@ -219,6 +242,7 @@ record = {
         "acceptanceMatrixGate": "pass" if acceptance_result == 0 else "fail",
         "healthFoundationGate": "eligible" if health_foundation_accepted else "blocked",
         "migrationGate": automated_verdict("MIGRATION_RESULT"),
+        "performanceGate": "pass" if performance_result == 0 else "fail",
         "privacyGate": automated_verdict("PRIVACY_RESULT"),
         "releaseGate": "eligible" if owner_data_accepted else "blocked",
         "uiGate": automated_verdict("UI_RESULT"),

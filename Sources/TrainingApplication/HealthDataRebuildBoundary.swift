@@ -54,6 +54,60 @@ public struct HealthRebuildStoragePolicy: Codable, Equatable, Sendable {
   public static let `default` = HealthRebuildStoragePolicy()
 }
 
+public enum HealthRebuildThermalState: String, Codable, Equatable, Sendable {
+  case nominal
+  case fair
+  case serious
+  case critical
+}
+
+/// OS conditions that make discretionary Health rebuild work unsafe to run.
+/// A constrained snapshot pauses before the next page and never removes
+/// already committed local data.
+public struct HealthRebuildResourceSnapshot: Codable, Equatable, Sendable {
+  public static let minimumAvailableStorageBytes = 500 * 1_024 * 1_024
+
+  public let availableStorageBytes: Int
+  public let lowPowerModeEnabled: Bool
+  public let batteryLevel: Double?
+  public let thermalState: HealthRebuildThermalState
+
+  public init(
+    availableStorageBytes: Int = .max,
+    lowPowerModeEnabled: Bool,
+    batteryLevel: Double?,
+    thermalState: HealthRebuildThermalState
+  ) {
+    self.availableStorageBytes = max(0, availableStorageBytes)
+    self.lowPowerModeEnabled = lowPowerModeEnabled
+    self.batteryLevel = batteryLevel.map { min(1, max(0, $0)) }
+    self.thermalState = thermalState
+  }
+
+  public static let unconstrained = HealthRebuildResourceSnapshot(
+    lowPowerModeEnabled: false, batteryLevel: nil, thermalState: .nominal)
+
+  public var permitsDiscretionaryWork: Bool {
+    availableStorageBytes >= Self.minimumAvailableStorageBytes
+      && !lowPowerModeEnabled
+      && batteryLevel.map { $0 >= 0.2 } != false
+      && thermalState != .serious
+      && thermalState != .critical
+  }
+}
+
+public protocol HealthRebuildResourceProviding: Sendable {
+  func currentHealthRebuildResources() async -> HealthRebuildResourceSnapshot
+}
+
+public struct UnconstrainedHealthRebuildResourceProvider: HealthRebuildResourceProviding {
+  public init() {}
+
+  public func currentHealthRebuildResources() async -> HealthRebuildResourceSnapshot {
+    .unconstrained
+  }
+}
+
 public struct HealthRebuildState: Codable, Equatable, Sendable {
   public let phase: HealthRebuildPhase
   public let completedStreams: [HealthSyncStream]
@@ -129,6 +183,7 @@ public enum HealthRebuildError: Error, Equatable, Sendable {
   case confirmationRequired
   case authorizationRequired
   case insufficientStorage(requiredBytes: Int, availableBytes: Int)
+  case resourcePressure
   case cancelled
   case authoritativeMigrationFailed
   case unavailable
@@ -180,6 +235,7 @@ public actor HealthDataRebuildBoundary {
   private let writeBackBoundary: HealthWorkoutWriteBackBoundary?
   private let storageProvider: (any HealthRebuildStorageProviding)?
   private let policy: HealthRebuildStoragePolicy
+  private let resourceProvider: any HealthRebuildResourceProviding
   private let limits: HealthSyncBatchLimits
   private let requestedStreams: [HealthSyncStream]
   private var authorization: HealthAuthorizationSnapshot
@@ -192,6 +248,8 @@ public actor HealthDataRebuildBoundary {
     storageProvider: (any HealthRebuildStorageProviding)? = nil,
     policy: HealthRebuildStoragePolicy = .default,
     limits: HealthSyncBatchLimits = .default,
+    resourceProvider: any HealthRebuildResourceProviding =
+      UnconstrainedHealthRebuildResourceProvider(),
     writeBackBoundary: HealthWorkoutWriteBackBoundary? = nil
   ) {
     self.client = client
@@ -203,6 +261,7 @@ public actor HealthDataRebuildBoundary {
     self.storageProvider = storageProvider
     self.policy = policy
     self.limits = limits
+    self.resourceProvider = resourceProvider
   }
 
   public func setAuthorization(_ snapshot: HealthAuthorizationSnapshot) {
@@ -238,6 +297,18 @@ public actor HealthDataRebuildBoundary {
         requiredBytes: estimate.requiredBytes, availableBytes: estimate.availableBytes)
     }
     let existing = try? await repository.loadHealthRebuildState()
+    guard await resourceProvider.currentHealthRebuildResources().permitsDiscretionaryWork else {
+      let paused = HealthRebuildState(
+        phase: .paused,
+        completedStreams: existing?.completedStreams ?? [],
+        startedAt: existing?.startedAt ?? Date())
+      try? await repository.updateHealthRebuildState(paused)
+      await progress?(
+        .init(
+          phase: .paused, area: .healthMirror,
+          message: "Rebuild paused until battery, storage, power, and thermal conditions recover."))
+      throw HealthRebuildError.resourcePressure
+    }
     let resumable = existing?.phase == .paused || existing?.phase == .rebuilding
     if !resumable {
       await progress?(
@@ -270,6 +341,10 @@ public actor HealthDataRebuildBoundary {
             stream: stream, message: "Rebuilding (stream.displayName)."))
         repeat {
           try Task.checkCancellation()
+          guard await resourceProvider.currentHealthRebuildResources().permitsDiscretionaryWork
+          else {
+            throw HealthRebuildError.resourcePressure
+          }
           let page = try await client.fetchHealthPage(for: stream, after: token)
           try await repository.commitHealthWorkoutPage(page, stream: stream, limits: limits)
           if stream == .workouts, let writeBackBoundary {
@@ -303,6 +378,9 @@ public actor HealthDataRebuildBoundary {
       }
 
       try Task.checkCancellation()
+      guard await resourceProvider.currentHealthRebuildResources().permitsDiscretionaryWork else {
+        throw HealthRebuildError.resourcePressure
+      }
       await progress?(
         .init(
           phase: .regeneratingProjections, area: .derivedProjections,
@@ -329,6 +407,17 @@ public actor HealthDataRebuildBoundary {
       throw HealthRebuildError.cancelled
     } catch let error as HealthRebuildError {
       if case .authoritativeMigrationFailed = error { throw error }
+      if case .resourcePressure = error {
+        let paused = HealthRebuildState(
+          phase: .paused, completedStreams: state.completedStreams, startedAt: state.startedAt)
+        try? await repository.updateHealthRebuildState(paused)
+        await progress?(
+          .init(
+            phase: .paused, area: .healthMirror,
+            message:
+              "Rebuild paused until battery, storage, power, and thermal conditions recover."))
+        throw error
+      }
       let failed = HealthRebuildState(
         phase: .failed, completedStreams: state.completedStreams, startedAt: state.startedAt)
       try? await repository.updateHealthRebuildState(failed)

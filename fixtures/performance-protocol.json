@@ -1,0 +1,87 @@
+{
+  "algorithmVersion": "release-performance-protocol-v1",
+  "appControlledMeasurements": true,
+  "buildConfiguration": "Release",
+  "conditioningRuns": 1,
+  "dailyDeltaProcessingP95S": 2,
+  "energyConditions": [
+    "normal-use",
+    "health-rebuild",
+    "low-power-pauses-discretionary-work",
+    "battery-below-20-pauses-discretionary-work",
+    "serious-or-critical-thermal-pauses-discretionary-work"
+  ],
+  "firstHealthContentDeadlineS": 10,
+  "fullEnvelopeProcessingP95Minutes": 30,
+  "healthKitWaitExcluded": true,
+  "energyMeasurementFields": [
+    "normalUseBatteryDeltaPercent",
+    "rebuildBatteryDeltaPercent",
+    "normalUseThermalState",
+    "rebuildThermalState",
+    "normalUseEnergyBudgetPass",
+    "rebuildEnergyBudgetPass",
+    "lowPowerPausePass",
+    "batteryPausePass",
+    "thermalPausePass"
+  ],
+  "mainActorContinuousSliceLimitMs": 100,
+  "measuredRuns": 10,
+  "measurementFields": [
+    "coldLaunchP95Ms",
+    "foregroundResumeP95Ms",
+    "localMutationP95Ms",
+    "ordinaryQueryP95Ms",
+    "insightP95Ms",
+    "foregroundPeakMiB",
+    "backgroundPeakMiB",
+    "combinedStoresGiB",
+    "authoritativeStoreMiB",
+    "routeGeometryMiB",
+    "mainActorContinuousSliceP95Ms",
+    "firstHealthContentP95S",
+    "dailyDeltaProcessingP95S",
+    "fullEnvelopeProcessingP95Minutes",
+    "healthKitWaitP95S",
+    "appControlledReconciliationP95S",
+    "healthReconciliationP95S",
+    "healthRebuildP95S",
+    "interruptionRecovery",
+    "normalUseBatteryDeltaPercent",
+    "rebuildBatteryDeltaPercent",
+    "normalUseThermalState",
+    "rebuildThermalState",
+    "normalUseEnergyBudgetPass",
+    "rebuildEnergyBudgetPass",
+    "lowPowerPausePass",
+    "batteryPausePass",
+    "thermalPausePass"
+  ],
+  "percentile": 95,
+  "requiredCommands": [
+    "make verify",
+    "make fixtures",
+    "make device-smoke MILESTONE=gate-0",
+    "make verify-release MILESTONE=gate-0"
+  ],
+  "fixtureSeed": 21571,
+  "storageBudgets": {
+    "authoritativeStoreMiB": 250,
+    "combinedStoresGiB": 2,
+    "routeGeometryMiB": 100,
+    "storagePauseThresholdMiB": 500
+  },
+  "thermalStatesAllowed": [
+    "nominal",
+    "fair"
+  ],
+  "waiverFields": [
+    "measurement",
+    "comparison",
+    "scope",
+    "effect",
+    "expiry",
+    "ownerAcceptance"
+  ],
+  "version": 1
+}

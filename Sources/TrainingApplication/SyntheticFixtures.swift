@@ -10,6 +10,73 @@ public struct SyntheticFixtureManifest: Codable, Equatable, Sendable {
   public let identifiers: [UUID]
 }
 
+/// The deterministic, privacy-safe scale envelope used for release
+/// verification. It describes the size of the data set without materializing
+/// HealthKit samples or owner records in the repository.
+public struct VerificationDataEnvelope: Codable, Equatable, Sendable {
+  public let schemaVersion: Int
+  public let algorithmVersion: String
+  public let seed: UInt64
+  public let ownerDataAccepted: Bool
+  public let referenceDate: Date
+  public let timeZoneIdentifier: String
+  public let coverageYears: Int
+  public let healthWorkouts: Int
+  public let heartRateSamples: Int
+  public let sleepIntervals: Int
+  public let restingHeartRateSamples: Int
+  public let hrvSamples: Int
+  public let trainingCycles: Int
+  public let sessions: Int
+  public let sets: Int
+  public let routes: Int
+  public let routeRetainedPoints: Int
+  public let identifierSamples: [UUID]
+
+  public init(
+    seed: UInt64,
+    referenceDate: Date,
+    identifierSamples: [UUID]
+  ) {
+    self.schemaVersion = 1
+    self.algorithmVersion = "verification-envelope-lcg-v1"
+    self.seed = seed
+    self.ownerDataAccepted = false
+    self.referenceDate = referenceDate
+    self.timeZoneIdentifier = "Etc/UTC"
+    self.coverageYears = 15
+    self.healthWorkouts = 25_000
+    self.heartRateSamples = 10_000_000
+    self.sleepIntervals = 250_000
+    self.restingHeartRateSamples = 50_000
+    self.hrvSamples = 100_000
+    self.trainingCycles = 500
+    self.sessions = 10_000
+    self.sets = 250_000
+    self.routes = 2_000
+    self.routeRetainedPoints = 2_000
+    self.identifierSamples = identifierSamples
+  }
+
+  public var matchesResolvedScale: Bool {
+    schemaVersion == 1
+      && algorithmVersion == "verification-envelope-lcg-v1"
+      && !ownerDataAccepted
+      && timeZoneIdentifier == "Etc/UTC"
+      && coverageYears == 15
+      && healthWorkouts == 25_000
+      && heartRateSamples == 10_000_000
+      && sleepIntervals == 250_000
+      && restingHeartRateSamples == 50_000
+      && hrvSamples == 100_000
+      && trainingCycles == 500
+      && sessions == 10_000
+      && sets == 250_000
+      && routes == 2_000
+      && routeRetainedPoints == 2_000
+  }
+}
+
 public struct SyntheticFixtureGenerator: Sendable {
   public init() {}
 
@@ -24,6 +91,14 @@ public struct SyntheticFixtureGenerator: Sendable {
       timeZoneIdentifier: "Etc/UTC",
       identifiers: (0..<4).map { _ in generator.nextUUID() }
     )
+  }
+
+  public func verificationEnvelope(seed: UInt64) -> VerificationDataEnvelope {
+    var generator = LinearCongruentialGenerator(state: seed)
+    return VerificationDataEnvelope(
+      seed: seed,
+      referenceDate: Date(timeIntervalSince1970: 1_767_225_600),
+      identifierSamples: (0..<4).map { _ in generator.nextUUID() })
   }
 }
 

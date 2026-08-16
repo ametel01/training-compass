@@ -5,6 +5,7 @@ swift format lint --recursive --parallel --strict Sources Tests TrainingCompassA
 ./scripts/check-boundaries.py
 python3 ./scripts/check-acceptance.py
 python3 ./scripts/check-personal-team-refresh.py
+make verify-performance
 ./scripts/check-privacy.sh
 ./scripts/generate-fixtures.sh
 swift build

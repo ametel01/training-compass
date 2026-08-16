@@ -54,6 +54,15 @@ reserve rollback/staging storage plus a 20 percent margin; failures leave the
 original or complete replacement and write only privacy-safe diagnostics. Run
 `make verify-migrations` to refresh the checked-in compatibility evidence.
 
+Issue #46 adds the deterministic Verification Data Envelope and release
+performance protocol. `make verify-performance` validates the 15-year scale
+manifest, ten-run Release-build measurement protocol, HealthKit wait-time
+separation, resource and energy pause conditions, and privacy-safe waiver
+fields. On an Acceptance Device, `make device-smoke` requires the same
+protocol metadata before accepting a passing release measurement; rebuild work
+pauses at the next durable page under constrained resources and resumes
+without destructive mutation.
+
 ## How-to guides
 
 - [Verify Gate 0](how-to-guides/verify-gate-zero.md)

@@ -47,9 +47,9 @@ if [[ "$RESULT" == "pass" ]]; then
   if [[ "$milestone" != "personal-team-refresh" ]]; then
     : "${MEASUREMENTS_FILE:?MEASUREMENTS_FILE is required for a passing release record}"
     if [[ "$milestone" == "unified-events" && "${UNIFIED_ROUTE_ON_DEMAND:-}" == "not_available" ]]; then
-      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available
+      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --route-not-available --require-protocol
     else
-      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE"
+      python3 scripts/check-release-envelope.py "$MEASUREMENTS_FILE" --require-protocol
     fi
   fi
 fi

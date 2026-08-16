@@ -131,6 +131,25 @@ samples, 100,000 HRV samples, 500 Training Cycles, 10,000 Sessions, 250,000
 sets, and 2,000 routes capped at 2,000 retained points each. It is a test
 envelope, never a retention limit.
 
+The checked-in [Verification Data Envelope](../../../fixtures/verification-envelope.json)
+and [performance protocol](../../../fixtures/performance-protocol.json) are
+the source of truth for scale and measurement setup. Run one conditioning run,
+then ten repeated Release-build runs and gate on P95. Record HealthKit wait
+time separately from app-controlled work; include a fixture seed, the
+protocol's 100-millisecond main-actor slice limit, ten-second first durable
+Health-content deadline, two-second daily delta limit, and 30-minute full
+envelope limit in the verdict. The protocol also requires matched normal-use
+and rebuild energy runs and pauses discretionary work under Low Power Mode,
+battery below 20 percent, serious/critical thermal state, or insufficient
+storage. An over-budget operation must remain correct and non-destructive. A
+waiver is valid only when it records the measurement, comparison, scope,
+effect, expiry, and explicit owner acceptance.
+
+For the acceptance contract, the resolved protocol limits are **100
+milliseconds**, **10 seconds**, **30 minutes**, **ten measured runs**, and
+**one conditioning run**.
+Resolved protocol tokens: 100 milliseconds; 10 seconds; 30 minutes; ten measured runs; one conditioning run.
+
 ## Recovery and interruption evidence
 
 Terminate and retry every migration, export, import, and store-swap phase. The
@@ -152,3 +171,7 @@ projection, exact-UUID reconnection, unlinking, and Write-back suppression. The
 validated measurement JSON contains only the named coarse budget values and
 `interruptionRecovery`; never record owner measurements, dates, identifiers,
 routes, or free-text notes.
+The release measurement record also keeps non-sensitive numeric
+`healthKitWaitP95S` and `appControlledReconciliationP95S` fields separate, plus
+the main-actor, first-content, daily-delta, and full-envelope timing fields
+from the performance protocol.

@@ -25,6 +25,60 @@ final class HealthDataRebuildBoundaryTests: XCTestCase {
     XCTAssertFalse(didBegin)
   }
 
+  func testRebuildPausesBeforeMutationWhenResourcesAreConstrained() async throws {
+    let repository = RebuildRepository()
+    let client = RebuildClient(
+      pages: [HealthWorkoutPage(workouts: [fixture("must-not-fetch")], anchor: nil)])
+    let boundary = HealthDataRebuildBoundary(
+      client: client,
+      repository: repository,
+      authorization: .init(state: .authorized),
+      requestedStreams: [.workouts],
+      storageProvider: FixedStorageProvider(
+        estimate: .init(stagingBytes: 1, safetyMarginBytes: 1, availableBytes: 2)),
+      resourceProvider: FixedResourceProvider(
+        snapshot: .init(
+          lowPowerModeEnabled: true,
+          batteryLevel: 0.19,
+          thermalState: .serious)))
+
+    do {
+      _ = try await boundary.rebuild(confirmation: .confirmed)
+      XCTFail("expected discretionary rebuild pause")
+    } catch HealthRebuildError.resourcePressure {
+      // Expected: the owner can retry when the device is ready.
+    }
+    let didBegin = await repository.didBegin
+    let state = await repository.state
+    let values = await repository.values
+    XCTAssertFalse(didBegin)
+    XCTAssertEqual(state?.phase, .paused)
+    XCTAssertTrue(values.isEmpty)
+  }
+
+  func testResourceSnapshotPausesForEachDiscretionaryConstraint() {
+    XCTAssertTrue(HealthRebuildResourceSnapshot.unconstrained.permitsDiscretionaryWork)
+    XCTAssertFalse(
+      HealthRebuildResourceSnapshot(
+        availableStorageBytes: HealthRebuildResourceSnapshot.minimumAvailableStorageBytes - 1,
+        lowPowerModeEnabled: false,
+        batteryLevel: nil,
+        thermalState: .nominal
+      ).permitsDiscretionaryWork)
+    XCTAssertFalse(
+      HealthRebuildResourceSnapshot(
+        lowPowerModeEnabled: true, batteryLevel: nil, thermalState: .nominal
+      ).permitsDiscretionaryWork)
+    XCTAssertFalse(
+      HealthRebuildResourceSnapshot(
+        lowPowerModeEnabled: false, batteryLevel: 0.19, thermalState: .nominal
+      ).permitsDiscretionaryWork)
+    XCTAssertFalse(
+      HealthRebuildResourceSnapshot(
+        lowPowerModeEnabled: false, batteryLevel: nil, thermalState: .critical
+      ).permitsDiscretionaryWork)
+  }
+
   func testRebuildCommitsBatchesRegeneratesProjectionsAndCompletes() async throws {
     let workout = fixture("returning-uuid")
     let repository = RebuildRepository()
@@ -111,6 +165,12 @@ private struct FixedStorageProvider: HealthRebuildStorageProviding {
   func estimateHealthRebuildStorage(
     policy: HealthRebuildStoragePolicy
   ) async throws -> HealthRebuildStorageEstimate { estimate }
+}
+
+private struct FixedResourceProvider: HealthRebuildResourceProviding {
+  let snapshot: HealthRebuildResourceSnapshot
+
+  func currentHealthRebuildResources() async -> HealthRebuildResourceSnapshot { snapshot }
 }
 
 private actor RebuildClient: HealthWorkoutClient {
