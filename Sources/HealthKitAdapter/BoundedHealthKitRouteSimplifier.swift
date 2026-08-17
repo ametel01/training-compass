@@ -133,25 +133,25 @@ struct BoundedHealthKitRouteSimplifier: Sendable {
   ) -> Double {
     let longitudeScale = cos(
       ((start.northSouthDegrees + end.northSouthDegrees) / 2) * .pi / 180)
-    let x = point.eastWestDegrees * longitudeScale
-    let y = point.northSouthDegrees
+    let pointX = point.eastWestDegrees * longitudeScale
+    let pointY = point.northSouthDegrees
     let startX = start.eastWestDegrees * longitudeScale
     let startY = start.northSouthDegrees
     let deltaX = end.eastWestDegrees * longitudeScale - startX
     let deltaY = end.northSouthDegrees - startY
     let lengthSquared = deltaX * deltaX + deltaY * deltaY
     guard lengthSquared > 0 else {
-      let offsetX = x - startX
-      let offsetY = y - startY
+      let offsetX = pointX - startX
+      let offsetY = pointY - startY
       return offsetX * offsetX + offsetY * offsetY
     }
     let projection = min(
       1,
-      max(0, ((x - startX) * deltaX + (y - startY) * deltaY) / lengthSquared))
+      max(0, ((pointX - startX) * deltaX + (pointY - startY) * deltaY) / lengthSquared))
     let projectedX = startX + projection * deltaX
     let projectedY = startY + projection * deltaY
-    let offsetX = x - projectedX
-    let offsetY = y - projectedY
+    let offsetX = pointX - projectedX
+    let offsetY = pointY - projectedY
     return offsetX * offsetX + offsetY * offsetY
   }
 

@@ -411,7 +411,12 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
     let prescription = TrainingSetPrescription(
       id: "prescription", setNumber: 1, role: .primary, percentage: 0.65,
       repetitions: 5, weightKg: 65)
-    let result = try! SetResult(weight: SetResultWeight(kg: 65), repetitions: 5)
+    let result: SetResult
+    do {
+      result = try SetResult(weight: SetResultWeight(kg: 65), repetitions: 5)
+    } catch {
+      fatalError("fixed test fixture must create a valid set result")
+    }
     let recorded = RecordedSetResult(
       id: "result", sessionID: "session", prescriptionID: prescription.id,
       result: result, recordedAt: 1_000)

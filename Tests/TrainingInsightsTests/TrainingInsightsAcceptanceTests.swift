@@ -9,7 +9,7 @@ import XCTest
 final class TrainingInsightsAcceptanceTests: XCTestCase {
   func testAllDisplayedInsightFamiliesRemainExplainedAndNeutral() throws {
     let progress = E1RMProgressCalculator().calculate(
-      from: [e1RMSession()],
+      from: [try e1RMSession()],
       selectedLiftID: "squat",
       asOfDate: TrainingDate(year: 2026, month: 8, day: 15))
     let today = TrainingDate(year: 2026, month: 8, day: 15)
@@ -127,7 +127,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
     XCTAssertTrue(explanation.text.contains("Last reconciliation:"), file: file, line: line)
   }
 
-  private func e1RMSession() -> E1RMSessionRecord {
+  private func e1RMSession() throws -> E1RMSessionRecord {
     E1RMSessionRecord(
       cycleID: "cycle", cycleState: .completed, weekID: "week", weekKind: .week1,
       session: TrainingCycleSession(
@@ -142,7 +142,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
       results: [
         RecordedSetResult(
           id: "plus-result", sessionID: "session", prescriptionID: "plus",
-          result: try! SetResult(weight: SetResultWeight(kg: 100), repetitions: 5), recordedAt: 1)
+          result: try SetResult(weight: SetResultWeight(kg: 100), repetitions: 5), recordedAt: 1)
       ],
       correctedResultIDs: ["plus-result"])
   }

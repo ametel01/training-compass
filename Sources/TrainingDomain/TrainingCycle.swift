@@ -46,10 +46,10 @@ public struct TrainingDate: Codable, Comparable, Equatable, Hashable, Sendable {
   // Howard Hinnant's proleptic Gregorian civil-date conversion, expressed in
   // integer arithmetic so the domain does not depend on Foundation calendars.
   private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
-    var y = year
-    y -= month <= 2 ? 1 : 0
-    let era = (y >= 0 ? y : y - 399) / 400
-    let yearOfEra = y - era * 400
+    var civilYear = year
+    civilYear -= month <= 2 ? 1 : 0
+    let era = (civilYear >= 0 ? civilYear : civilYear - 399) / 400
+    let yearOfEra = civilYear - era * 400
     let monthPrime = month + (month > 2 ? -3 : 9)
     let dayOfYear = (153 * monthPrime + 2) / 5 + day - 1
     let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear

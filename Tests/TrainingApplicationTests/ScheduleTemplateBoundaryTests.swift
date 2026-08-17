@@ -5,7 +5,7 @@ import XCTest
 
 final class ScheduleTemplateBoundaryTests: XCTestCase {
   func testFirstUseBuildsTheDefaultScheduleFromConfiguredLifts() async throws {
-    let repository = InMemoryTrainingRepository(configurations: configuredLifts())
+    let repository = InMemoryTrainingRepository(configurations: try configuredLifts())
     let boundary = ScheduleTemplateBoundary(
       repository: repository,
       clock: FixedScheduleClock(date: Date(timeIntervalSince1970: 100)),
@@ -23,7 +23,7 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
   }
 
   func testPreviewSupportsReorderSharedWeekdayAndSameLiftWithoutMutation() async throws {
-    let repository = InMemoryTrainingRepository(configurations: configuredLifts())
+    let repository = InMemoryTrainingRepository(configurations: try configuredLifts())
     let boundary = ScheduleTemplateBoundary(
       repository: repository,
       clock: FixedScheduleClock(date: Date(timeIntervalSince1970: 200)),
@@ -52,7 +52,7 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
   }
 
   func testUnconfiguredLiftAndEmptyTemplateAreRejectedBeforeSave() async throws {
-    let repository = InMemoryTrainingRepository(configurations: configuredLifts())
+    let repository = InMemoryTrainingRepository(configurations: try configuredLifts())
     let boundary = ScheduleTemplateBoundary(
       repository: repository,
       clock: FixedScheduleClock(date: Date()),
@@ -83,7 +83,7 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
   }
 
   func testResetPreviewsDefaultAndRecordsReplacement() async throws {
-    let repository = InMemoryTrainingRepository(configurations: configuredLifts())
+    let repository = InMemoryTrainingRepository(configurations: try configuredLifts())
     let boundary = ScheduleTemplateBoundary(
       repository: repository,
       clock: FixedScheduleClock(date: Date(timeIntervalSince1970: 300)),
@@ -119,14 +119,14 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
     XCTAssertEqual(auditCount, 2)
   }
 
-  private func configuredLifts() -> [LiftConfiguration] {
+  private func configuredLifts() throws -> [LiftConfiguration] {
     [
-      try! LiftConfiguration(id: "squat", identity: .progression(.squat), trainingMaxKg: 100),
-      try! LiftConfiguration(id: "deadlift", identity: .progression(.deadlift), trainingMaxKg: 140),
-      try! LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
-      try! LiftConfiguration(
+      try LiftConfiguration(id: "squat", identity: .progression(.squat), trainingMaxKg: 100),
+      try LiftConfiguration(id: "deadlift", identity: .progression(.deadlift), trainingMaxKg: 140),
+      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
+      try LiftConfiguration(
         id: "press", identity: .progression(.overheadPress), trainingMaxKg: 50),
-      try! LiftConfiguration(
+      try LiftConfiguration(
         id: "rdl", identity: .variant(name: "Romanian Deadlift"), trainingMaxKg: 90)
     ]
   }

@@ -25,9 +25,9 @@ final class TrainingInsightsModuleTests: XCTestCase {
     let source = makeSource(
       weekKind: .week1,
       results: [
-        result(id: "plus", prescriptionID: "plus", repetitions: 5),
-        result(id: "assistance", prescriptionID: "assistance", repetitions: 10),
-        result(id: "failed", prescriptionID: "failed-plus", repetitions: 0)
+        try result(id: "plus", prescriptionID: "plus", repetitions: 5),
+        try result(id: "assistance", prescriptionID: "assistance", repetitions: 10),
+        try result(id: "failed", prescriptionID: "failed-plus", repetitions: 0)
       ],
       additionalSets: [
         try AdditionalSet(
@@ -57,12 +57,12 @@ final class TrainingInsightsModuleTests: XCTestCase {
       weekKind: .week1,
       sessionID: "bench-session",
       primaryLiftID: "bench",
-      results: [result(id: "bench-assistance", prescriptionID: "assistance", repetitions: 10)]
+      results: [try result(id: "bench-assistance", prescriptionID: "assistance", repetitions: 10)]
     )
     let withData = makeSource(
       weekKind: .week2,
       sessionID: "squat-session",
-      results: [result(id: "squat-plus", prescriptionID: "plus", repetitions: 5)]
+      results: [try result(id: "squat-plus", prescriptionID: "plus", repetitions: 5)]
     )
 
     let progress = E1RMProgressCalculator().calculate(from: [noData, withData])
@@ -76,13 +76,13 @@ final class TrainingInsightsModuleTests: XCTestCase {
       weekKind: .week1,
       sessionID: "first-session",
       date: TrainingDate(year: 2026, month: 1, day: 1),
-      results: [result(id: "first", prescriptionID: "plus", weightKg: 100, repetitions: 1)]
+      results: [try result(id: "first", prescriptionID: "plus", weightKg: 100, repetitions: 1)]
     )
     let latest = makeSource(
       weekKind: .week2,
       sessionID: "latest-session",
       date: TrainingDate(year: 2026, month: 3, day: 1),
-      results: [result(id: "latest", prescriptionID: "plus", weightKg: 100, repetitions: 5)]
+      results: [try result(id: "latest", prescriptionID: "plus", weightKg: 100, repetitions: 5)]
     )
 
     let progress = E1RMProgressCalculator().calculate(
@@ -109,7 +109,7 @@ final class TrainingInsightsModuleTests: XCTestCase {
     let failed = makeSource(
       weekKind: .week1,
       sessionID: "failed-session",
-      results: [result(id: "failed-plus", prescriptionID: "plus", repetitions: 0)]
+      results: [try result(id: "failed-plus", prescriptionID: "plus", repetitions: 0)]
     )
     let omitted = makeSource(
       weekKind: .week2,
@@ -120,12 +120,12 @@ final class TrainingInsightsModuleTests: XCTestCase {
     let deload = makeSource(
       weekKind: .deload,
       sessionID: "deload-session",
-      results: [result(id: "deload-plus", prescriptionID: "plus", repetitions: 5)]
+      results: [try result(id: "deload-plus", prescriptionID: "plus", repetitions: 5)]
     )
     let corrected = makeSource(
       weekKind: .week3,
       sessionID: "corrected-session",
-      results: [result(id: "corrected-plus", prescriptionID: "plus", repetitions: 1)]
+      results: [try result(id: "corrected-plus", prescriptionID: "plus", repetitions: 1)]
     )
     let correctedWithState = E1RMSessionRecord(
       cycleID: corrected.cycleID,
@@ -198,12 +198,12 @@ final class TrainingInsightsModuleTests: XCTestCase {
     prescriptionID: String,
     weightKg: Double = 100,
     repetitions: Int
-  ) -> RecordedSetResult {
+  ) throws -> RecordedSetResult {
     RecordedSetResult(
       id: id,
       sessionID: "session",
       prescriptionID: prescriptionID,
-      result: try! SetResult(weight: SetResultWeight(kg: weightKg), repetitions: repetitions),
+      result: try SetResult(weight: SetResultWeight(kg: weightKg), repetitions: repetitions),
       recordedAt: 1
     )
   }

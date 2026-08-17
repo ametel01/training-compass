@@ -190,12 +190,12 @@ final class SleepEpisodesTests: XCTestCase {
       "bundle:com.watch")
   }
 
-  func testMidpointUsesEpisodeEnvelopeWhileDurationUsesAsleepUnion() {
+  func testMidpointUsesEpisodeEnvelopeWhileDurationUsesAsleepUnion() throws {
     let samples = [
       sample("one", start: date(22), end: date(23)),
       sample("overlap", start: date(22, 30), end: date(23, 30))
     ]
-    let episode = try! XCTUnwrap(
+    let episode = try XCTUnwrap(
       SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar).episodes.first)
 
     XCTAssertEqual(episode.durationSeconds, 1.5 * 60 * 60, accuracy: 0.001)
