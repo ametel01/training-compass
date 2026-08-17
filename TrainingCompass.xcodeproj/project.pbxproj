@@ -9,6 +9,7 @@
 		A00000000000000000000001 /* TrainingCompassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000001 /* TrainingCompassApp.swift */; };
 		A00000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000002 /* AppModel.swift */; };
 		A00000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000003 /* RootView.swift */; };
+		A00000000000000000000009 /* CompassDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000009 /* CompassDesignSystem.swift */; };
 		A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* PrivacyInfo.xcprivacy */; };
 		A00000000000000000000005 /* TrainingCompassUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* TrainingCompassUITests.swift */; };
 		A00000000000000000000006 /* TrainingApplication in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000002 /* TrainingApplication */; };
@@ -30,6 +31,7 @@
 		F00000000000000000000001 /* TrainingCompassApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingCompassApp.swift; sourceTree = "<group>"; };
 		F00000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		F00000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F00000000000000000000009 /* CompassDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassDesignSystem.swift; sourceTree = "<group>"; };
 		F00000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F00000000000000000000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F00000000000000000000006 /* TrainingCompassUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingCompassUITests.swift; sourceTree = "<group>"; };
@@ -89,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				F00000000000000000000003 /* RootView.swift */,
+				F00000000000000000000009 /* CompassDesignSystem.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -213,6 +216,7 @@
 				A00000000000000000000001 /* TrainingCompassApp.swift in Sources */,
 				A00000000000000000000002 /* AppModel.swift in Sources */,
 				A00000000000000000000003 /* RootView.swift in Sources */,
+				A00000000000000000000009 /* CompassDesignSystem.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

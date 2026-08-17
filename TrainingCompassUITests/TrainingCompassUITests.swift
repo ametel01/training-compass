@@ -11,6 +11,12 @@ final class TrainingCompassUITests: XCTestCase {
     return app
   }
 
+  private func cycleReadyApp() -> XCUIApplication {
+    let app = XCUIApplication()
+    app.launchEnvironment["TRAINING_COMPASS_UI_SCENARIO"] = "cycle-ready"
+    return app
+  }
+
   func testLaunchShowsPreDataFourDestinationShell() throws {
     let app = cleanApp()
     app.launch()
@@ -22,7 +28,9 @@ final class TrainingCompassUITests: XCTestCase {
     XCTAssertTrue(app.tabBars.buttons["TMs"].exists)
 
     app.tabBars.buttons["Cycle"].tap()
-    XCTAssertTrue(app.staticTexts["Cycle unavailable"].exists)
+    XCTAssertTrue(app.staticTexts["Set up your first cycle"].exists)
+    XCTAssertTrue(app.staticTexts["0 of 5 lifts ready"].exists)
+    XCTAssertTrue(app.buttons["cycle.setup-training-maxes"].exists)
     XCTAssertFalse(app.buttons.matching(identifier: "save").firstMatch.exists)
 
     app.tabBars.buttons["TMs"].tap()
@@ -52,12 +60,55 @@ final class TrainingCompassUITests: XCTestCase {
     )
 
     app.tabBars.buttons["Cycle"].tap()
-    XCTAssertTrue(app.staticTexts["Cycle unavailable"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Set up your first cycle"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["1 of 5 lifts ready"].exists)
     XCTAssertFalse(app.staticTexts["Calendar Change"].exists)
 
     app.tabBars.buttons["Progress"].tap()
     XCTAssertTrue(app.navigationBars["Progress"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Rolling Workout Overview"].waitForExistence(timeout: 15))
+  }
+
+  func testNewCycleCanBeReviewedAndStartedFromCycleTab() throws {
+    let app = cycleReadyApp()
+    app.launch()
+
+    app.tabBars.buttons["Cycle"].tap()
+    let newCycle = app.buttons["cycle.new"]
+    XCTAssertTrue(newCycle.waitForExistence(timeout: 15))
+    newCycle.tap()
+
+    XCTAssertTrue(app.navigationBars["New Training Cycle"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.datePickers["cycle.new.anchor"].exists)
+    XCTAssertTrue(app.staticTexts["Weekly Schedule"].exists)
+    XCTAssertTrue(app.staticTexts["Monday"].exists)
+    XCTAssertTrue(app.staticTexts["Friday"].exists)
+    let reviewScreenshot = XCTAttachment(screenshot: app.screenshot())
+    reviewScreenshot.name = "New Training Cycle review"
+    reviewScreenshot.lifetime = .keepAlways
+    add(reviewScreenshot)
+
+    let startCycle = app.buttons["cycle.new.start"]
+    if !startCycle.isHittable {
+      app.swipeUp()
+    }
+    XCTAssertTrue(startCycle.waitForExistence(timeout: 5))
+    startCycle.tap()
+    let confirmation = app.alerts["Confirm Draft Training Cycle"]
+    XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      confirmation.staticTexts.containing(
+        NSPredicate(format: "label CONTAINS %@", "snapshots the current Training Maxes")
+      ).firstMatch.exists
+    )
+    confirmation.buttons["Start Cycle"].tap()
+
+    XCTAssertTrue(app.staticTexts["Active Training Cycle"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["cycle.activate"].exists)
+    let activeScreenshot = XCTAttachment(screenshot: app.screenshot())
+    activeScreenshot.name = "Active Training Cycle"
+    activeScreenshot.lifetime = .keepAlways
+    add(activeScreenshot)
   }
 
   func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() throws {

@@ -2,6 +2,38 @@ import Foundation
 import TrainingApplication
 
 extension GRDBTrainingRepository {
+  /// Installs only the lift prerequisites needed to exercise the owner-visible
+  /// new-cycle journey. The schedule itself is still produced by the same
+  /// default-template boundary used in the live app.
+  func seedCyclePlanningAcceptanceScenario(now: Date) async throws {
+    try await eraseAllData(progress: nil)
+    try await prepareStores()
+
+    let configurations: [(String, LiftIdentity, Double, Double)] = [
+      ("ui-squat", .progression(.squat), 100, 2.5),
+      ("ui-deadlift", .progression(.deadlift), 120, 5),
+      ("ui-bench", .progression(.benchPress), 75, 2.5),
+      ("ui-overhead-press", .progression(.overheadPress), 50, 2.5),
+      ("ui-romanian-deadlift", .variant(name: "Romanian Deadlift"), 90, 5),
+    ]
+    let timestamp = Int64(now.timeIntervalSince1970)
+    for (index, fixture) in configurations.enumerated() {
+      let configuration = try LiftConfiguration(
+        id: fixture.0,
+        identity: fixture.1,
+        trainingMaxKg: fixture.2,
+        loadingIncrementKg: fixture.3
+      )
+      _ = try await saveLiftConfiguration(
+        configuration,
+        expectedBefore: nil,
+        auditID: "ui-lift-audit-\(index)",
+        occurredAt: timestamp + Int64(index),
+        action: .created
+      )
+    }
+  }
+
   /// Installs deterministic local data for the Training Event XCUITest journey.
   /// The application repository enables it only for the explicit test launch
   /// environment, keeping test orchestration out of the app model.

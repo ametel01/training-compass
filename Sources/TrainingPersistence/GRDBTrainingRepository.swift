@@ -5,11 +5,13 @@ import TrainingApplication
 private enum ApplicationAcceptanceScenario {
   case empty
   case eventLinking
+  case cycleReady
 
   init?(environmentValue: String?) {
     switch environmentValue {
     case "empty": self = .empty
     case "event-linking": self = .eventLinking
+    case "cycle-ready": self = .cycleReady
     default: return nil
     }
   }
@@ -89,6 +91,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         try await prepareStores()
       case .eventLinking:
         try await seedTrainingEventAcceptanceScenario(now: Date())
+      case .cycleReady:
+        try await seedCyclePlanningAcceptanceScenario(now: Date())
       }
     } catch {
       hasPreparedApplicationAcceptanceScenario = false

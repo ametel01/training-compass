@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify verify-performance verify-evidence verify-final-release test-ui fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
+.PHONY: help bootstrap verify verify-performance verify-evidence verify-final-release test-ui run-simulator fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
 
 help:
 	@echo "Training Compass Gate 0 commands"
@@ -12,6 +12,7 @@ help:
 	@echo "  make verify-final-release"
 	@echo "  make acceptance"
 	@echo "  make test-ui"
+	@echo "  make run-simulator [SIMULATOR_NAME=\"iPhone 17 Pro\"]"
 	@echo "  make fixtures"
 	@echo "  make verify-migrations"
 	@echo "  make device-smoke MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back"
@@ -45,6 +46,9 @@ acceptance:
 
 test-ui:
 	@./scripts/test-ui.sh
+
+run-simulator:
+	@./scripts/run-simulator.sh "$(SIMULATOR_NAME)"
 
 fixtures:
 	@./scripts/generate-fixtures.sh

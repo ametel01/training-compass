@@ -2,44 +2,85 @@ import SwiftUI
 import TrainingApplication
 import UIKit
 
+// DESIGN CONTRACT · seed 825ac0f6 · operate / assigned grounded direction 7
+// THESIS: Training Compass is a calm field guide for making evidence-backed training decisions;
+//         it refuses the generic fitness dashboard's noisy metric wall.
+// OWN-WORLD: warm paper surfaces, navy editorial serif titles, SF body copy, compass blue actions,
+//            recovery green, and a restrained contour-line field.
+// STORY: the athlete can orient in Today, plan a Cycle, inspect Progress, decide on TMs, and audit
+//        optional Health evidence without losing the local record.
+// FIRST VIEWPORT: a native large title and compass mark lead into one clear grouped work surface;
+//                 empty and loading states are quiet paper cards, while actions remain native and visible.
+// FORM: field-guide / evidence notebook, candidate 7 of the grounded list, seed 825ac0f6.
+// RAISE — star atlas: use coordinate-like hierarchy and contour detail for source/provenance context.
+// RAISE — cutting bench: make state marks and recovery actions explicit instead of decorative.
+// FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 struct RootView: View {
+  private enum AppTab: Hashable {
+    case today
+    case cycle
+    case progress
+    case trainingMaxes
+    case health
+  }
+
   let model: AppModel
   let concealsSensitiveContent: Bool
   @Environment(\.scenePhase) private var scenePhase
+  @State private var selectedTab: AppTab = .today
+
+  init(model: AppModel, concealsSensitiveContent: Bool) {
+    self.model = model
+    self.concealsSensitiveContent = concealsSensitiveContent
+    _selectedTab = State(
+      initialValue: ProcessInfo.processInfo.environment["TRAINING_COMPASS_INITIAL_TAB"] == "cycle"
+        ? .cycle
+        : .today
+    )
+    CompassAppearance.apply()
+  }
 
   var body: some View {
     ZStack {
-      TabView {
+      TabView(selection: $selectedTab) {
         NavigationStack {
           TodayView(model: model)
         }
+        .tag(AppTab.today)
         .tabItem { Label("Today", systemImage: "sun.max") }
         .accessibilityIdentifier("tab.today")
 
         NavigationStack {
-          CycleView(model: model)
+          CycleView(model: model) {
+            selectedTab = .trainingMaxes
+          }
         }
+        .tag(AppTab.cycle)
         .tabItem { Label("Cycle", systemImage: "calendar") }
         .accessibilityIdentifier("tab.cycle")
 
         NavigationStack {
           StrengthProgressView(model: model)
         }
+        .tag(AppTab.progress)
         .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
         .accessibilityIdentifier("tab.progress")
 
         NavigationStack {
           TMsView(model: model)
         }
+        .tag(AppTab.trainingMaxes)
         .tabItem { Label("TMs", systemImage: "scalemass") }
         .accessibilityIdentifier("tab.tms")
 
         NavigationStack {
           HealthView(model: model)
         }
+        .tag(AppTab.health)
         .tabItem { Label("Health", systemImage: "heart.text.square") }
         .accessibilityIdentifier("tab.health")
       }
+      .tint(CompassPalette.blue)
       .privacySensitive()
       .task { await model.prepare() }
       .onChange(of: scenePhase) { _, phase in
@@ -278,6 +319,7 @@ private struct HealthView: View {
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Health Data Status")
     .accessibilityIdentifier("health.destination")
     .toolbar {
@@ -906,6 +948,7 @@ private struct HealthDataRebuildView: View {
         .accessibilityIdentifier("health.rebuild.confirm")
       }
     }
+    .compassScreen()
     .navigationTitle("Health Data Rebuild")
     .confirmationDialog(
       "Rebuild Health data?",
@@ -1111,6 +1154,7 @@ private struct StrengthProgressView: View {
         .refreshable { await reload() }
       }
     }
+    .compassScreen()
     .navigationTitle("Progress")
     .accessibilityIdentifier("progress.destination")
     .task(id: "\(model.phase)-\(model.heartRateConfigurationRevision)") {
@@ -1628,6 +1672,7 @@ private struct RunningRunDetailView: View {
         .accessibilityIdentifier("progress.running.exclusion")
       }
     }
+    .compassScreen()
     .navigationTitle("Run Details")
     .alert(
       "Could not update Running Comparison",
@@ -1680,6 +1725,7 @@ private struct InsightExplanationDetailView: View {
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Insight Explanation")
   }
 }
@@ -1789,6 +1835,7 @@ private struct UnifiedTrainingEventDetailView: View {
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Training Event")
     .accessibilityIdentifier("training-event.detail")
     .onDisappear {
@@ -1881,6 +1928,7 @@ private struct HealthWorkoutHistoryDetailView: View {
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Health Workout")
     .onDisappear {
       Task {
@@ -2194,6 +2242,7 @@ private struct ProgressSourceDetailView: View {
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Progress Source")
   }
 }
@@ -2214,6 +2263,7 @@ private struct ProgressMetric: View {
 
 private struct TodayView: View {
   let model: AppModel
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   @State private var today: TodaySessionSnapshot?
   @State private var todayEvents: [UnifiedTrainingEvent] = []
@@ -2406,27 +2456,39 @@ private struct TodayView: View {
         .refreshable { await reload() }
         .toolbar { EditButton() }
       } else {
-        List {
-          Section("Today’s Training Events") {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 22) {
+            CompassPageHeader(
+              title: nil,
+              subtitle: Date.now.formatted(date: .complete, time: .omitted)
+            )
             if todayEvents.isEmpty {
-              ContentUnavailableView {
-                Label("Nothing scheduled today", systemImage: "checkmark.circle")
-              } description: {
-                Text(
-                  "No local Session or imported Health Workout is available for today."
-                )
-                .multilineTextAlignment(.center)
-              }
+              CompassEmptyState(
+                title: "Nothing scheduled today",
+                message: "No local Session or imported Health Workout is available for today.",
+                systemImage: "checkmark.circle"
+              )
             } else {
-              ForEach(todayEvents) { event in
-                TodayTrainingEventRow(event: event, model: model)
+              VStack(alignment: .leading, spacing: 12) {
+                Text("Today’s Training Events")
+                  .font(.headline)
+                  .foregroundStyle(CompassPalette.navy)
+                ForEach(todayEvents) { event in
+                  TodayTrainingEventRow(event: event, model: model)
+                    .padding(.vertical, 4)
+                }
               }
             }
           }
+          .padding(.horizontal, 20)
+          .padding(.top, 18)
+          .padding(.bottom, 128)
         }
       }
     }
+    .compassScreen()
     .navigationTitle("Today")
+    .toolbarTitleDisplayMode(dynamicTypeSize.isAccessibilitySize ? .inline : .large)
     .accessibilityIdentifier("today.destination")
     .task(id: model.phase) {
       if model.phase == .ready { await reload() }
@@ -3000,13 +3062,195 @@ private struct UnavailableDestinationView: View {
       systemImage: systemImage,
       description: Text(detail)
     )
+    .compassScreen()
     .navigationTitle(title)
     .accessibilityIdentifier("pre-data.\(title.lowercased()).unavailable")
   }
 }
 
+private struct CycleSetupView: View {
+  let lifts: [LiftConfiguration]
+  let onConfigureTrainingMaxes: () -> Void
+
+  private let requiredLifts: [(LiftIdentity, String)] = [
+    (.progression(.squat), "Squat"),
+    (.progression(.deadlift), "Deadlift"),
+    (.progression(.benchPress), "Bench Press"),
+    (.progression(.overheadPress), "Overhead Press"),
+    (.variant(name: "Romanian Deadlift"), "Romanian Deadlift"),
+  ]
+
+  private var missingLifts: [String] {
+    let configured = Set(lifts.map(\.identity))
+    return requiredLifts.compactMap { identity, name in
+      configured.contains(identity) ? nil : name
+    }
+  }
+
+  private var readyLiftCount: Int {
+    requiredLifts.count - missingLifts.count
+  }
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 22) {
+        CompassPageHeader(
+          subtitle: "Build a schedule, choose Week 1, and keep every cycle locally recorded."
+        )
+
+        VStack(alignment: .leading, spacing: 18) {
+          Image(systemName: "calendar.badge.plus")
+            .font(.system(size: 30, weight: .medium))
+            .foregroundStyle(CompassPalette.blue)
+            .frame(width: 64, height: 64)
+            .background(CompassPalette.blue.opacity(0.10), in: Circle())
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Set up your first cycle")
+              .font(.system(.title2, design: .serif).weight(.bold))
+              .foregroundStyle(CompassPalette.navy)
+            Text(
+              "Training Maxes are needed to calculate the schedule and freeze the prescriptions used when a cycle starts."
+            )
+            .font(.body)
+            .foregroundStyle(CompassPalette.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+          }
+
+          VStack(alignment: .leading, spacing: 10) {
+            Text("\(readyLiftCount) of \(requiredLifts.count) lifts ready")
+              .font(.headline)
+              .foregroundStyle(CompassPalette.navy)
+            ProgressView(
+              value: Double(readyLiftCount),
+              total: Double(requiredLifts.count)
+            )
+            ForEach(missingLifts, id: \.self) { name in
+              Label(name, systemImage: "circle")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          Button("Set Up Training Maxes") {
+            onConfigureTrainingMaxes()
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .accessibilityIdentifier("cycle.setup-training-maxes")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(
+          CompassPalette.surface,
+          in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .stroke(CompassPalette.line, lineWidth: 1)
+        )
+      }
+      .padding(.horizontal, 20)
+      .padding(.top, 18)
+      .padding(.bottom, 48)
+    }
+    .accessibilityIdentifier("cycle.setup")
+  }
+}
+
+private struct NewCycleSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var anchorDate: Date
+
+  let template: ScheduleTemplate
+  let liftName: (String) -> String
+  let canStartImmediately: Bool
+  let onCommit: (Date, Bool) -> Void
+
+  init(
+    anchorDate: Date,
+    template: ScheduleTemplate,
+    liftName: @escaping (String) -> String,
+    canStartImmediately: Bool,
+    onCommit: @escaping (Date, Bool) -> Void
+  ) {
+    _anchorDate = State(initialValue: anchorDate)
+    self.template = template
+    self.liftName = liftName
+    self.canStartImmediately = canStartImmediately
+    self.onCommit = onCommit
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Week 1") {
+          DatePicker(
+            "Starts",
+            selection: $anchorDate,
+            displayedComponents: [.date]
+          )
+          .accessibilityIdentifier("cycle.new.anchor")
+          Text("Dates are stored without a time zone. Monday is the recommended anchor.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+
+        Section("Weekly Schedule") {
+          ForEach(template.sessions) { session in
+            VStack(alignment: .leading, spacing: 3) {
+              Text(session.intendedWeekday.displayName)
+                .font(.headline)
+              Text(
+                "\(liftName(session.primaryLiftID)) · \(liftName(session.assistanceLiftID))"
+              )
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+            }
+          }
+        }
+
+        Section {
+          if canStartImmediately {
+            Button("Start Cycle") {
+              onCommit(anchorDate, true)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("cycle.new.start")
+          }
+
+          Button(canStartImmediately ? "Save as Draft" : "Save Next Cycle as Draft") {
+            onCommit(anchorDate, false)
+          }
+          .accessibilityIdentifier("cycle.new.save-draft")
+        } footer: {
+          Text(
+            canStartImmediately
+              ? "Starting snapshots the current Training Maxes. A draft remains editable until it is started."
+              : "The active cycle is unchanged. This draft can start after the active cycle is completed or abandoned."
+          )
+        }
+      }
+      .compassScreen()
+      .navigationTitle("New Training Cycle")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+      }
+    }
+  }
+}
+
+private struct NewCycleCommit {
+  let anchorDate: Date
+  let startsImmediately: Bool
+}
+
 private struct CycleView: View {
   let model: AppModel
+  let onConfigureTrainingMaxes: () -> Void
 
   @State private var template: ScheduleTemplate?
   @State private var draftCycle: TrainingCycle?
@@ -3023,6 +3267,10 @@ private struct CycleView: View {
   @State private var pendingCycleActivation: TrainingCycleActivationPreview?
   @State private var pendingCycleDiscard: TrainingCycleChangePreview?
   @State private var anchorDate = TrainingDate.monday(containing: Date()).date()
+  @State private var isLoading = true
+  @State private var showingNewCycle = false
+  @State private var pendingNewCycleCommit: NewCycleCommit?
+  @State private var startsAfterCreation = false
   @State private var showingSaveConfirmation = false
   @State private var showingResetConfirmation = false
   @State private var showingCycleConfirmation = false
@@ -3033,17 +3281,45 @@ private struct CycleView: View {
 
   var body: some View {
     Group {
-      if template == nil {
-        AnyView(
-          UnavailableDestinationView(
-            title: "Cycle",
-            systemImage: "calendar",
-            detail:
-              "Configure Squat, Deadlift, Bench Press, Overhead Press, and Romanian Deadlift in TMs to initialize the Schedule Template."
-          ))
+      if isLoading {
+        ProgressView("Loading cycle…")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if template == nil {
+        CycleSetupView(lifts: lifts, onConfigureTrainingMaxes: onConfigureTrainingMaxes)
       } else {
         AnyView(
           List {
+            if draftCycle == nil {
+              Section {
+                VStack(alignment: .leading, spacing: 12) {
+                  Label(
+                    activeCycle == nil ? "Ready for a new cycle" : "Plan the next cycle",
+                    systemImage: activeCycle == nil
+                      ? "location.north.circle.fill"
+                      : "calendar.badge.plus"
+                  )
+                  .font(.headline)
+                  .foregroundStyle(CompassPalette.navy)
+
+                  Text(
+                    activeCycle == nil
+                      ? "Choose the Week 1 date, review the copied schedule, then start when you are ready."
+                      : "Prepare the next cycle now. It stays editable until the active cycle is complete."
+                  )
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+
+                  Button(activeCycle == nil ? "Start a New Cycle" : "Plan Next Cycle") {
+                    showingNewCycle = true
+                  }
+                  .buttonStyle(.borderedProminent)
+                  .controlSize(.large)
+                  .accessibilityIdentifier("cycle.new")
+                }
+                .padding(.vertical, 6)
+              }
+            }
+
             Section {
               Text(
                 "This reusable normal-week layout is copied into future Training Cycles. Changes stay local until you explicitly save them."
@@ -3076,37 +3352,30 @@ private struct CycleView: View {
                 }
                 .accessibilityIdentifier("cycle.discard")
                 if activeCycle == nil {
-                  Button("Activate (retain anchor)") {
+                  Button("Start Training Cycle") {
                     Task { await reviewCycleActivation(anchorChoice: .retain) }
                   }
+                  .buttonStyle(.borderedProminent)
                   .accessibilityIdentifier("cycle.activate")
-                  DatePicker(
-                    "Replacement Week 1 Anchor",
-                    selection: $anchorDate,
-                    displayedComponents: [.date]
-                  )
-                  Button("Activate using replacement date") {
-                    Task {
-                      await reviewCycleActivation(
-                        anchorChoice: .replace(
-                          TrainingDate(date: anchorDate)
-                        ))
+                  if draftCycle.week1AnchorDate < TrainingDate(date: Date()) {
+                    DatePicker(
+                      "New Week 1 date",
+                      selection: $anchorDate,
+                      displayedComponents: [.date]
+                    )
+                    Button("Start with New Date") {
+                      Task {
+                        await reviewCycleActivation(
+                          anchorChoice: .replace(
+                            TrainingDate(date: anchorDate)
+                          ))
+                      }
                     }
+                    .accessibilityIdentifier("cycle.activate-replace-anchor")
                   }
-                  .accessibilityIdentifier("cycle.activate-replace-anchor")
                 }
               } else {
-                DatePicker(
-                  "Week 1 Anchor Date",
-                  selection: $anchorDate,
-                  displayedComponents: [.date]
-                )
-                Button("Prepare Draft Training Cycle") {
-                  Task { await reviewCycleCreation() }
-                }
-                .accessibilityIdentifier("cycle.create-draft")
-                Text("The date is stored without a time zone. It defaults to Monday.")
-                  .font(.footnote)
+                Text("No draft is being edited.")
                   .foregroundStyle(.secondary)
               }
               if let activeCycle {
@@ -3202,21 +3471,26 @@ private struct CycleView: View {
             ToolbarItem(placement: .topBarLeading) {
               EditButton()
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-              Button("Reset") {
-                Task { await reviewReset() }
+            ToolbarItem(placement: .topBarTrailing) {
+              Menu("Schedule Template", systemImage: "ellipsis.circle") {
+                Button("Reset to Default", systemImage: "arrow.counterclockwise") {
+                  Task { await reviewReset() }
+                }
+                .accessibilityIdentifier("schedule.reset")
+                Button("Save Changes", systemImage: "checkmark") {
+                  Task { await reviewSave() }
+                }
+                .disabled(workingSessions.isEmpty)
+                .accessibilityIdentifier("schedule.save")
               }
-              .accessibilityIdentifier("schedule.reset")
-              Button("Save") {
-                Task { await reviewSave() }
-              }
-              .disabled(workingSessions.isEmpty)
-              .accessibilityIdentifier("schedule.save")
+              .accessibilityIdentifier("schedule.actions")
             }
           })
       }
     }
+    .compassScreen()
     .navigationTitle("Cycle")
+    .navigationBarTitleDisplayMode(template == nil ? .large : .inline)
     .accessibilityIdentifier("schedule.destination")
     .task(id: model.phase) {
       if model.phase == .ready {
@@ -3233,6 +3507,32 @@ private struct CycleView: View {
       CycleSessionEditor(draft: draft, lifts: lifts) { reviewedDraft in
         self.cycleSessionDraft = nil
         Task { await reviewCycleEdit(reviewedDraft) }
+      }
+    }
+    .sheet(
+      isPresented: $showingNewCycle,
+      onDismiss: {
+        guard let commit = pendingNewCycleCommit else { return }
+        anchorDate = commit.anchorDate
+        pendingNewCycleCommit = nil
+        Task {
+          await reviewCycleCreation(startAfterCreation: commit.startsImmediately)
+        }
+      }
+    ) {
+      if let template {
+        NewCycleSheet(
+          anchorDate: anchorDate,
+          template: template,
+          liftName: liftName,
+          canStartImmediately: activeCycle == nil
+        ) { date, shouldStart in
+          pendingNewCycleCommit = NewCycleCommit(
+            anchorDate: date,
+            startsImmediately: shouldStart
+          )
+          showingNewCycle = false
+        }
       }
     }
     .alert("Confirm schedule save", isPresented: $showingSaveConfirmation) {
@@ -3269,7 +3569,10 @@ private struct CycleView: View {
       Text(errorMessage ?? "Try again.")
     }
     .alert("Confirm Draft Training Cycle", isPresented: $showingCycleConfirmation) {
-      Button("Cancel", role: .cancel) { pendingCycleChange = nil }
+      Button("Cancel", role: .cancel) {
+        pendingCycleChange = nil
+        startsAfterCreation = false
+      }
       Button(cycleConfirmationActionTitle) {
         guard let pendingCycleChange else { return }
         Task { await confirmCycleChange(pendingCycleChange) }
@@ -3325,14 +3628,19 @@ private struct CycleView: View {
   }
 
   private func reload() async {
+    isLoading = true
+    defer { isLoading = false }
     do {
       let loadedLifts = try await model.scheduleTemplateBoundary.availableLifts()
-      let loadedTemplate = try await model.scheduleTemplateBoundary.list()
       lifts = loadedLifts
+      let loadedTemplate = try await model.scheduleTemplateBoundary.list()
       template = loadedTemplate
       workingSessions = loadedTemplate.sessions
       draftCycle = try await model.trainingCycleBoundary.draft()
       activeCycle = try await model.trainingCycleBoundary.active()
+      if let draftCycle {
+        anchorDate = draftCycle.week1AnchorDate.date()
+      }
       if let cycle = activeCycle ?? draftCycle {
         cycleAudits = try await model.trainingCycleBoundary.auditHistory(for: cycle.id)
       } else {
@@ -3342,7 +3650,6 @@ private struct CycleView: View {
     } catch {
       template = nil
       draftCycle = nil
-      errorMessage = nil
     }
   }
 
@@ -3488,13 +3795,17 @@ private struct CycleView: View {
       deload = "No Deload Week is due yet."
     }
     let warning = preview.warning.map { " \($0)" } ?? ""
-    return "Week 1 begins \(cycle.week1AnchorDate.iso8601String). The draft contains "
-      + "\(cycle.weeks.count) fixed Training Weeks. \(deload)" + warning
+    let startCopy =
+      startsAfterCreation
+      ? " Starting snapshots the current Training Maxes and prescriptions for this cycle."
+      : " You can edit the draft before starting it."
+    return "Week 1 begins \(cycle.week1AnchorDate.iso8601String). The cycle contains "
+      + "\(cycle.weeks.count) fixed Training Weeks. \(deload)" + startCopy + warning
   }
 
   private var cycleConfirmationActionTitle: String {
     switch pendingCycleChange?.action {
-    case .created: "Create"
+    case .created: startsAfterCreation ? "Start Cycle" : "Save Draft"
     case .edited: "Save Edits"
     case .calendarChanged: "Apply Calendar Change"
     case .programEdited: "Save Program Edit"
@@ -3520,13 +3831,14 @@ private struct CycleView: View {
       preview.deloadRemovalWarning
       ? " Customized Deload work will be removed."
       : ""
-    return "Week 1 remains anchored on (preview.after.week1AnchorDate.iso8601String). "
+    return "Week 1 remains anchored on \(preview.after.week1AnchorDate.iso8601String). "
       + "The activated cycle stores immutable Training Max snapshots and prescriptions. "
       + deload + warning
   }
 
-  private func reviewCycleCreation() async {
+  private func reviewCycleCreation(startAfterCreation: Bool = false) async {
     do {
+      startsAfterCreation = startAfterCreation
       pendingCycleChange = try await model.trainingCycleBoundary.previewCreate(
         anchorDate: anchorDate
       )
@@ -3638,6 +3950,17 @@ private struct CycleView: View {
 
   private func confirmCycleChange(_ preview: TrainingCycleChangePreview) async {
     do {
+      if preview.action == .created, startsAfterCreation {
+        _ = try await model.trainingCycleBoundary.confirm(preview)
+        let activation = try await model.trainingCycleBoundary.previewActivation(
+          anchorChoice: .retain
+        )
+        _ = try await model.trainingCycleBoundary.confirmActivation(activation)
+        pendingCycleChange = nil
+        startsAfterCreation = false
+        await reload()
+        return
+      }
       switch preview.action {
       case .calendarChanged:
         _ = try await model.trainingCycleBoundary.confirmCalendarChange(
@@ -3649,9 +3972,11 @@ private struct CycleView: View {
         _ = try await model.trainingCycleBoundary.confirm(preview)
       }
       pendingCycleChange = nil
+      startsAfterCreation = false
       await reload()
     } catch {
       pendingCycleChange = nil
+      startsAfterCreation = false
       errorMessage = String(describing: error)
     }
   }
@@ -3756,6 +4081,7 @@ private struct ScheduleSessionEditor: View {
           .font(.footnote)
           .foregroundStyle(.secondary)
       }
+      .compassScreen()
       .navigationTitle(draft.existingID == nil ? "Add Session" : "Edit Session")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -3954,6 +4280,7 @@ private struct CycleSessionEditor: View {
           .font(.footnote)
           .foregroundStyle(.secondary)
       }
+      .compassScreen()
       .navigationTitle("Edit Draft Session")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -4109,6 +4436,7 @@ private struct TMsView: View {
       }
     }
     .refreshable { await reload() }
+    .compassScreen()
     .navigationTitle("TMs")
     .accessibilityIdentifier("tms.destination")
     .toolbar {
@@ -4176,6 +4504,7 @@ private struct TMsView: View {
               .keyboardType(.decimalPad)
           }
         }
+        .compassScreen()
         .navigationTitle("Replace \(proposal.liftName)")
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
@@ -4302,6 +4631,7 @@ private struct SettingsView: View {
         .accessibilityIdentifier("settings.health-rebuild")
       }
     }
+    .compassScreen()
     .navigationTitle("Settings")
     .accessibilityIdentifier("settings.destination")
   }
@@ -4360,6 +4690,7 @@ private struct TrainingExportView: View {
           ProgressView("Preparing export preview…")
         }
       }
+      .compassScreen()
       .navigationTitle("Training Compass Export")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -4460,6 +4791,7 @@ private struct TrainingImportView: View {
           ProgressView("Validating import…")
         }
       }
+      .compassScreen()
       .navigationTitle("Restore Training Compass")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -4542,6 +4874,7 @@ private struct TrainingErasureView: View {
         }
       }
       .privacySensitive()
+      .compassScreen()
       .navigationTitle(TrainingErasureCopy.title)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -4817,6 +5150,7 @@ private struct LiftEditor: View {
           Toggle("This is a corrective edit", isOn: $draft.isCorrection)
         }
       }
+      .compassScreen()
       .navigationTitle(draft.existingID == nil ? "Configure Lift" : "Edit Lift")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
