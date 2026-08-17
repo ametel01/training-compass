@@ -124,6 +124,30 @@ final class SessionLoggingBoundaryTests: XCTestCase {
     XCTAssertEqual(completed.plannedVersusActual.omitted.count, 1)
   }
 
+  func testHistoricalImportRecordsTopSetRepsAndCompletesOtherSetsAsPrescribed() async throws {
+    let repository = SessionLoggingTestRepository(active: makeActiveCycle())
+    let boundary = makeBoundary(repository: repository)
+
+    let imported = try await boundary.importCompletedSession(
+      sessionID: "session",
+      topSetRepetitions: 9
+    )
+
+    XCTAssertEqual(imported.state, .completed)
+    XCTAssertEqual(imported.results.count, imported.session.prescriptions.count)
+    let topSet = try XCTUnwrap(
+      imported.sets.first(where: { $0.prescription.isPlusSetEligible })
+    )
+    XCTAssertEqual(topSet.result?.repetitions, 9)
+    XCTAssertEqual(topSet.result?.weightKg, topSet.prescription.weightKg)
+    XCTAssertTrue(
+      imported.sets.filter { !$0.prescription.isPlusSetEligible }.allSatisfy {
+        $0.result?.repetitions == $0.prescription.repetitions
+          && $0.result?.weightKg == $0.prescription.weightKg
+      }
+    )
+  }
+
   func testAdditionalSetsCanBeEditedRemovedAndReordered() async throws {
     let repository = SessionLoggingTestRepository(active: makeActiveCycle())
     let boundary = makeBoundary(repository: repository)

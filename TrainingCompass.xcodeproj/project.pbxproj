@@ -11,6 +11,7 @@
 		A00000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000003 /* RootView.swift */; };
 		A00000000000000000000009 /* CompassDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000009 /* CompassDesignSystem.swift */; };
 		A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* PrivacyInfo.xcprivacy */; };
+		A00000000000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000010 /* Assets.xcassets */; };
 		A00000000000000000000005 /* TrainingCompassUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* TrainingCompassUITests.swift */; };
 		A00000000000000000000006 /* TrainingApplication in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000002 /* TrainingApplication */; };
 		A00000000000000000000007 /* TrainingPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = S00000000000000000000003 /* TrainingPersistence */; };
@@ -37,6 +38,7 @@
 		F00000000000000000000006 /* TrainingCompassUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingCompassUITests.swift; sourceTree = "<group>"; };
 		F00000000000000000000007 /* TrainingCompass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrainingCompass.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000008 /* TrainingCompassUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrainingCompassUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +101,7 @@
 		G00000000000000000000005 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				F00000000000000000000010 /* Assets.xcassets */,
 				F00000000000000000000004 /* Info.plist */,
 				F00000000000000000000005 /* PrivacyInfo.xcprivacy */,
 			);
@@ -197,7 +200,10 @@
 		B00000000000000000000004 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */);
+			files = (
+				A00000000000000000000010 /* Assets.xcassets in Resources */,
+				A00000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B00000000000000000000006 /* Resources */ = {
@@ -235,8 +241,8 @@
 /* Begin XCBuildConfiguration section */
 		C00000000000000000000011 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Debug; };
 		C00000000000000000000012 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 6.0; VALIDATE_PRODUCT = YES; }; name = Release; };
-		C00000000000000000000021 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_ENTITLEMENTS = TrainingCompassApp/Resources/TrainingCompass.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
-		C00000000000000000000022 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_ENTITLEMENTS = TrainingCompassApp/Resources/TrainingCompass.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		C00000000000000000000021 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_ENTITLEMENTS = TrainingCompassApp/Resources/TrainingCompass.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		C00000000000000000000022 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES; CODE_SIGN_ENTITLEMENTS = TrainingCompassApp/Resources/TrainingCompass.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = "$(TRAINING_COMPASS_DEVELOPMENT_TEAM)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TrainingCompassApp/Resources/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
 		C00000000000000000000031 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; TEST_TARGET_NAME = TrainingCompass; }; name = Debug; };
 		C00000000000000000000032 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ametel01.trainingcompass.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; TEST_TARGET_NAME = TrainingCompass; }; name = Release; };
 /* End XCBuildConfiguration section */

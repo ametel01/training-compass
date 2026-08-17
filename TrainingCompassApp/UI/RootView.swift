@@ -2291,7 +2291,12 @@ private struct TodayView: View {
     Group {
       if model.phase != .ready {
         ContentUnavailableView {
-          Label("Training Compass", systemImage: "location.north.circle.fill")
+          Label {
+            Text("Training Compass")
+          } icon: {
+            CompassBrandMark()
+              .frame(width: 32, height: 32)
+          }
         } description: {
           VStack(spacing: 12) {
             Text("PRE-DATA BUILD")
@@ -3212,7 +3217,7 @@ private struct NewCycleSheet: View {
 
         Section {
           if canStartImmediately {
-            Button("Start Cycle") {
+            Button(isHistoricalStart ? "Start & Add Past Results" : "Start Cycle") {
               onCommit(anchorDate, true)
             }
             .buttonStyle(.borderedProminent)
@@ -3226,7 +3231,9 @@ private struct NewCycleSheet: View {
         } footer: {
           Text(
             canStartImmediately
-              ? "Starting snapshots the current Training Maxes. A draft remains editable until it is started."
+              ? isHistoricalStart
+                ? "Starting keeps this past Week 1 date. Next, add top-set reps for sessions you already completed."
+                : "Starting snapshots the current Training Maxes. A draft remains editable until it is started."
               : "The active cycle is unchanged. This draft can start after the active cycle is completed or abandoned."
           )
         }
@@ -3241,11 +3248,157 @@ private struct NewCycleSheet: View {
       }
     }
   }
+
+  private var isHistoricalStart: Bool {
+    TrainingDate(date: anchorDate) < TrainingDate(date: Date())
+  }
 }
 
 private struct NewCycleCommit {
   let anchorDate: Date
   let startsImmediately: Bool
+}
+
+private struct HistoricalSessionImportDraft: Identifiable {
+  let id: String
+  let intendedDate: TrainingDate
+  let weekName: String
+  let primaryLiftName: String
+  let topSetWeightKg: Double
+  let minimumRepetitions: Int
+  var isSelected = true
+  var repetitions: String
+}
+
+private struct HistoricalSessionImportSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var drafts: [HistoricalSessionImportDraft]
+  @State private var isImporting = false
+  @State private var errorMessage: String?
+  @FocusState private var focusedSessionID: String?
+
+  let onImport: ([HistoricalSessionImportDraft]) async throws -> Void
+
+  init(
+    drafts: [HistoricalSessionImportDraft],
+    onImport: @escaping ([HistoricalSessionImportDraft]) async throws -> Void
+  ) {
+    _drafts = State(initialValue: drafts)
+    self.onImport = onImport
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section {
+          Text(
+            "Select the sessions you completed in your spreadsheet, then enter the reps from each primary top set."
+          )
+          .font(.subheadline)
+        } footer: {
+          Text(
+            "For selected sessions, every other unresolved set is recorded at its prescribed weight and reps."
+          )
+        }
+
+        ForEach($drafts) { $draft in
+          Section {
+            Toggle("Completed", isOn: $draft.isSelected)
+              .accessibilityIdentifier("cycle.import.session.\(draft.id)")
+            if draft.isSelected {
+              LabeledContent("Primary lift", value: draft.primaryLiftName)
+              LabeledContent(
+                "Top-set weight",
+                value: String(format: "%.2f kg", draft.topSetWeightKg)
+              )
+              TextField("Top-set reps", text: $draft.repetitions)
+                .keyboardType(.numberPad)
+                .focused($focusedSessionID, equals: draft.id)
+                .accessibilityIdentifier("cycle.import.reps.\(draft.id)")
+            }
+          } header: {
+            Text(
+              "\(draft.intendedDate.date().formatted(date: .abbreviated, time: .omitted)) · \(draft.weekName)"
+            )
+          } footer: {
+            if draft.isSelected {
+              Text("Prescribed minimum: \(draft.minimumRepetitions) reps")
+            }
+          }
+        }
+
+        Section {
+          Button(importButtonTitle) {
+            Task { await importSelectedSessions() }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!canImport || isImporting)
+          .accessibilityIdentifier("cycle.import.confirm")
+        }
+      }
+      .compassScreen()
+      .navigationTitle("Add Past Results")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Not Now") { dismiss() }
+            .disabled(isImporting)
+        }
+        ToolbarItemGroup(placement: .keyboard) {
+          Spacer()
+          Button("Done") { focusedSessionID = nil }
+            .accessibilityIdentifier("cycle.import.keyboard-done")
+        }
+      }
+      .overlay {
+        if isImporting {
+          ProgressView("Adding completed sessions…")
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        }
+      }
+      .alert(
+        "Could not add past results",
+        isPresented: Binding(
+          get: { errorMessage != nil },
+          set: { if !$0 { errorMessage = nil } }
+        )
+      ) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(errorMessage ?? "Review the selected sessions and try again.")
+      }
+    }
+  }
+
+  private var selectedDrafts: [HistoricalSessionImportDraft] {
+    drafts.filter(\.isSelected)
+  }
+
+  private var canImport: Bool {
+    !selectedDrafts.isEmpty
+      && selectedDrafts.allSatisfy {
+        guard let repetitions = Int($0.repetitions) else { return false }
+        return repetitions >= 0
+      }
+  }
+
+  private var importButtonTitle: String {
+    let count = selectedDrafts.count
+    return "Add \(count) Completed Session\(count == 1 ? "" : "s")"
+  }
+
+  private func importSelectedSessions() async {
+    guard canImport else { return }
+    isImporting = true
+    defer { isImporting = false }
+    do {
+      try await onImport(selectedDrafts)
+      dismiss()
+    } catch {
+      errorMessage = String(describing: error)
+    }
+  }
 }
 
 private struct CycleView: View {
@@ -3269,6 +3422,7 @@ private struct CycleView: View {
   @State private var anchorDate = TrainingDate.monday(containing: Date()).date()
   @State private var isLoading = true
   @State private var showingNewCycle = false
+  @State private var showingHistoricalImport = false
   @State private var pendingNewCycleCommit: NewCycleCommit?
   @State private var startsAfterCreation = false
   @State private var showingSaveConfirmation = false
@@ -3382,6 +3536,8 @@ private struct CycleView: View {
                 ActiveCycleSection(
                   cycle: activeCycle,
                   liftName: liftName,
+                  historicalSessionCount: historicalImportDrafts.count,
+                  onImportHistory: { showingHistoricalImport = true },
                   onEdit: {
                     cycleSessionDraft = CycleSessionDraft(
                       session: $0, week: $1, cycleID: activeCycle.id
@@ -3535,6 +3691,11 @@ private struct CycleView: View {
         }
       }
     }
+    .sheet(isPresented: $showingHistoricalImport) {
+      HistoricalSessionImportSheet(drafts: historicalImportDrafts) { drafts in
+        try await importHistoricalSessions(drafts)
+      }
+    }
     .alert("Confirm schedule save", isPresented: $showingSaveConfirmation) {
       Button("Cancel", role: .cancel) {
         pendingSave = nil
@@ -3651,6 +3812,41 @@ private struct CycleView: View {
       template = nil
       draftCycle = nil
     }
+  }
+
+  private var historicalImportDrafts: [HistoricalSessionImportDraft] {
+    guard let activeCycle else { return [] }
+    let today = TrainingDate(date: Date())
+    return activeCycle.weeks.flatMap { week in
+      week.sessions.compactMap { session in
+        guard session.intendedDate < today,
+          !session.status.isTerminal,
+          let topSet = session.prescriptions.first(where: {
+            $0.role == .primary && $0.isPlusSetEligible
+          })
+        else { return nil }
+        return HistoricalSessionImportDraft(
+          id: session.id,
+          intendedDate: session.intendedDate,
+          weekName: week.kind.displayName,
+          primaryLiftName: liftName(session.primaryLiftID),
+          topSetWeightKg: topSet.weightKg,
+          minimumRepetitions: topSet.repetitions,
+          repetitions: String(topSet.repetitions)
+        )
+      }
+    }.sorted { $0.intendedDate < $1.intendedDate }
+  }
+
+  private func importHistoricalSessions(_ drafts: [HistoricalSessionImportDraft]) async throws {
+    for draft in drafts.sorted(by: { $0.intendedDate < $1.intendedDate }) {
+      guard let repetitions = Int(draft.repetitions), repetitions >= 0 else { continue }
+      _ = try await model.sessionLoggingBoundary.importCompletedSession(
+        sessionID: draft.id,
+        topSetRepetitions: repetitions
+      )
+    }
+    await reload()
   }
 
   private var lifecycleRequestTitle: String {
@@ -4140,6 +4336,8 @@ private struct DraftCycleSummary: View {
 private struct ActiveCycleSection: View {
   let cycle: TrainingCycle
   let liftName: (String) -> String
+  let historicalSessionCount: Int
+  let onImportHistory: () -> Void
   let onEdit: (TrainingCycleSession, TrainingWeek) -> Void
   let onRequestLifecycle: (CycleLifecycleRequest) -> Void
 
@@ -4153,6 +4351,22 @@ private struct ActiveCycleSection: View {
       Text("Calendar Changes and Program Edits affect Scheduled Sessions only.")
         .font(.footnote)
         .foregroundStyle(.secondary)
+      if historicalSessionCount > 0 {
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Bring in completed sessions", systemImage: "square.and.arrow.down")
+            .font(.headline)
+            .foregroundStyle(CompassPalette.navy)
+          Text(
+            "\(historicalSessionCount) past session\(historicalSessionCount == 1 ? " is" : "s are") ready for top-set reps from your spreadsheet."
+          )
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          Button("Add Past Results") { onImportHistory() }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("cycle.import-history")
+        }
+        .padding(.vertical, 6)
+      }
       ForEach(cycle.weeks) { week in
         VStack(alignment: .leading, spacing: 5) {
           Text("\(week.position). \(week.kind.displayName)").font(.headline)
@@ -5172,8 +5386,18 @@ private struct PrivacyShield: View {
     ZStack {
       Color(.systemBackground).ignoresSafeArea()
       VStack(spacing: 16) {
-        Image(systemName: "lock.shield.fill")
-          .font(.system(size: 48))
+        ZStack(alignment: .bottomTrailing) {
+          CompassBrandMark()
+            .frame(width: 72, height: 72)
+          Image(systemName: "lock.shield.fill")
+            .font(.system(size: 19, weight: .semibold))
+            .foregroundStyle(CompassPalette.surface)
+            .frame(width: 34, height: 34)
+            .background(CompassPalette.navy, in: Circle())
+            .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 3))
+            .offset(x: 4, y: 4)
+        }
+        .accessibilityHidden(true)
         Text("Training Compass")
           .font(.title2.bold())
         Text("Private content concealed")

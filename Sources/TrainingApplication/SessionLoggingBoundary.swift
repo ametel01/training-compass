@@ -620,6 +620,55 @@ public struct SessionLoggingBoundary: Sendable {
     )
   }
 
+  /// Imports a session that was completed before Training Compass began
+  /// tracking the active cycle. The owner supplies the only variable result
+  /// retained by a 5/3/1 spreadsheet—the primary plus-set repetitions—while
+  /// unresolved supporting sets are recorded exactly as prescribed.
+  @discardableResult
+  public func importCompletedSession(
+    sessionID: String,
+    topSetRepetitions: Int
+  ) async throws -> TodaySessionSnapshot {
+    guard let current = try await activeSession(sessionID: sessionID) else {
+      throw SessionLoggingError.unknownSession
+    }
+    guard current.completion == nil, !current.session.status.isTerminal else {
+      throw SessionLoggingError.alreadyCompleted
+    }
+    guard
+      let topSet = current.sets.first(where: {
+        $0.prescription.role == .primary && $0.prescription.isPlusSetEligible
+      })
+    else {
+      throw SessionLoggingError.missingTopSetPrescription
+    }
+
+    for set in current.sets {
+      if set.id == topSet.id {
+        _ = try await recordSetResult(
+          sessionID: sessionID,
+          prescriptionID: set.id,
+          weightKg: set.prescription.weightKg,
+          repetitions: topSetRepetitions,
+          expectedBefore: set.result
+        )
+      } else if !set.isResolved {
+        _ = try await recordSetResult(
+          sessionID: sessionID,
+          prescriptionID: set.id,
+          weightKg: set.prescription.weightKg,
+          repetitions: set.prescription.repetitions
+        )
+      }
+    }
+
+    return try await completeSession(
+      sessionID: sessionID,
+      confirmation: .confirmed,
+      acknowledgeLaterWeek: true
+    )
+  }
+
   @discardableResult
   public func omitSet(
     sessionID: String,
@@ -1158,6 +1207,7 @@ public enum SessionLoggingError: Error, Equatable, Sendable {
   case unknownAdditionalSet
   case sessionNotTerminal
   case weekSequenceWarningRequired
+  case missingTopSetPrescription
 }
 
 /// Convenience boundary for callers that do not need the ordinary Today

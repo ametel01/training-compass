@@ -39,6 +39,11 @@ spacing:
   xl: "24pt"
   empty-y: "42pt"
 components:
+  compass-brand-mark:
+    backgroundColor: "{colors.paper}"
+    ringColor: "{colors.navy}"
+    needleColor: "{colors.compass-blue}"
+    rounded: "{rounded.capsule}"
   tab-shell:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.navy}"
@@ -164,10 +169,18 @@ Grouped lists, toggles, text fields, navigation links, edit buttons, confirmatio
 - **State:** Selected tab uses Compass Blue; unselected icons and labels use native foreground treatment.
 - **Icons:** SF Symbols only: `sun.max`, `calendar`, `chart.line.uptrend.xyaxis`, `scalemass`, and `heart.text.square`.
 
+### Compass Brand Mark
+
+- **Shape:** Fine navy compass ring, eight restrained ticks, and a southwest-to-northeast two-tone blue needle on Warm Paper.
+- **App icon:** The full-bleed 1024px raster master lives in `TrainingCompassApp/Resources/Assets.xcassets/AppIcon.appiconset`. iOS supplies the platform corner mask; the source artwork must remain square and opaque.
+- **In-app component:** `CompassBrandMark` redraws the same geometry with semantic adaptive colors so it stays crisp and legible in light and dark appearances.
+- **Use:** Branded orientation moments only: top-level page headers, app preparation/identity, and the privacy shield badge.
+- **Rule:** Functional navigation and status actions keep their existing SF Symbols; the brand mark does not replace symbols whose job is to communicate an action or state.
+
 ### Page Header
 
 - **Shape:** 42pt compass icon circle plus leading text stack.
-- **Primary:** Warm Paper background, Paper Surface icon well, Contour Line 1pt stroke, Compass Blue north arrow.
+- **Primary:** Warm Paper background, Paper Surface icon well, and the shared Compass Brand Mark.
 - **Typography:** Serif large title for the page name; SF subheadline for date or supporting orientation copy.
 - **Behavior:** This is an orientation component for top-level paper surfaces, not a replacement for native navigation titles.
 
@@ -210,6 +223,7 @@ Grouped lists, toggles, text fields, navigation links, edit buttons, confirmatio
 - **Do** keep the five-tab native shell and top-level navigation stacks intact.
 - **Do** apply `compassScreen()` to new app surfaces so tint, grouped lists, bars, and paper background stay consistent.
 - **Do** use SF Symbols for icons and native iOS controls for toggles, edit buttons, destructive actions, toolbars, sheets, alerts, and navigation links.
+- **Do** use `CompassBrandMark` for product identity and orientation; keep action and status iconography semantic.
 - **Do** use serif display type for orientation moments and SF system styles for operational content.
 - **Do** treat contour lines as background texture only; they should never reduce text contrast or obscure controls.
 - **Do** verify light mode, dark mode, and iPad framing when changing shared visual primitives.

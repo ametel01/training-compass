@@ -85,6 +85,90 @@ struct CompassPaperBackground: View {
   }
 }
 
+/// The product mark shared by the app icon and branded orientation moments.
+///
+/// Drawing the compact in-app version keeps it crisp at every display scale
+/// while preserving the geometry of the supplied reference.
+struct CompassBrandMark: View {
+  var body: some View {
+    Canvas { context, size in
+      let side = min(size.width, size.height)
+      let center = CGPoint(x: size.width / 2, y: size.height / 2)
+      let radius = side * 0.43
+      let lineWidth = max(1.25, side * 0.038)
+
+      let ring = Path(
+        ellipseIn: CGRect(
+          x: center.x - radius,
+          y: center.y - radius,
+          width: radius * 2,
+          height: radius * 2
+        ))
+      context.stroke(ring, with: .color(CompassPalette.navy), lineWidth: lineWidth)
+
+      for degrees in stride(from: 0.0, to: 360.0, by: 45.0) {
+        let angle = degrees * .pi / 180
+        let isCardinal = degrees.truncatingRemainder(dividingBy: 90) == 0
+        let outerRadius = radius - lineWidth * 0.45
+        let innerRadius = radius - side * (isCardinal ? 0.12 : 0.085)
+        var tick = Path()
+        tick.move(to: point(from: center, angle: angle, distance: innerRadius))
+        tick.addLine(to: point(from: center, angle: angle, distance: outerRadius))
+        context.stroke(
+          tick,
+          with: .color(isCardinal ? CompassPalette.navy : CompassPalette.line),
+          style: StrokeStyle(lineWidth: max(1, lineWidth * 0.72), lineCap: .round)
+        )
+      }
+
+      let needleAngle = -Double.pi / 4
+      let perpendicular = needleAngle + Double.pi / 2
+      let tipDistance = side * 0.31
+      let halfWidth = side * 0.105
+      let northTip = point(from: center, angle: needleAngle, distance: tipDistance)
+      let southTip = point(from: center, angle: needleAngle + .pi, distance: tipDistance)
+      let left = point(from: center, angle: perpendicular, distance: halfWidth)
+      let right = point(from: center, angle: perpendicular + .pi, distance: halfWidth)
+
+      var northNeedle = Path()
+      northNeedle.move(to: center)
+      northNeedle.addLine(to: left)
+      northNeedle.addLine(to: northTip)
+      northNeedle.addLine(to: center)
+      context.fill(northNeedle, with: .color(CompassPalette.blue.opacity(0.48)))
+      context.stroke(northNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
+
+      var southNeedle = Path()
+      southNeedle.move(to: center)
+      southNeedle.addLine(to: right)
+      southNeedle.addLine(to: southTip)
+      southNeedle.addLine(to: center)
+      context.fill(southNeedle, with: .color(CompassPalette.blue))
+      context.stroke(southNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
+
+      context.fill(
+        Path(
+          ellipseIn: CGRect(
+            x: center.x - lineWidth,
+            y: center.y - lineWidth,
+            width: lineWidth * 2,
+            height: lineWidth * 2
+          )),
+        with: .color(CompassPalette.navy)
+      )
+    }
+    .aspectRatio(1, contentMode: .fit)
+    .accessibilityHidden(true)
+  }
+
+  private func point(from origin: CGPoint, angle: Double, distance: CGFloat) -> CGPoint {
+    CGPoint(
+      x: origin.x + CGFloat(cos(angle)) * distance,
+      y: origin.y + CGFloat(sin(angle)) * distance
+    )
+  }
+}
+
 struct CompassPageHeader: View {
   let title: String?
   let subtitle: String?
@@ -97,16 +181,10 @@ struct CompassPageHeader: View {
 
   var body: some View {
     HStack(alignment: .center, spacing: 12) {
-      ZStack {
-        Circle()
-          .fill(CompassPalette.surface)
-          .overlay(Circle().stroke(CompassPalette.line, lineWidth: 1))
-        Image(systemName: "location.north.fill")
-          .font(.system(size: 18, weight: .semibold))
-          .foregroundStyle(CompassPalette.blue)
-          .rotationEffect(.degrees(24))
-      }
-      .frame(width: 42, height: 42)
+      CompassBrandMark()
+        .padding(3)
+        .background(CompassPalette.surface, in: Circle())
+        .frame(width: 42, height: 42)
 
       VStack(alignment: .leading, spacing: 2) {
         if let title {

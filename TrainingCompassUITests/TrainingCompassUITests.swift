@@ -17,6 +17,12 @@ final class TrainingCompassUITests: XCTestCase {
     return app
   }
 
+  private func cycleImportApp() -> XCUIApplication {
+    let app = XCUIApplication()
+    app.launchEnvironment["TRAINING_COMPASS_UI_SCENARIO"] = "cycle-import"
+    return app
+  }
+
   func testLaunchShowsPreDataFourDestinationShell() throws {
     let app = cleanApp()
     app.launch()
@@ -109,6 +115,49 @@ final class TrainingCompassUITests: XCTestCase {
     activeScreenshot.name = "Active Training Cycle"
     activeScreenshot.lifetime = .keepAlways
     add(activeScreenshot)
+  }
+
+  func testPastCycleCanImportCompletedSessionTopSetReps() throws {
+    let app = cycleImportApp()
+    app.launch()
+
+    app.tabBars.buttons["Cycle"].tap()
+    let importHistory = app.buttons["cycle.import-history"]
+    XCTAssertTrue(importHistory.waitForExistence(timeout: 15))
+    importHistory.tap()
+
+    XCTAssertTrue(app.navigationBars["Add Past Results"].waitForExistence(timeout: 5))
+    let completedToggles = app.switches.matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "cycle.import.session.")
+    )
+    XCTAssertGreaterThan(completedToggles.count, 1)
+
+    let repetitions = app.textFields.matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "cycle.import.reps.")
+    ).firstMatch
+    XCTAssertTrue(repetitions.waitForExistence(timeout: 5))
+    repetitions.tap()
+    if repetitions.buttons["Clear text"].exists {
+      repetitions.buttons["Clear text"].tap()
+    }
+    repetitions.typeText("9")
+    app.buttons["cycle.import.keyboard-done"].tap()
+
+    let importSessions = app.buttons["cycle.import.confirm"]
+    for _ in 0..<4 where !importSessions.isHittable {
+      app.swipeUp()
+    }
+    XCTAssertTrue(importSessions.waitForExistence(timeout: 5))
+    XCTAssertTrue(importSessions.isEnabled)
+    let reviewScreenshot = XCTAttachment(screenshot: app.screenshot())
+    reviewScreenshot.name = "Past cycle result import"
+    reviewScreenshot.lifetime = .keepAlways
+    add(reviewScreenshot)
+    importSessions.tap()
+
+    XCTAssertTrue(app.navigationBars["Add Past Results"].waitForNonExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["Cycle"].waitForExistence(timeout: 15))
+    XCTAssertTrue(importHistory.waitForNonExistence(timeout: 15))
   }
 
   func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() throws {

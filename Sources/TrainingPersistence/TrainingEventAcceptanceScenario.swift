@@ -34,6 +34,29 @@ extension GRDBTrainingRepository {
     }
   }
 
+  /// Starts a real cycle one week in the past so XCUITest can exercise the
+  /// spreadsheet-to-local-record import journey through production boundaries.
+  func seedCycleImportAcceptanceScenario(now: Date) async throws {
+    try await seedCyclePlanningAcceptanceScenario(now: now)
+
+    let clock = SystemClock()
+    let calendar = CurrentCalendarProvider()
+    let uuidGenerator = RandomUUIDGenerator()
+    let boundary = TrainingCycleBoundary(
+      repository: self,
+      clock: clock,
+      calendar: calendar,
+      uuidGenerator: uuidGenerator
+    )
+    let calendarValue = calendar.calendar()
+    let previousWeek = calendarValue.date(byAdding: .day, value: -7, to: now) ?? now
+    let anchor = TrainingDate.monday(containing: previousWeek, calendar: calendarValue)
+    let creation = try await boundary.previewCreate(anchorDate: anchor)
+    _ = try await boundary.confirm(creation)
+    let activation = try await boundary.previewActivation(anchorChoice: .retain)
+    _ = try await boundary.confirmActivation(activation)
+  }
+
   /// Installs deterministic local data for the Training Event XCUITest journey.
   /// The application repository enables it only for the explicit test launch
   /// environment, keeping test orchestration out of the app model.
