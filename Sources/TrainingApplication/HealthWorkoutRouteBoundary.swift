@@ -213,8 +213,7 @@ public protocol HealthWorkoutRouteResourceProviding: Sendable {
 }
 
 public struct UnconstrainedHealthWorkoutRouteResourceProvider:
-  HealthWorkoutRouteResourceProviding
-{
+  HealthWorkoutRouteResourceProviding {
   public init() {}
 
   public func currentRouteResources() async -> HealthWorkoutRouteResourceSnapshot {

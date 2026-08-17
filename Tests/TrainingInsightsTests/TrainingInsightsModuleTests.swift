@@ -27,7 +27,7 @@ final class TrainingInsightsModuleTests: XCTestCase {
       results: [
         result(id: "plus", prescriptionID: "plus", repetitions: 5),
         result(id: "assistance", prescriptionID: "assistance", repetitions: 10),
-        result(id: "failed", prescriptionID: "failed-plus", repetitions: 0),
+        result(id: "failed", prescriptionID: "failed-plus", repetitions: 0)
       ],
       additionalSets: [
         try AdditionalSet(
@@ -182,7 +182,7 @@ final class TrainingInsightsModuleTests: XCTestCase {
             repetitions: 10, weightKg: 65),
           TrainingSetPrescription(
             id: "failed-plus", setNumber: 2, role: .primary, percentage: 0.75,
-            repetitions: 5, weightKg: 75),
+            repetitions: 5, weightKg: 75)
         ],
         status: .completed
       ),

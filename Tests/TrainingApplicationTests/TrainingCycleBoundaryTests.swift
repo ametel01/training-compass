@@ -234,7 +234,7 @@ final class TrainingCycleBoundaryTests: XCTestCase {
         intendedWeekday: .thursday,
         primaryLiftID: "bench",
         assistanceLiftID: "squat"
-      ),
+      )
     ])
   }
 
@@ -287,8 +287,7 @@ private final class CycleUUIDGenerator: UUIDGenerator, @unchecked Sendable {
 }
 
 private actor InMemoryCycleRepository: TrainingCycleRepository, ScheduleTemplateRepository,
-  LiftConfigurationRepository
-{
+  LiftConfigurationRepository {
   private let template: ScheduleTemplate
   private var draftCycle: TrainingCycle?
   private var activeCycle: TrainingCycle?
@@ -363,7 +362,7 @@ private actor InMemoryCycleRepository: TrainingCycleRepository, ScheduleTemplate
   func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     [
       try LiftConfiguration(id: "squat", identity: .progression(.squat), trainingMaxKg: 100),
-      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
+      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75)
     ]
   }
   func saveLiftConfiguration(

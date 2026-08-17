@@ -26,7 +26,7 @@ final class RunningPerformanceTests: XCTestCase {
       record("baseline-a", date: today.adding(days: -7), duration: 100, distance: 1_000),
       record("baseline-b", date: today.adding(days: -14), duration: 200, distance: 2_000),
       record("baseline-c", date: today.adding(days: -21), duration: 300, distance: 3_000),
-      record("baseline-d", date: today.adding(days: -28), duration: 400, distance: 4_000),
+      record("baseline-d", date: today.adding(days: -28), duration: 400, distance: 4_000)
     ]
 
     let volume = RunningVolumeCalculator().calculate(
@@ -57,7 +57,7 @@ final class RunningPerformanceTests: XCTestCase {
       record("later-date", date: date, duration: 900, distance: 3_000, importedAt: 10),
       record(
         "latest-import", date: date.adding(days: -1), duration: 900, distance: 3_000, importedAt: 20
-      ),
+      )
     ]
     let performance = RunningPerformanceCalculator().calculate(
       records: records,

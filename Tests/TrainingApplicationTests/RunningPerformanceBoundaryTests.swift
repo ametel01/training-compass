@@ -18,7 +18,7 @@ final class RunningPerformanceBoundaryTests: XCTestCase {
       workouts: [first, ignored, latestImport],
       enrichments: [
         "first": enrichment(for: first, distance: 5_000),
-        "latest": enrichment(for: latestImport, distance: 4_000),
+        "latest": enrichment(for: latestImport, distance: 4_000)
       ],
       routes: ["first"])
     let boundary = RunningPerformanceBoundary(
@@ -111,17 +111,14 @@ private actor RunningRepository: HealthWorkoutRepository, HealthWorkoutRouteRepo
     self.routes = routes
   }
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {}
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {}
   func loadHealthWorkouts() async throws -> [HealthWorkout] { workouts }
   func loadHealthWorkoutDeletionUUIDs() async throws -> [String] { [] }
   func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  {
+    -> HealthWorkoutEnrichment? {
     enrichments[healthKitUUID]
   }
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     HealthSyncCheckpoint(stream: stream, anchor: "anchor", reconciliationContext: "checked")
   }
   func saveHealthWorkoutRoute(_ route: HealthWorkoutRoute) async throws -> Bool { true }
@@ -137,7 +134,7 @@ private actor RunningRepository: HealthWorkoutRepository, HealthWorkoutRouteRepo
           source: HealthWorkoutRouteSource(healthKitUUID: "route-\(id)", provenance: .init()),
           points: [
             HealthWorkoutRoutePoint(northSouthDegrees: 0, eastWestDegrees: 0),
-            HealthWorkoutRoutePoint(northSouthDegrees: 1, eastWestDegrees: 1),
+            HealthWorkoutRoutePoint(northSouthDegrees: 1, eastWestDegrees: 1)
           ], originalPointCount: 2)
       ], retainedAt: Date(timeIntervalSince1970: 1),
       simplification: .boundedDouglasPeuckerV1, reconciliationContext: "checked")

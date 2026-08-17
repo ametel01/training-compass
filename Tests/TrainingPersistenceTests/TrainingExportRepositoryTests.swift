@@ -62,7 +62,7 @@ final class TrainingExportRepositoryTests: XCTestCase {
               provenance: .init(sourceBundleIdentifier: "com.example.watch")),
             points: [
               .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852)
             ],
             originalPointCount: 20_000)
         ],

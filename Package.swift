@@ -6,7 +6,7 @@ let package = Package(
     name: "TrainingCompassKit",
     platforms: [
         .iOS(.v26),
-        .macOS(.v15),
+        .macOS(.v15)
     ],
     products: [
         .library(name: "TrainingDomain", targets: ["TrainingDomain"]),
@@ -18,10 +18,10 @@ let package = Package(
         .executable(
             name: "training-migration-verifier",
             targets: ["TrainingMigrationVerifier"]
-        ),
+        )
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", "7.11.1"..<"8.0.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", "7.11.1"..<"8.0.0")
     ],
     targets: [
         .target(name: "TrainingDomain"),
@@ -37,7 +37,7 @@ let package = Package(
             name: "TrainingPersistence",
             dependencies: [
                 "TrainingApplication",
-                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ]
         ),
         .target(
@@ -52,7 +52,7 @@ let package = Package(
             name: "TrainingMigrationVerifier",
             dependencies: [
                 "TrainingPersistence",
-                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ]
         ),
         .testTarget(
@@ -71,13 +71,13 @@ let package = Package(
             name: "TrainingPersistenceTests",
             dependencies: [
                 "TrainingPersistence",
-                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ]
         ),
         .testTarget(
             name: "HealthKitAdapterTests",
             dependencies: ["HealthKitAdapter"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

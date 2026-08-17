@@ -265,8 +265,7 @@ extension HealthWorkoutWriteBackRepository {
     throw HealthWorkoutWriteBackClientError.unavailable
   }
   public func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
-    -> [HealthWorkoutLinkFact]
-  {
+    -> [HealthWorkoutLinkFact] {
     _ = localEntityID
     return []
   }
@@ -431,8 +430,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   /// only the delivery state changes.
   @discardableResult
   public func markDeletedFromHealth(healthKitUUID: String) async
-    -> HealthWorkoutWriteBackRecord?
-  {
+    -> HealthWorkoutWriteBackRecord? {
     await withDeliveryLane {
       guard let loadedRecords = try? await self.repository.loadHealthWorkoutWriteBacks(),
         let current = loadedRecords.first(where: { $0.healthKitUUID == healthKitUUID })
@@ -458,8 +456,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   /// the owner explicitly restores or repairs it.
   @discardableResult
   public func reconcileImportedWorkouts(_ workouts: [HealthWorkout]) async
-    -> [HealthWorkoutWriteBackRecord]
-  {
+    -> [HealthWorkoutWriteBackRecord] {
     await withDeliveryLane {
       guard let records = try? await self.repository.loadHealthWorkoutWriteBacks() else {
         return []
@@ -544,8 +541,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   /// owner can retry safely.
   @discardableResult
   public func deleteAppAuthoredSummaryForReplacement(sessionID: String) async throws
-    -> HealthWorkoutWriteBackRecord?
-  {
+    -> HealthWorkoutWriteBackRecord? {
     try await withDeliveryLaneThrowing {
       guard
         let current = try await self.repository.loadHealthWorkoutWriteBack(sessionID: sessionID),
@@ -817,8 +813,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
       // object; the shortcut is only for an interrupted first save where no
       // UUID was durably recorded yet.
       if queued.healthKitUUID == nil, queued.syncVersion == 1,
-        try await client.workoutExists(syncIdentifier: queued.syncIdentifier)
-      {
+        try await client.workoutExists(syncIdentifier: queued.syncIdentifier) {
         let saved = HealthWorkoutWriteBackRecord(
           sessionID: queued.sessionID, syncIdentifier: queued.syncIdentifier,
           syncVersion: queued.syncVersion, state: .savedToHealth,
@@ -867,8 +862,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   }
 
   private func summary(for session: TodaySessionSnapshot, completedAt: Date)
-    -> HealthWorkoutWriteBackSummary
-  {
+    -> HealthWorkoutWriteBackSummary {
     let calendar = Calendar(identifier: .gregorian)
     let start =
       calendar.date(
@@ -882,8 +876,7 @@ public struct HealthWorkoutWriteBackBoundary: Sendable {
   }
 
   private static func deletionFailure(for error: any Error)
-    -> HealthWorkoutWriteBackDeletionFailure
-  {
+    -> HealthWorkoutWriteBackDeletionFailure {
     switch error as? HealthWorkoutWriteBackClientError {
     case .unavailable: .unavailable
     case .authorizationDenied: .authorizationDenied

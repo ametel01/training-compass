@@ -56,7 +56,7 @@ final class PersonalRecoveryBaselineTests: XCTestCase {
       observation("edge", day: 1, value: 10),  // 28 days before as-of: included
       observation("inside", day: 2, value: 20),
       observation("current", day: 29, value: 30, current: true),
-      observation("outside", day: 31, value: 999),  // outside the window
+      observation("outside", day: 31, value: 999)  // outside the window
     ]
     let baseline = PersonalRecoveryBaselineCalculator().calculate(
       metric: .primarySleepDuration, observations: values, asOfDate: asOf, minimumObservationDays: 1

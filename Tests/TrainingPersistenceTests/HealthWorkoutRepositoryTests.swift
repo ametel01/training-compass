@@ -268,8 +268,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
   }
 
   func testWorkoutEnrichmentUpsertsAcrossRestartAndWorkoutDeletionRemovesProjection()
-    async throws
-  {
+    async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(
         path: "training-health-enrichment-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -334,7 +333,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
               sourceName: "Watch", sourceBundleIdentifier: "com.example.source")),
           points: [
             .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-            .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942),
+            .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942)
           ],
           originalPointCount: 6_000),
         .init(
@@ -344,9 +343,9 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
               sourceName: "Watch", sourceBundleIdentifier: "com.example.source")),
           points: [
             .init(northSouthDegrees: 14.6195, eastWestDegrees: 121.0042),
-            .init(northSouthDegrees: 14.6295, eastWestDegrees: 121.0142),
+            .init(northSouthDegrees: 14.6295, eastWestDegrees: 121.0142)
           ],
-          originalPointCount: 4_000),
+          originalPointCount: 4_000)
       ],
       retainedAt: Date(timeIntervalSince1970: 1_700_000_900),
       simplification: .boundedDouglasPeuckerV1,
@@ -360,7 +359,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
     XCTAssertEqual(
       persisted?.segments.map(\.source.healthKitUUID),
       [
-        "route-source-uuid", "route-source-uuid-2",
+        "route-source-uuid", "route-source-uuid-2"
       ])
 
     try await restarted.commitHealthWorkoutPage(
@@ -373,8 +372,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
   }
 
   func testDeepRebuildClearsReconstructibleStateButRetainsAuthoritativeHealthLinkFacts()
-    async throws
-  {
+    async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: "training-health-rebuild-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -405,7 +403,7 @@ final class HealthWorkoutRepositoryTests: XCTestCase {
               provenance: .init(sourceBundleIdentifier: "com.example.watch")),
             points: [
               .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+              .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852)
             ],
             originalPointCount: 2)
         ],

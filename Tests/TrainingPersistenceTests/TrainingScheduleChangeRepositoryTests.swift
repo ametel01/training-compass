@@ -100,7 +100,7 @@ final class TrainingScheduleChangeRepositoryTests: XCTestCase {
         "squat": LiftConfigurationSnapshot(
           identity: .progression(.squat), trainingMaxKg: 100, loadingIncrementKg: 2.5),
         "bench": LiftConfigurationSnapshot(
-          identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5),
+          identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5)
       ]
     )
   }

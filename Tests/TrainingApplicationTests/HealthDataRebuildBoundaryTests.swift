@@ -86,7 +86,7 @@ final class HealthDataRebuildBoundaryTests: XCTestCase {
       client: RebuildClient(
         pages: [
           HealthWorkoutPage(workouts: [workout], anchor: "batch-1"),
-          HealthWorkoutPage(workouts: [], anchor: nil),
+          HealthWorkoutPage(workouts: [], anchor: nil)
         ]),
       repository: repository,
       authorization: .init(state: .authorized),
@@ -111,7 +111,7 @@ final class HealthDataRebuildBoundaryTests: XCTestCase {
     let client = RebuildClient(
       pages: [
         HealthWorkoutPage(workouts: [fixture("one")], anchor: "batch-1"),
-        HealthWorkoutPage(workouts: [fixture("two")], anchor: nil),
+        HealthWorkoutPage(workouts: [fixture("two")], anchor: nil)
       ],
       pauseAfterFirstPage: true)
     let boundary = HealthDataRebuildBoundary(
@@ -224,8 +224,7 @@ private actor RebuildRepository: HealthWorkoutRepository {
   private(set) var didBegin = false
   private(set) var didRegenerate = false
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {
     values.append(contentsOf: workouts)
   }
 
@@ -256,14 +255,12 @@ private actor RebuildRepository: HealthWorkoutRepository {
     }
   }
 
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     checkpoint
   }
 
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  { .init(stream: stream, recordCount: values.count) }
+    -> HealthMirrorContentSnapshot { .init(stream: stream, recordCount: values.count) }
 
   func loadHealthRebuildState() async throws -> HealthRebuildState? { state }
 

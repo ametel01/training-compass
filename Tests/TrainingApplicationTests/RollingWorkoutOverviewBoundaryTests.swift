@@ -205,8 +205,7 @@ private actor OverviewRepository: HealthWorkoutRepository, HeartRateConfiguratio
   func loadHealthWorkoutDeletionUUIDs() async throws -> [String] { deleted }
 
   func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  {
+    -> HealthWorkoutEnrichment? {
     if throwsWhenLoadingEnrichment { throw OverviewRepositoryError.enrichmentUnavailable }
     return enrichment
   }
@@ -227,8 +226,7 @@ private actor OverviewRepository: HealthWorkoutRepository, HeartRateConfiguratio
   }
 
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
-    -> HealthSyncCheckpoint?
-  { stream == .workouts ? checkpoint : nil }
+    -> HealthSyncCheckpoint? { stream == .workouts ? checkpoint : nil }
 }
 
 private enum OverviewRepositoryError: Error {

@@ -105,8 +105,7 @@ final class AppModel {
 
   @discardableResult
   func eraseAllData(deleteHealthKitWriteBacks: Bool = false) async throws
-    -> TrainingErasureResult
-  {
+    -> TrainingErasureResult {
     guard let trainingErasureBoundary else {
       throw TrainingErasureError.unavailable
     }

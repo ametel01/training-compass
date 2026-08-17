@@ -37,8 +37,7 @@ public enum HealthRecoveryObservationMetric: String, Codable, CaseIterable, Equa
 /// provenance remains available on the included samples; this value is the
 /// comparison identity used when reducing multiple samples on one date.
 public struct HealthRecoveryObservationSource: Codable, Equatable, Hashable, Identifiable,
-  Sendable
-{
+  Sendable {
   public let id: String
   public let displayName: String
   public let isComparable: Bool
@@ -194,8 +193,7 @@ public struct HealthRecoveryObservationProjection: Codable, Equatable, Sendable 
   }
 
   public func observations(for metric: HealthRecoveryObservationMetric)
-    -> [HealthRecoveryDailyObservation]
-  {
+    -> [HealthRecoveryDailyObservation] {
     switch metric {
     case .restingHeartRate: restingHeartRate
     case .heartRateVariabilitySDNN: heartRateVariability

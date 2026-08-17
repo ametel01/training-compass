@@ -526,8 +526,7 @@ public struct E1RMProgressCalculator: Sendable {
           excluded.append(excludedResult(result, source: source, reason: reason))
         } else if let estimate = E1RMFormula.estimate(
           weightKg: result.weightKg, repetitions: result.repetitions),
-          let prescription
-        {
+          let prescription {
           observations.append(
             E1RMObservation(
               resultID: result.id,
@@ -586,8 +585,7 @@ public struct E1RMProgressCalculator: Sendable {
       }
 
       if let plus, source.session.primaryLiftID == selectedID, !source.weekKind.isDeload,
-        resultsByPrescription[plus.id] == nil, omissionsByPrescription[plus.id] == nil
-      {
+        resultsByPrescription[plus.id] == nil, omissionsByPrescription[plus.id] == nil {
         excluded.append(
           E1RMExcludedRecord(
             id: "\(source.session.id):\(plus.id):missing",

@@ -282,8 +282,7 @@ extension TrainingMaxProposalRepository {
     throw TrainingMaxProposalRepositoryError.unavailable
   }
 
-  public func loadTrainingMaxHistory(for liftID: String?) async throws -> [TrainingMaxHistoryEntry]
-  {
+  public func loadTrainingMaxHistory(for liftID: String?) async throws -> [TrainingMaxHistoryEntry] {
     []
   }
 
@@ -481,8 +480,7 @@ public struct TrainingMaxProposalBoundary: Sendable {
   }
 
   public func replaceProposal(_ proposalID: String, with kg: Double) async throws
-    -> TrainingMaxProposal
-  {
+    -> TrainingMaxProposal {
     try await replace(proposalID: proposalID, with: kg)
   }
 
@@ -577,8 +575,7 @@ public struct TrainingMaxProposalBoundary: Sendable {
   }
 
   private func evidenceFor(liftID: String, cycle: TrainingCycle) async throws
-    -> TrainingMaxProposalEvidence
-  {
+    -> TrainingMaxProposalEvidence {
     var records: [E1RMSessionRecord] = []
     var excluded: [TrainingMaxProposalExcludedWork] = []
     for week in cycle.weeks {

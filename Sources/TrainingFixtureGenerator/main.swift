@@ -4,8 +4,7 @@ import TrainingApplication
 let seed: UInt64
 if let seedIndex = CommandLine.arguments.firstIndex(of: "--seed"),
   CommandLine.arguments.indices.contains(seedIndex + 1),
-  let parsedSeed = UInt64(CommandLine.arguments[seedIndex + 1])
-{
+  let parsedSeed = UInt64(CommandLine.arguments[seedIndex + 1]) {
   seed = parsedSeed
 } else {
   seed = 21_571
@@ -14,8 +13,7 @@ if let seedIndex = CommandLine.arguments.firstIndex(of: "--seed"),
 let generator = SyntheticFixtureGenerator()
 let profile: String
 if let profileIndex = CommandLine.arguments.firstIndex(of: "--profile"),
-  CommandLine.arguments.indices.contains(profileIndex + 1)
-{
+  CommandLine.arguments.indices.contains(profileIndex + 1) {
   profile = CommandLine.arguments[profileIndex + 1]
 } else {
   profile = "gate-zero"

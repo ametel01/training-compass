@@ -22,8 +22,7 @@ private enum ApplicationAcceptanceScenario {
 public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImportRepository,
   TrainingErasureRepository, HealthWorkoutRepository, HealthRebuildStorageProviding,
   HealthWorkoutRouteRepository, TrainingEventLinkRepository,
-  RunningComparisonExclusionRepository, HealthWorkoutWriteBackRepository
-{
+  RunningComparisonExclusionRepository, HealthWorkoutWriteBackRepository {
   private let root: URL
   private let bootstrapper: ProtectedStoreBootstrapper
   private let phaseObserver: any TrainingImportPhaseObserver
@@ -171,8 +170,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       )
       for table in tables
       where table != "gate_zero_metadata" && table != "grdb_migrations"
-        && table != "health_workout_write_back_preferences"
-      {
+        && table != "health_workout_write_back_preferences" {
         let quoted = Self.quoteIdentifier(table)
         if (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(quoted)")) ?? 0 > 0 {
           return false
@@ -191,8 +189,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     let currentBytes: Int64
     let databaseURL = actualLocations().authoritativeDatabase
     if let attributes = try? FileManager.default.attributesOfItem(atPath: databaseURL.path()),
-      let fileSize = attributes[.size] as? NSNumber
-    {
+      let fileSize = attributes[.size] as? NSNumber {
       currentBytes = max(0, fileSize.int64Value)
     } else {
       currentBytes = 0
@@ -305,7 +302,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.reconciliationContext ?? reconciliationContext,
             workout.appAuthoredSyncIdentifier,
             workout.appAuthoredSyncVersion,
-            Date().timeIntervalSince1970,
+            Date().timeIntervalSince1970
           ]
         )
         try db.execute(
@@ -461,7 +458,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             workout.reconciliationContext ?? page.reconciliationContext,
             workout.appAuthoredSyncIdentifier,
             workout.appAuthoredSyncVersion,
-            committedAt.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970
           ]
         )
         try db.execute(
@@ -482,7 +479,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             id, stream.rawValue, kind.rawValue, sample.id,
-            committedAt.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970
           ])
       }
       for sample in recoverySamples {
@@ -500,7 +497,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             stream.rawValue, sample.id, encoded, sample.date.timeIntervalSince1970,
-            committedAt.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970
           ])
       }
       if RecoveryEvidenceStream(stream) != nil {
@@ -552,7 +549,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             id, stream.rawValue, kind.rawValue, workout.healthKitUUID,
-            committedAt.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970
           ]
         )
       }
@@ -565,7 +562,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             fact.id, stream.rawValue, fact.kind.rawValue, fact.healthKitUUID,
-            fact.observedAt.timeIntervalSince1970,
+            fact.observedAt.timeIntervalSince1970
           ]
         )
       }
@@ -579,7 +576,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             id, stream.rawValue, HealthSyncFact.Kind.deleted.rawValue, uuid,
-            committedAt.timeIntervalSince1970,
+            committedAt.timeIntervalSince1970
           ]
         )
       }
@@ -600,15 +597,14 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           page.nextAnchor,
           page.hasLimitedHistory,
           page.reconciliationContext,
-          committedAt.timeIntervalSince1970,
+          committedAt.timeIntervalSince1970
         ]
       )
     }
   }
 
   public func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
-    -> HealthSyncCheckpoint?
-  {
+    -> HealthSyncCheckpoint? {
     let stores = try await readyStores()
     return try await stores.reconstructible.read { db in
       try Row.fetchOne(
@@ -631,8 +627,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     let stores = try await readyStores()
     let count = try await stores.reconstructible.read { db -> Int in
       let table: String
@@ -675,15 +670,14 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
               updated_at = excluded.updated_at
             """,
           arguments: [
-            stream.rawValue, sample.id, encoded, sample.date.timeIntervalSince1970, now,
+            stream.rawValue, sample.id, encoded, sample.date.timeIntervalSince1970, now
           ])
       }
     }
   }
 
   public func loadHealthRecoverySamples(for stream: HealthSyncStream) async throws
-    -> [HealthRecoverySample]
-  {
+    -> [HealthRecoverySample] {
     guard RecoveryEvidenceStream(stream) != nil else { return [] }
     let stores = try await readyStores()
     return try await stores.reconstructible.read { db in
@@ -736,15 +730,14 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           enrichment.healthKitUUID,
           encoded,
-          Date().timeIntervalSince1970,
+          Date().timeIntervalSince1970
         ]
       )
     }
   }
 
   public func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  {
+    -> HealthWorkoutEnrichment? {
     let stores = try await readyStores()
     return try await stores.reconstructible.read { db in
       guard
@@ -784,8 +777,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadHealthWorkoutRoute(for healthKitUUID: String) async throws
-    -> HealthWorkoutRoute?
-  {
+    -> HealthWorkoutRoute? {
     let stores = try await readyStores()
     return try await stores.reconstructible.read { db in
       guard
@@ -895,7 +887,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           """,
         arguments: [
           state.phase.rawValue, encoded, state.startedAt.timeIntervalSince1970,
-          state.updatedAt.timeIntervalSince1970,
+          state.updatedAt.timeIntervalSince1970
         ]
       )
     }
@@ -928,15 +920,14 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970,
           fact.linkedDuringCompletion, fact.writeBackDisposition.rawValue,
-          fact.unlinkedAt?.timeIntervalSince1970,
+          fact.unlinkedAt?.timeIntervalSince1970
         ]
       )
     }
   }
 
   public func loadHealthWorkoutLinkFacts(for healthKitUUID: String? = nil) async throws
-    -> [HealthWorkoutLinkFact]
-  {
+    -> [HealthWorkoutLinkFact] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       let rows: [Row]
@@ -979,8 +970,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
-    -> [HealthWorkoutLinkFact]
-  {
+    -> [HealthWorkoutLinkFact] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Row.fetchAll(
@@ -1082,7 +1072,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
-          fact.writeBackDisposition.rawValue,
+          fact.writeBackDisposition.rawValue
         ]
       )
       return fact
@@ -1179,7 +1169,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           fact.id, fact.healthKitUUID, fact.localEntityKind.rawValue, fact.localEntityID,
           fact.linkedAt.timeIntervalSince1970, fact.linkedDuringCompletion,
-          fact.writeBackDisposition.rawValue,
+          fact.writeBackDisposition.rawValue
         ]
       )
       return TrainingEventCompletionLinkResult(completion: completion, link: fact)
@@ -1274,7 +1264,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           unlinkedAt.timeIntervalSince1970,
           TrainingEventLocalEntityKind.session.rawValue,
-          localEntityID,
+          localEntityID
         ]
       )
       return links
@@ -1443,7 +1433,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           configuration.trainingMax.kg,
           configuration.loadingIncrement.kg,
           timestamp,
-          timestamp,
+          timestamp
         ]
       )
       try db.execute(
@@ -1466,7 +1456,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           identity.kind,
           identity.value,
           after.trainingMaxKg,
-          after.loadingIncrementKg,
+          after.loadingIncrementKg
         ]
       )
       let historyEvent: TrainingMaxHistoryEvent
@@ -1491,7 +1481,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           """,
         arguments: [
           history.id, history.liftID, history.event.rawValue, history.occurredAt,
-          try Self.encodeTrainingMaxHistory(history),
+          try Self.encodeTrainingMaxHistory(history)
         ]
       )
       return LiftConfigurationAuditEntry(
@@ -1592,7 +1582,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             position,
             session.intendedWeekday.rawValue,
             session.primaryLiftID,
-            session.assistanceLiftID,
+            session.assistanceLiftID
           ]
         )
       }
@@ -1610,7 +1600,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           action.rawValue,
           timestamp,
           beforeJSON,
-          afterJSON,
+          afterJSON
         ]
       )
       return ScheduleTemplateAuditEntry(
@@ -1717,7 +1707,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           """,
         arguments: [
           proposal.id, proposal.liftID, proposal.sourceCycleID, proposal.status.rawValue,
-          json, proposal.createdAt, proposal.updatedAt,
+          json, proposal.createdAt, proposal.updatedAt
         ]
       )
       if let history {
@@ -1729,7 +1719,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             history.id, history.liftID, history.event.rawValue, history.occurredAt,
-            try Self.encodeTrainingMaxHistory(history),
+            try Self.encodeTrainingMaxHistory(history)
           ]
         )
       }
@@ -1777,7 +1767,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             identity.kind, identity.value, configuration.trainingMax.kg,
-            configuration.loadingIncrement.kg, occurredAt, configuration.id,
+            configuration.loadingIncrement.kg, occurredAt, configuration.id
           ]
         )
         try db.execute(
@@ -1793,7 +1783,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             before.map { Self.identityParts($0.identity).kind },
             before.map { Self.identityParts($0.identity).value }, before?.trainingMaxKg,
             before?.loadingIncrementKg, identity.kind, identity.value,
-            configuration.trainingMax.kg, configuration.loadingIncrement.kg,
+            configuration.trainingMax.kg, configuration.loadingIncrement.kg
           ]
         )
         let manualHistory = TrainingMaxHistoryEntry(
@@ -1806,7 +1796,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             "INSERT INTO training_max_history (id, lift_id, event, occurred_at, history_json) VALUES (?, ?, ?, ?, ?)",
           arguments: [
             manualHistory.id, manualHistory.liftID, manualHistory.event.rawValue,
-            manualHistory.occurredAt, try Self.encodeTrainingMaxHistory(manualHistory),
+            manualHistory.occurredAt, try Self.encodeTrainingMaxHistory(manualHistory)
           ]
         )
       }
@@ -1816,7 +1806,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           proposal.status.rawValue, try Self.encodeTrainingMaxProposal(proposal),
           proposal.updatedAt,
-          proposal.id,
+          proposal.id
         ]
       )
       try db.execute(
@@ -1824,7 +1814,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           "INSERT INTO training_max_history (id, lift_id, event, occurred_at, history_json) VALUES (?, ?, ?, ?, ?)",
         arguments: [
           history.id, history.liftID, history.event.rawValue, history.occurredAt,
-          try Self.encodeTrainingMaxHistory(history),
+          try Self.encodeTrainingMaxHistory(history)
         ]
       )
       _ = auditID
@@ -1833,8 +1823,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadTrainingMaxHistory(for liftID: String?) async throws
-    -> [TrainingMaxHistoryEntry]
-  {
+    -> [TrainingMaxHistoryEntry] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       let sql: String
@@ -1880,7 +1869,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         arguments: [
           TrainingMaxProposalStatus.accepted.rawValue,
           TrainingMaxProposalStatus.manuallyReplaced.rawValue,
-          TrainingCycleLifecycleState.completed.rawValue,
+          TrainingCycleLifecycleState.completed.rawValue
         ]
       )
       // Effective cycle is a projection of the next activated cycle and
@@ -1959,14 +1948,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       let existingForID = try Self.trainingCycle(from: db, id: cycle.id)
       if cycle.lifecycleState == .active,
         let existingActive = try Self.trainingCycle(from: db, state: .active),
-        existingActive.id != cycle.id
-      {
+        existingActive.id != cycle.id {
         throw TrainingCycleRepositoryError.activeCycleAlreadyExists
       }
       if cycle.lifecycleState == .draft,
         let existingDraft,
-        existingDraft.id != cycle.id
-      {
+        existingDraft.id != cycle.id {
         throw TrainingCycleRepositoryError.draftAlreadyExists
       }
       let before = existingForID?.snapshot ?? existingDraft?.snapshot
@@ -1993,7 +1980,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           cycle.includesProvisionalDeload,
           cycleJSON,
           cycle.createdAt,
-          cycle.updatedAt,
+          cycle.updatedAt
         ]
       )
       // Planned calendar and role edits are projected separately from the
@@ -2062,7 +2049,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           try before.map(Self.encodeSnapshot),
           cycleJSON,
           note?.isEmpty == true ? nil : note,
-          targetID?.isEmpty == true ? nil : targetID,
+          targetID?.isEmpty == true ? nil : targetID
         ]
       )
       return TrainingCycleAuditEntry(
@@ -2109,7 +2096,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           expectedBefore.id,
           TrainingCycleAuditAction.discarded.rawValue,
           occurredAt,
-          beforeJSON,
+          beforeJSON
         ]
       )
       return TrainingCycleAuditEntry(
@@ -2124,8 +2111,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func trainingCycleAuditHistory(for cycleID: String) async throws
-    -> [TrainingCycleAuditEntry]
-  {
+    -> [TrainingCycleAuditEntry] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Row.fetchAll(
@@ -2202,7 +2188,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           result.sessionID,
           result.prescriptionID,
           afterJSON,
-          result.recordedAt,
+          result.recordedAt
         ]
       )
       // A performed result supersedes an earlier Omitted disposition. Keeping this
@@ -2235,7 +2221,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           action.rawValue,
           occurredAt,
           try current.map(Self.encodeRecordedSetResult),
-          afterJSON,
+          afterJSON
         ]
       )
       return SetResultAuditEntry(
@@ -2251,8 +2237,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func setResultAuditHistory(for sessionID: String) async throws
-    -> [SetResultAuditEntry]
-  {
+    -> [SetResultAuditEntry] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Row.fetchAll(
@@ -2325,7 +2310,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             omitted_at = excluded.omitted_at
           """,
         arguments: [
-          omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt,
+          omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt
         ]
       )
       try db.execute(
@@ -2399,7 +2384,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             set.position, set.liftID, set.weightKg, set.repetitions, set.note, set.recordedAt,
-            set.id, set.sessionID,
+            set.id, set.sessionID
           ]
         )
       } else {
@@ -2411,7 +2396,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             """,
           arguments: [
             set.id, set.sessionID, set.position, set.liftID, set.weightKg, set.repetitions,
-            set.note, set.recordedAt,
+            set.note, set.recordedAt
           ]
         )
       }
@@ -2494,8 +2479,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadHealthWorkoutWriteBackPreference() async throws
-    -> HealthWorkoutWriteBackPreference
-  {
+    -> HealthWorkoutWriteBackPreference {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       guard
@@ -2527,8 +2511,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadHealthWorkoutWriteBack(sessionID: String)
-    async throws -> HealthWorkoutWriteBackRecord?
-  {
+    async throws -> HealthWorkoutWriteBackRecord? {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Row.fetchOne(
@@ -2581,7 +2564,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           record.sessionID, record.syncIdentifier, record.syncVersion, record.state.rawValue,
           record.startDate.timeIntervalSince1970, record.endDate.timeIntervalSince1970,
           record.duration, record.healthKitUUID, record.lastError,
-          record.updatedAt.timeIntervalSince1970,
+          record.updatedAt.timeIntervalSince1970
         ])
     }
   }
@@ -2652,8 +2635,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func loadSessionCorrectionSnapshot(sessionID: String) async throws
-    -> SessionCorrectionSnapshot?
-  {
+    -> SessionCorrectionSnapshot? {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       let rows = try Row.fetchAll(db, sql: "SELECT cycle_json FROM training_cycles")
@@ -2741,8 +2723,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       }
 
       if request.status == .scheduled || request.status == .skipped
-        || request.status == .unperformed
-      {
+        || request.status == .unperformed {
         // Keep the association as an auditable historical fact while the
         // local Session moves away from completed work.
         try db.execute(
@@ -2766,7 +2747,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             "INSERT INTO set_results (id, session_id, prescription_id, result_json, recorded_at) VALUES (?, ?, ?, ?, ?)",
           arguments: [
             result.id, result.sessionID, result.prescriptionID,
-            try Self.encodeRecordedSetResult(result), result.recordedAt,
+            try Self.encodeRecordedSetResult(result), result.recordedAt
           ])
       }
       for omission in request.omissions {
@@ -2774,7 +2755,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           sql:
             "INSERT INTO omitted_sets (session_id, prescription_id, reason, omitted_at) VALUES (?, ?, ?, ?)",
           arguments: [
-            omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt,
+            omission.sessionID, omission.prescriptionID, omission.reason, omission.omittedAt
           ])
       }
       for set in request.additionalSets {
@@ -2783,7 +2764,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             "INSERT INTO additional_sets (id, session_id, position, lift_id, weight_kg, repetitions, note, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
           arguments: [
             set.id, set.sessionID, set.position, set.liftID, set.weightKg, set.repetitions,
-            set.note, set.recordedAt,
+            set.note, set.recordedAt
           ])
       }
       let completion: CompletedSession?
@@ -2825,7 +2806,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
           "INSERT INTO session_correction_audit (id, cycle_id, session_id, occurred_at, note, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
         arguments: [
           auditID, active.id, request.sessionID, occurredAt, request.note,
-          try Self.encodeCorrectionSnapshot(current), try Self.encodeCorrectionSnapshot(after),
+          try Self.encodeCorrectionSnapshot(current), try Self.encodeCorrectionSnapshot(after)
         ])
       try Self.reconcileHealthWorkoutWriteBack(
         db,
@@ -2877,7 +2858,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       try db.execute(
         sql: "UPDATE health_workout_write_backs SET state = ?, updated_at = ? WHERE session_id = ?",
         arguments: [
-          HealthWorkoutWriteBackState.updatePending.rawValue, Double(occurredAt), sessionID,
+          HealthWorkoutWriteBackState.updatePending.rawValue, Double(occurredAt), sessionID
         ])
       return
     }
@@ -2896,7 +2877,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         "UPDATE health_workout_write_backs SET sync_version = ?, state = ?, start_date = ?, end_date = ?, duration = ?, updated_at = ? WHERE session_id = ?",
       arguments: [
         nextVersion, nextState.rawValue, startDate, endDate, max(0, endDate - startDate),
-        Double(occurredAt), sessionID,
+        Double(occurredAt), sessionID
       ])
     _ = before
   }
@@ -3002,8 +2983,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         try bootstrapper.protectAuthoritativeStore(in: root)
       } catch {
         try? fileManager.removeItem(at: locations.authoritativeDatabase)
-        if hadCurrent, fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path())
-        {
+        if hadCurrent, fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
           try? fileManager.moveItem(
             at: locations.authoritativeBackupDatabase, to: locations.authoritativeDatabase)
         }
@@ -3074,8 +3054,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       }
       let quotedTable = quoteIdentifier(table.name)
       if table.name == "gate_zero_metadata"
-        || table.name == "health_workout_write_back_preferences"
-      {
+        || table.name == "health_workout_write_back_preferences" {
         try db.execute(sql: "DELETE FROM \(quotedTable)")
       }
       let schemaColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(\(quotedTable))")
@@ -3211,22 +3190,19 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       }
     }
     for row in try Row.fetchAll(
-      db, sql: "SELECT session_id, cycle_id FROM session_correction_audit")
-    {
+      db, sql: "SELECT session_id, cycle_id FROM session_correction_audit") {
       guard sessionIDs.contains(row["session_id"]), cycleIDs.contains(row["cycle_id"]) else {
         throw TrainingImportError.invalidRelationship("session correction audit")
       }
     }
-    for row in try Row.fetchAll(db, sql: "SELECT session_id, prescription_id FROM set_result_audit")
-    {
+    for row in try Row.fetchAll(db, sql: "SELECT session_id, prescription_id FROM set_result_audit") {
       guard sessionIDs.contains(row["session_id"]), prescriptionIDs.contains(row["prescription_id"])
       else {
         throw TrainingImportError.invalidRelationship("set result audit")
       }
     }
     for row in try Row.fetchAll(
-      db, sql: "SELECT session_id, prescription_id, result_json FROM set_results")
-    {
+      db, sql: "SELECT session_id, prescription_id, result_json FROM set_results") {
       guard sessionIDs.contains(row["session_id"]), prescriptionIDs.contains(row["prescription_id"])
       else {
         throw TrainingImportError.invalidRelationship("set result")
@@ -3347,12 +3323,12 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     "set_result_audit",
     "session_correction_audit", "training_max_proposals", "training_max_history",
     "health_workout_link_facts", "heart_rate_configuration",
-    "running_comparison_exclusions", "health_workout_write_backs",
+    "running_comparison_exclusions", "health_workout_write_backs"
   ]
 
   private static let legacyImportColumns: [String: Set<String>] = [
     "health_workout_link_facts": [
-      "linked_during_completion", "write_back_disposition", "unlinked_at",
+      "linked_during_completion", "write_back_disposition", "unlinked_at"
     ]
   ]
 
@@ -3371,8 +3347,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   public func sessionCorrectionAuditHistory(for sessionID: String) async throws
-    -> [SessionCorrectionAuditEntry]
-  {
+    -> [SessionCorrectionAuditEntry] {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Row.fetchAll(
@@ -3415,7 +3390,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         """,
       arguments: [
         session.id, cycleID, status.rawValue, intendedDate.iso8601String,
-        primaryLiftID, assistanceLiftID, updatedAt,
+        primaryLiftID, assistanceLiftID, updatedAt
       ]
     )
   }
@@ -3469,7 +3444,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         results.map(\.recordedAt).max(),
         omissions.map(\.omittedAt).max(),
         additional.map(\.recordedAt).max(),
-        cycle.updatedAt,
+        cycle.updatedAt
       ].compactMap { $0 }.max() ?? 0
     let status: TrainingSessionStatus
     if session.status == .completed || completion != nil {
@@ -3496,8 +3471,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func encodeCorrectionSnapshot(_ snapshot: SessionCorrectionSnapshot) throws
-    -> String
-  {
+    -> String {
     let data = try JSONEncoder().encode(snapshot)
     guard let string = String(data: data, encoding: .utf8) else {
       throw PersistenceError.invalidSessionCorrectionAudit
@@ -3506,8 +3480,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func correctionSnapshot(fromJSON value: String?) throws
-    -> SessionCorrectionSnapshot
-  {
+    -> SessionCorrectionSnapshot {
     guard let value, let data = value.data(using: .utf8) else {
       throw PersistenceError.invalidSessionCorrectionAudit
     }
@@ -3519,8 +3492,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func sessionCorrectionAuditEntry(from row: Row) throws
-    -> SessionCorrectionAuditEntry
-  {
+    -> SessionCorrectionAuditEntry {
     SessionCorrectionAuditEntry(
       id: row["id"],
       cycleID: row["cycle_id"],
@@ -3533,8 +3505,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private func loadTrainingCycle(state: TrainingCycleLifecycleState) async throws
-    -> TrainingCycle?
-  {
+    -> TrainingCycle? {
     let stores = try await readyStores()
     return try await stores.authoritative.read { db in
       try Self.trainingCycle(from: db, state: state)
@@ -3550,8 +3521,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func trainingCycle(from db: Database, state: TrainingCycleLifecycleState)
-    throws -> TrainingCycle?
-  {
+    throws -> TrainingCycle? {
     guard
       let row = try Row.fetchOne(
         db,
@@ -3578,8 +3548,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func projectedTrainingCycle(from db: Database, cycle: TrainingCycle)
-    throws -> TrainingCycle
-  {
+    throws -> TrainingCycle {
     let weeks = try cycle.weeks.map { week in
       let sessions = try week.sessions.map { session in
         try projectedSession(from: db, cycleID: cycle.id, session: session)
@@ -3749,8 +3718,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     }
   }
 
-  private static func encodeTrainingMaxHistory(_ history: TrainingMaxHistoryEntry) throws -> String
-  {
+  private static func encodeTrainingMaxHistory(_ history: TrainingMaxHistoryEntry) throws -> String {
     let data = try JSONEncoder().encode(history)
     guard let string = String(data: data, encoding: .utf8) else {
       throw PersistenceError.invalidTrainingMaxHistory
@@ -3781,8 +3749,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func healthWorkoutWriteBackRecord(from row: Row)
-    throws -> HealthWorkoutWriteBackRecord
-  {
+    throws -> HealthWorkoutWriteBackRecord {
     guard let state = HealthWorkoutWriteBackState(rawValue: row["state"] as String) else {
       throw PersistenceError.invalidHealthWorkoutWriteBack
     }
@@ -3822,8 +3789,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func authoritativeExportData(from db: Database) throws
-    -> TrainingAuthoritativeExportData
-  {
+    -> TrainingAuthoritativeExportData {
     let tableNames = try String.fetchAll(
       db,
       sql: """
@@ -3986,8 +3952,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
   }
 
   private static func scheduleTemplateAuditEntry(from row: Row) throws
-    -> ScheduleTemplateAuditEntry
-  {
+    -> ScheduleTemplateAuditEntry {
     guard let action = ScheduleTemplateAuditAction(rawValue: row["action"]) else {
       throw PersistenceError.invalidScheduleAudit
     }
@@ -4068,7 +4033,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
       beforeIdentityKind != nil,
       beforeIdentityValue != nil,
       beforeTrainingMax != nil,
-      beforeLoadingIncrement != nil,
+      beforeLoadingIncrement != nil
     ]
     guard beforeValues.allSatisfy({ $0 }) || beforeValues.allSatisfy({ !$0 }) else {
       throw PersistenceError.invalidAuditBefore
@@ -4077,8 +4042,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     if beforeValues.allSatisfy({ !$0 }) {
       before = nil
     } else if let beforeIdentityKind, let beforeIdentityValue, let beforeTrainingMax,
-      let beforeLoadingIncrement
-    {
+      let beforeLoadingIncrement {
       before = LiftConfigurationSnapshot(
         identity: try identity(
           kind: beforeIdentityKind,

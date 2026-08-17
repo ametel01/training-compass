@@ -320,7 +320,7 @@ final class HealthWorkoutWriteBackBoundaryTests: XCTestCase {
         healthKitUUID: "health-second"),
       HealthWorkoutWriteBackRecord(
         sessionID: "pending", syncIdentifier: "sync.pending", state: .queued,
-        startDate: Date(timeIntervalSince1970: 5), endDate: Date(timeIntervalSince1970: 6)),
+        startDate: Date(timeIntervalSince1970: 5), endDate: Date(timeIntervalSince1970: 6))
     ])
     let client = WriteBackClientSpy()
     await client.setDeleteOutcomes([.success, .failure])
@@ -443,8 +443,7 @@ private actor WriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
   }
 
   func saveHealthWorkoutWriteBackPreference(_ preference: HealthWorkoutWriteBackPreference)
-    async throws
-  {
+    async throws {
     preferenceValue = preference
   }
 
@@ -461,8 +460,7 @@ private actor WriteBackRepositorySpy: HealthWorkoutWriteBackRepository {
   }
 
   func loadHealthWorkoutLinkFacts(forLocalEntityID localEntityID: String) async throws
-    -> [HealthWorkoutLinkFact]
-  {
+    -> [HealthWorkoutLinkFact] {
     links.filter { $0.localEntityID == localEntityID }
   }
 

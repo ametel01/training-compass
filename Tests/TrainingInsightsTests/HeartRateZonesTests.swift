@@ -20,7 +20,7 @@ final class HeartRateZonesTests: XCTestCase {
       sample("zone4-lower", offset: 70, bpm: 160),
       sample("zone4-upper", offset: 80, bpm: 179.999),
       sample("zone5-lower", offset: 90, bpm: 180),
-      sample("zone5-upper", offset: 100, bpm: 200),
+      sample("zone5-upper", offset: 100, bpm: 200)
     ]
 
     let result = HeartRateZoneCalculator().calculate(
@@ -48,7 +48,7 @@ final class HeartRateZonesTests: XCTestCase {
       workoutEndDate: start.addingTimeInterval(100).timeIntervalSince1970,
       samples: [
         sample("first", offset: 10, duration: 10, bpm: 90),
-        sample("second", offset: 80, duration: 10, bpm: 180),
+        sample("second", offset: 80, duration: 10, bpm: 180)
       ],
       maximumHeartRate: try MaximumHeartRate(beatsPerMinute: 200))
 
@@ -64,7 +64,7 @@ final class HeartRateZonesTests: XCTestCase {
       workoutEndDate: start.addingTimeInterval(200).timeIntervalSince1970,
       samples: [
         sample("first", offset: 20, duration: 10, bpm: 90),
-        sample("second", offset: 91, duration: 10, bpm: 180),
+        sample("second", offset: 91, duration: 10, bpm: 180)
       ],
       maximumHeartRate: try MaximumHeartRate(beatsPerMinute: 200))
 

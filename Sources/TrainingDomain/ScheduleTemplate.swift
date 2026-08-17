@@ -139,7 +139,7 @@ public enum DefaultSchedule {
       intendedWeekday: .friday,
       primaryIdentity: .progression(.deadlift),
       assistanceIdentity: .progression(.overheadPress)
-    ),
+    )
   ]
 }
 

@@ -5,8 +5,7 @@ import XCTest
 
 final class TrainingEventLinkBoundaryTests: XCTestCase {
   func testCandidatesRankLikelyMatchesButKeepEveryUnlinkedExternalWorkoutSelectable()
-    async throws
-  {
+    async throws {
     let completion = CompletedSession(sessionID: "session", confirmedAt: 1_704_110_400)
     let repository = TrainingEventTestRepository(
       cycles: [makeCycle(status: .completed)],
@@ -36,7 +35,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
           start: 1_704_109_000,
           localDate: "2024-01-01",
           sourceBundleIdentifier: TrainingEventLinkBoundary.trainingCompassBundleIdentifier
-        ),
+        )
       ],
       links: [
         HealthWorkoutLinkFact(
@@ -67,8 +66,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
   }
 
   func testUnusualCandidateRequiresExplicitWarningAcknowledgementBeforeDurableLink()
-    async throws
-  {
+    async throws {
     let repository = TrainingEventTestRepository(
       cycles: [makeCycle(status: .completed)],
       completions: [CompletedSession(sessionID: "session", confirmedAt: 1_704_110_400)],
@@ -109,8 +107,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
   }
 
   func testCompletionCanExplicitlyLinkExternalWorkoutAndSuppressWriteBackSummary()
-    async throws
-  {
+    async throws {
     let repository = TrainingEventTestRepository(
       cycles: [makeCycle(status: .scheduled)],
       completions: [],
@@ -144,8 +141,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
   }
 
   func testLinkedPairAppearsOnceInTimelineAndAggregateWhileRetainingBothSources()
-    async throws
-  {
+    async throws {
     let linkedWorkout = makeWorkout(
       id: "linked-health",
       activity: "traditional-strength-training",
@@ -190,8 +186,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
   }
 
   func testLinkedEventExposesReconciliationAndSourceDisagreementWithoutOverwritingEitherFact()
-    async throws
-  {
+    async throws {
     let workout = makeWorkout(
       id: "different-date", activity: "traditional-strength-training",
       start: 1_704_195_000, localDate: "2024-01-02")
@@ -437,8 +432,7 @@ final class TrainingEventLinkBoundaryTests: XCTestCase {
     let linked = try XCTUnwrap(events.first(where: { $0.session != nil }))
     XCTAssertTrue(
       linked.disagreements.contains {
-        if case .linkConflict(healthKitUUID: workout.healthKitUUID, sessionIDs: let sessionIDs) = $0
-        {
+        if case .linkConflict(healthKitUUID: workout.healthKitUUID, sessionIDs: let sessionIDs) = $0 {
           return sessionIDs == ["another-session", "session"]
         }
         return false
@@ -587,8 +581,7 @@ private final class TrainingEventUUIDGenerator: UUIDGenerator, @unchecked Sendab
 }
 
 private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRepository,
-  HealthWorkoutRepository, TrainingEventLinkRepository
-{
+  HealthWorkoutRepository, TrainingEventLinkRepository {
   let cycles: [TrainingCycle]
   private var completions: [CompletedSession]
   private var workouts: [HealthWorkout]
@@ -622,8 +615,7 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
   }
 
   func loadSessionCorrectionSnapshot(sessionID: String) async throws
-    -> SessionCorrectionSnapshot?
-  {
+    -> SessionCorrectionSnapshot? {
     guard
       let cycle = cycles.first(where: {
         $0.weeks.flatMap(\.sessions).contains(where: { $0.id == sessionID })
@@ -644,11 +636,9 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
   func loadHealthWorkouts() async throws -> [HealthWorkout] { workouts }
 
   func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  { enrichments[healthKitUUID] }
+    -> HealthWorkoutEnrichment? { enrichments[healthKitUUID] }
 
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     stream == .workouts ? checkpoint : nil
   }
 
@@ -662,8 +652,7 @@ private actor TrainingEventTestRepository: TrainingCycleRepository, SetResultRep
   }
 
   func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
-    -> [HealthWorkoutLinkFact]
-  {
+    -> [HealthWorkoutLinkFact] {
     guard let healthKitUUID else { return links }
     return links.filter { $0.healthKitUUID == healthKitUUID }
   }

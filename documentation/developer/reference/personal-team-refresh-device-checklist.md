@@ -52,6 +52,38 @@ The workflow never stores credentials.
 
 ## Attended refresh
 
+For the normal cable-connected path, run the friendly entry point and follow
+its attended prompts:
+
+```shell
+make install-iphone
+```
+
+It selects the newest complete Xcode installation by default, discovers exactly
+one paired, unlocked wired iPhone, checks whether the stable
+Training Compass bundle is already installed, and reuses one local Apple
+Development team from Xcode's account cache, signing identities, or profiles
+without asking for a Team ID. This supports the owner account's unambiguous free
+Personal Team or Individual development team for cable installation only; it
+does not enable distribution signing. Set `TRAINING_COMPASS_DEVELOPER_DIR` or
+`DEVELOPER_DIR` to override the Xcode selection. If
+no team is discoverable yet, use Xcode > Settings > Accounts to add the Apple
+Account if needed, then use Manage Certificates to create one Apple Development
+certificate for the free Personal Team. Rerun the command after Xcode finishes;
+this one-time setup does not change the project file. A fresh install skips the
+recovery-export gate because no app
+dataset is being replaced. For an existing installation, the helper selects the
+newest `.trainingcompass` export in Downloads, Desktop, Documents, or iCloud
+Drive and asks the owner to confirm it was opened and verified. Create and share
+an export from the iPhone app first if none is present on the Mac; an iPhone Files
+path is not a macOS path and cannot be passed to `xcodebuild`. Optional
+`TEAM_ID=...` and `EXPORT_PATH=...` Make arguments remain ambiguity overrides.
+If the login keychain does not yet contain an Apple Development identity, the helper asks Xcode
+automatic signing to create or refresh one for the selected Personal Team and
+connected device before continuing. The helper does not persist a device
+identifier or accept an Apple Account password; it delegates to the guarded
+refresh workflow below.
+
 1. Connect the iPhone by cable (Wi-Fi transport is refused), unlock it, and keep the Mac's login session
    and login keychain available. Confirm the owner-facing preflight reports
    Xcode, Apple authentication (confirmed in the attended Xcode session), signing identity/keychain, pinned device,

@@ -14,7 +14,7 @@ APP_BUNDLE_ID="com.ametel01.trainingcompass"
 USER_HOME="${HOME:?HOME must be set for a logged-in macOS session}"
 LOG_DIR="${TRAINING_COMPASS_REFRESH_LOG_DIR:-$USER_HOME/Library/Logs/TrainingCompass}"
 STATE_DIR="${TRAINING_COMPASS_REFRESH_STATE_DIR:-$USER_HOME/Library/Application Support/TrainingCompass}"
-BUILD_DIR="${TRAINING_COMPASS_REFRESH_BUILD_DIR:-$ROOT_DIR/DerivedData/PersonalTeamRefresh}"
+BUILD_DIR="${TRAINING_COMPASS_REFRESH_BUILD_DIR:-$USER_HOME/Library/Developer/Xcode/DerivedData/TrainingCompassPersonalTeamRefresh}"
 CHECKS_FILE="$(mktemp -t training-compass-refresh-checks)"
 PROFILE_PLIST="$(mktemp -t training-compass-refresh-profile)"
 DEVICE_JSON="$(mktemp -t training-compass-refresh-device)"
@@ -72,11 +72,27 @@ command_available() {
   command -v "$1" >/dev/null 2>&1
 }
 
+login_keychain_signing_identity_available() {
+  local login_keychain="$USER_HOME/Library/Keychains/login.keychain-db"
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    if command_available security \
+      && [[ -f "$login_keychain" ]] \
+      && security find-identity -v -p codesigning "$login_keychain" 2>/dev/null \
+        | grep -Eq 'valid identities found: [1-9][0-9]*'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 run_preflight() {
   local team_id="${TRAINING_COMPASS_DEVELOPMENT_TEAM:-}"
   local device_id="${TRAINING_COMPASS_DEVICE_ID:-}"
   local export_path="${TRAINING_COMPASS_EXPORT_PATH:-}"
   local export_verified="${TRAINING_COMPASS_EXPORT_VERIFIED:-false}"
+  local fresh_install="${TRAINING_COMPASS_FRESH_INSTALL:-false}"
   local device_ready="${TRAINING_COMPASS_DEVICE_READY:-false}"
   local apple_auth_confirmed="${TRAINING_COMPASS_APPLE_AUTH_CONFIRMED:-false}"
   local personal_team_confirmed="${TRAINING_COMPASS_PERSONAL_TEAM_CONFIRMED:-false}"
@@ -143,10 +159,7 @@ run_preflight() {
     fail_check "automaticSigning"
   fi
 
-  if command_available security \
-    && [[ -f "$login_keychain" ]] \
-    && security find-identity -v -p codesigning "$login_keychain" 2>/dev/null \
-      | grep -Eq 'valid identities found: [1-9][0-9]*'; then
+  if login_keychain_signing_identity_available; then
     pass_check "loginKeychainSigningIdentity"
   else
     fail_check "loginKeychainSigningIdentity"
@@ -168,7 +181,9 @@ run_preflight() {
     fail_check "appleAuthentication"
   fi
 
-  if [[ -n "$export_path" && -s "$export_path" && "$export_verified" == "true" ]]; then
+  if [[ "$fresh_install" == "true" ]]; then
+    record_check "verifiedTrainingCompassExport" "not applicable (fresh install)"
+  elif [[ -n "$export_path" && -s "$export_path" && "$export_verified" == "true" ]]; then
     pass_check "verifiedTrainingCompassExport"
   else
     fail_check "verifiedTrainingCompassExport"
@@ -347,7 +362,7 @@ write_record() {
   local record_path="$STATE_DIR/last-personal-team-refresh.json"
   local failure_json
   failure_json="$(printf '%s\n' "${FAILURES[@]}" | python3 -c 'import json, sys; print(json.dumps([line for line in sys.stdin.read().splitlines() if line]))')"
-  python3 - "$CHECKS_FILE" "$record_path" "$result" "$failure_json" <<'PY'
+  python3 - "$CHECKS_FILE" "$record_path" "$result" "$failure_json" "${TRAINING_COMPASS_FRESH_INSTALL:-false}" <<'PY'
 import json
 import os
 import platform
@@ -355,7 +370,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-checks_path, record_path, result, failures_json = sys.argv[1:]
+checks_path, record_path, result, failures_json, fresh_install = sys.argv[1:]
 checks = {}
 for line in Path(checks_path).read_text().splitlines():
     if "\t" in line:
@@ -389,11 +404,19 @@ record = {
         "kind": "Personal Team development profile",
     },
     "dataVerification": os.environ.get("TRAINING_COMPASS_DATA_VERIFIED", "false") == "true",
-    "notes": [
-        "No Apple Account or keychain credentials are stored.",
-        "The existing app was updated in place; no uninstall step exists in this workflow.",
-        "The owner must retain a verified Training Compass Export before refresh.",
-    ],
+    "notes": (
+        [
+            "No Apple Account or keychain credentials are stored.",
+            "A fresh install was performed; there was no existing app dataset to replace.",
+            "No uninstall step exists in this workflow.",
+        ]
+        if fresh_install == "true"
+        else [
+            "No Apple Account or keychain credentials are stored.",
+            "The existing app was updated in place; no uninstall step exists in this workflow.",
+            "The owner must retain a verified Training Compass Export before refresh.",
+        ]
+    ),
 }
 path = Path(record_path)
 path.parent.mkdir(parents=True, exist_ok=True)
@@ -469,17 +492,27 @@ run_refresh() {
   local device_id="${TRAINING_COMPASS_DEVICE_ID:?TRAINING_COMPASS_DEVICE_ID is required}"
   export TRAINING_COMPASS_XCODE_VERSION="$XCODE_VERSION"
   export TRAINING_COMPASS_DATA_VERIFIED="false"
+  local fresh_install="${TRAINING_COMPASS_FRESH_INSTALL:-false}"
 
   rm -rf "$BUILD_DIR"
   mkdir -p "$BUILD_DIR"
-  if TRAINING_COMPASS_DEVELOPMENT_TEAM="$team_id" xcodebuild \
+  TRAINING_COMPASS_DEVELOPMENT_TEAM="$team_id" xcodebuild \
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
     -destination 'generic/platform=iOS' \
     -derivedDataPath "$BUILD_DIR" \
     -allowProvisioningUpdates \
-    build >"$COMMAND_OUTPUT" 2>&1; then
+    build >"$COMMAND_OUTPUT" 2>&1 &
+  local build_pid="$!"
+  echo "Building the signed Release app for the connected iPhone…"
+  while kill -0 "$build_pid" 2>/dev/null; do
+    sleep 15
+    if kill -0 "$build_pid" 2>/dev/null; then
+      echo "The signed Release build is still compiling…"
+    fi
+  done
+  if wait "$build_pid"; then
     pass_check "build"
     record_stage "build" "pass"
   else
@@ -512,6 +545,7 @@ run_refresh() {
     return 1
   fi
 
+  echo "Installing Training Compass on the connected iPhone…"
   if xcrun devicectl device install app --device "$device_id" "$APP_PATH" >"$COMMAND_OUTPUT" 2>&1; then
     pass_check "inPlaceInstall"
     record_stage "inPlaceInstall" "pass"
@@ -524,6 +558,7 @@ run_refresh() {
     return 1
   fi
 
+  echo "Launching Training Compass for the smoke test…"
   if xcrun devicectl device process launch --device "$device_id" "$APP_BUNDLE_ID" >"$COMMAND_OUTPUT" 2>&1; then
     pass_check "launchSmokeTest"
     record_stage "launchSmokeTest" "pass"
@@ -536,7 +571,9 @@ run_refresh() {
     return 1
   fi
 
-  if [[ "${TRAINING_COMPASS_DATA_VERIFIED:-false}" == "true" ]]; then
+  if [[ "$fresh_install" == "true" ]]; then
+    record_check "importantLocalData" "not applicable (fresh install)"
+  elif [[ "${TRAINING_COMPASS_DATA_VERIFIED:-false}" == "true" ]]; then
     pass_check "importantLocalData"
     export TRAINING_COMPASS_DATA_VERIFIED="true"
   elif [[ -t 0 && -r /dev/tty ]]; then
@@ -555,7 +592,11 @@ run_refresh() {
   if [[ ${#FAILURES[@]} -eq 0 ]]; then
     RESULT="pass"
     write_record "$RESULT"
-    echo "Personal Team refresh completed: app updated in place, profile inspected, and launch smoke test passed."
+    if [[ "$fresh_install" == "true" ]]; then
+      echo "Personal Team install completed: app installed, profile inspected, and launch smoke test passed."
+    else
+      echo "Personal Team refresh completed: app updated in place, profile inspected, and launch smoke test passed."
+    fi
     return 0
   fi
   RESULT="fail"

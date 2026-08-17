@@ -8,3 +8,4 @@ TrainingCompass.xcodeproj/project.xcworkspace/
 evidence/device/*.json
 !evidence/device/.gitkeep
 evidence/gate-zero-environment.json
+.env

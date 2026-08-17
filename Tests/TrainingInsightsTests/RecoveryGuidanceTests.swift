@@ -65,7 +65,7 @@ final class RecoveryGuidanceTests: XCTestCase {
         established(.primarySleepDuration, currentValue: 20),
         established(.sleepDurationConsistency, currentValue: 20),
         established(.sleepTimingConsistency, currentValue: 20),
-        established(.restingHeartRate, currentValue: 20),
+        established(.restingHeartRate, currentValue: 20)
       ],
       explanation: .init(
         question: "Which baselines are established?",
@@ -86,7 +86,7 @@ final class RecoveryGuidanceTests: XCTestCase {
         .primarySleepDuration,
         .sleepDurationConsistency,
         .sleepTimingConsistency,
-        .restingHeartRate,
+        .restingHeartRate
       ])
     XCTAssertTrue(guidance.prompt?.contains("Consider how you feel") == true)
     XCTAssertTrue(guidance.prompt?.contains("decide whether to keep or change the Session") == true)
@@ -98,7 +98,7 @@ final class RecoveryGuidanceTests: XCTestCase {
     let baselines = PersonalRecoveryBaselineProjection(
       baselines: [
         established(.restingHeartRate, currentValue: 20),
-        established(.heartRateVariabilitySDNN, currentValue: 0.5),
+        established(.heartRateVariabilitySDNN, currentValue: 0.5)
       ],
       explanation: .init(
         question: "Which baselines are established?", includedRecordIDs: [], excludedRecords: [],
@@ -118,7 +118,7 @@ final class RecoveryGuidanceTests: XCTestCase {
       baselines: [
         established(.primarySleepDuration, currentValue: 10),
         established(.restingHeartRate, currentValue: 10),
-        established(.heartRateVariabilitySDNN, currentValue: 10),
+        established(.heartRateVariabilitySDNN, currentValue: 10)
       ],
       explanation: .init(
         question: "Which baselines are established?", includedRecordIDs: [], excludedRecords: [],
@@ -172,7 +172,7 @@ final class RecoveryGuidanceTests: XCTestCase {
           .restingHeartRate, currentValue: 10, missingData: ["Resting heart rate stream failure"])
       ),
       ("incomparable", established(.restingHeartRate, currentValue: 10, comparable: false)),
-      ("corrected", established(.restingHeartRate, currentValue: 10, corrected: true)),
+      ("corrected", established(.restingHeartRate, currentValue: 10, corrected: true))
     ]
 
     for (label, invalid) in cases {
@@ -198,7 +198,7 @@ final class RecoveryGuidanceTests: XCTestCase {
     let baselines = PersonalRecoveryBaselineProjection(
       baselines: [
         established(.restingHeartRate, currentValue: 10),
-        established(.heartRateVariabilitySDNN, currentValue: 10),
+        established(.heartRateVariabilitySDNN, currentValue: 10)
       ],
       explanation: .init(
         question: "Which baselines are established?", includedRecordIDs: [], excludedRecords: [],

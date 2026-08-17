@@ -14,7 +14,7 @@ final class TrainingExportBoundaryTests: XCTestCase {
               id: "lift-1",
               fields: [
                 "id": .string("lift-1"),
-                "training_max_kg": .number(100),
+                "training_max_kg": .number(100)
               ]
             )
           ]
@@ -186,8 +186,7 @@ private actor SlowExportRepository: TrainingAuthoritativeExportRepository {
 }
 
 private final class MemoryExportFileSystem: TrainingExportFileSystem, TrainingExportSpaceChecking,
-  @unchecked Sendable
-{
+  @unchecked Sendable {
   private let lock = NSLock()
   private let availableSpace: Int64
   private var files: [URL: Data] = [:]

@@ -34,7 +34,7 @@ final class SleepEpisodesTests: XCTestCase {
   func testPreferredSourceWinsOverlapWithoutSummingAlternatives() {
     let samples = [
       sample("phone", start: date(22), end: date(23, 30), source: "com.phone", sourceName: "Phone"),
-      sample("watch", start: date(22, 30), end: date(6, day: 15), source: "com.watch"),
+      sample("watch", start: date(22, 30), end: date(6, day: 15), source: "com.watch")
     ]
     let projection = SleepEpisodeCalculator().calculate(
       samples: samples,
@@ -52,7 +52,7 @@ final class SleepEpisodesTests: XCTestCase {
     let samples = [
       sample("first", start: date(22), end: date(23)),
       sample("second", start: date(0, 30, day: 15), end: date(2, day: 15)),
-      sample("nap", start: date(13, day: 15), end: date(14, day: 15)),
+      sample("nap", start: date(13, day: 15), end: date(14, day: 15))
     ]
     let projection = SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar)
 
@@ -69,7 +69,7 @@ final class SleepEpisodesTests: XCTestCase {
   func testGapOverNinetyMinutesDoesNotInventContinuity() {
     let samples = [
       sample("first", start: date(22), end: date(23)),
-      sample("second", start: date(0, 31, day: 15), end: date(2, day: 15)),
+      sample("second", start: date(0, 31, day: 15), end: date(2, day: 15))
     ]
     let projection = SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar)
 
@@ -84,7 +84,7 @@ final class SleepEpisodesTests: XCTestCase {
         id: "unknown-1", startDate: date(22), endDate: date(23), provenance: .init()),
       HealthSleepSample(
         id: "unknown-2", startDate: date(23, 30), endDate: date(0, 30, day: 15), provenance: .init()
-      ),
+      )
     ]
     let projection = SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar)
 
@@ -104,7 +104,7 @@ final class SleepEpisodesTests: XCTestCase {
         id: "unknown-b",
         startDate: date(23),
         endDate: date(2, day: 15),
-        provenance: .init()),
+        provenance: .init())
     ]
     let projection = SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar)
 
@@ -162,7 +162,7 @@ final class SleepEpisodesTests: XCTestCase {
   func testTieUsesEarliestEpisodeDeterministically() {
     let samples = [
       sample("later", start: date(10, day: 15), end: date(11, day: 15), source: "com.phone"),
-      sample("earlier", start: date(8, day: 15), end: date(9, day: 15), source: "com.watch"),
+      sample("earlier", start: date(8, day: 15), end: date(9, day: 15), source: "com.watch")
     ]
     let projection = SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar)
 
@@ -174,13 +174,13 @@ final class SleepEpisodesTests: XCTestCase {
   func testPreferenceCanBeChangedAndSnapshotExposesAvailableSources() {
     let samples = [
       sample("phone", start: date(22), end: date(23), source: "com.phone", sourceName: "Phone"),
-      sample("watch", start: date(22), end: date(23), source: "com.watch"),
+      sample("watch", start: date(22), end: date(23), source: "com.watch")
     ]
     let snapshot = HealthRecoveryEvidenceSnapshot(sleep: samples)
     XCTAssertEqual(
       snapshot.availableSleepSources.map(\.id), ["bundle:com.phone", "bundle:com.watch"])
     let preference = SleepSourcePreference(orderedSourceIDs: [
-      "bundle:com.watch", "bundle:com.phone",
+      "bundle:com.watch", "bundle:com.phone"
     ])
     XCTAssertEqual(
       preference.moving(sourceID: "bundle:com.phone", to: 0).orderedSourceIDs.first,
@@ -193,7 +193,7 @@ final class SleepEpisodesTests: XCTestCase {
   func testMidpointUsesEpisodeEnvelopeWhileDurationUsesAsleepUnion() {
     let samples = [
       sample("one", start: date(22), end: date(23)),
-      sample("overlap", start: date(22, 30), end: date(23, 30)),
+      sample("overlap", start: date(22, 30), end: date(23, 30))
     ]
     let episode = try! XCTUnwrap(
       SleepEpisodeCalculator().calculate(samples: samples, calendar: calendar).episodes.first)

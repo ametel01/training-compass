@@ -435,8 +435,7 @@ extension TrainingCycleRepository {
     throw TrainingCycleRepositoryError.unavailable
   }
   public func trainingCycleAuditHistory(for cycleID: String) async throws
-    -> [TrainingCycleAuditEntry]
-  { [] }
+    -> [TrainingCycleAuditEntry] { [] }
 
   public func loadTrainingCycles() async throws -> [TrainingCycle] { [] }
 
@@ -788,8 +787,7 @@ public struct TrainingCycleBoundary: Sendable {
   }
 
   public func previewAbandonCycle(note: String? = nil) async throws
-    -> TrainingCycleAbandonmentPreview
-  {
+    -> TrainingCycleAbandonmentPreview {
     let cycle = try await activeCycleForLifecycle()
     let pending = cycle.weeks.flatMap(\.sessions).filter {
       $0.status == .scheduled || $0.status == .inProgress
@@ -903,8 +901,7 @@ public struct TrainingCycleBoundary: Sendable {
   }
 
   public func previewAbandonTrainingCycle(note: String? = nil) async throws
-    -> TrainingCycleAbandonmentPreview
-  {
+    -> TrainingCycleAbandonmentPreview {
     try await previewAbandonCycle(note: note)
   }
 
@@ -993,8 +990,7 @@ public struct TrainingCycleBoundary: Sendable {
   }
 
   private func replacing(_ session: TrainingCycleSession, status: TrainingSessionStatus)
-    -> TrainingCycleSession
-  {
+    -> TrainingCycleSession {
     TrainingCycleSession(
       id: session.id,
       intendedDate: session.intendedDate,
@@ -1018,8 +1014,7 @@ public struct TrainingCycleBoundary: Sendable {
   }
 
   public func previewCreate(anchorDate: TrainingDate? = nil) async throws
-    -> TrainingCycleChangePreview
-  {
+    -> TrainingCycleChangePreview {
     guard try await repository.loadDraftTrainingCycle() == nil else {
       throw TrainingCycleValidationError.draftAlreadyExists
     }
@@ -1042,8 +1037,7 @@ public struct TrainingCycleBoundary: Sendable {
   }
 
   public func previewEdit(_ request: TrainingCycleEditRequest) async throws
-    -> TrainingCycleChangePreview
-  {
+    -> TrainingCycleChangePreview {
     guard let existing = try await repository.loadDraftTrainingCycle() else {
       throw TrainingCycleValidationError.noDraft
     }
@@ -1296,8 +1290,7 @@ public struct TrainingCycleBoundary: Sendable {
 
   @discardableResult
   public func confirm(_ preview: TrainingCycleChangePreview) async throws
-    -> TrainingCycleAuditEntry
-  {
+    -> TrainingCycleAuditEntry {
     guard !preview.requiresWarningAcknowledgement else {
       throw TrainingCycleValidationError.calendarChangeWarningRequired
     }

@@ -142,8 +142,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
   private func checkMigrationSpace(for database: URL, at root: URL) throws {
     let currentBytes: Int64
     if let attributes = try? FileManager.default.attributesOfItem(atPath: database.path()),
-      let fileSize = attributes[.size] as? NSNumber
-    {
+      let fileSize = attributes[.size] as? NSNumber {
       currentBytes = max(0, fileSize.int64Value)
     } else {
       currentBytes = 0
@@ -274,7 +273,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
       try db.create(
         index: "lift_configuration_audit_lift_time", on: "lift_configuration_audit",
         columns: [
-          "lift_id", "occurred_at",
+          "lift_id", "occurred_at"
         ])
     }
     migrator.registerMigration("authoritative_v3_schedule_template") { db in

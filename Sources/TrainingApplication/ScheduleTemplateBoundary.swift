@@ -157,8 +157,7 @@ public struct ScheduleTemplateBoundary: Sendable {
   }
 
   public func preview(_ request: ScheduleTemplateRequest) async throws
-    -> ScheduleTemplateChangePreview
-  {
+    -> ScheduleTemplateChangePreview {
     let existing = try await repository.loadScheduleTemplate()
     let after = try await makeTemplate(from: request, id: existing?.id ?? "schedule-template")
     return ScheduleTemplateChangePreview(
@@ -180,8 +179,7 @@ public struct ScheduleTemplateBoundary: Sendable {
 
   @discardableResult
   public func confirm(_ preview: ScheduleTemplateChangePreview) async throws
-    -> ScheduleTemplateAuditEntry
-  {
+    -> ScheduleTemplateAuditEntry {
     try await repository.saveScheduleTemplate(
       preview.after,
       expectedBefore: preview.before,
@@ -193,8 +191,7 @@ public struct ScheduleTemplateBoundary: Sendable {
 
   @discardableResult
   public func save(_ request: ScheduleTemplateRequest) async throws
-    -> ScheduleTemplateAuditEntry
-  {
+    -> ScheduleTemplateAuditEntry {
     try await confirm(try await preview(request))
   }
 
@@ -208,8 +205,7 @@ public struct ScheduleTemplateBoundary: Sendable {
   }
 
   private func makeTemplate(from request: ScheduleTemplateRequest, id: String) async throws
-    -> ScheduleTemplate
-  {
+    -> ScheduleTemplate {
     guard !request.sessions.isEmpty else {
       throw ScheduleTemplateValidationError.emptyTemplate
     }

@@ -127,7 +127,7 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
       try! LiftConfiguration(
         id: "press", identity: .progression(.overheadPress), trainingMaxKg: 50),
       try! LiftConfiguration(
-        id: "rdl", identity: .variant(name: "Romanian Deadlift"), trainingMaxKg: 90),
+        id: "rdl", identity: .variant(name: "Romanian Deadlift"), trainingMaxKg: 90)
     ]
   }
 }

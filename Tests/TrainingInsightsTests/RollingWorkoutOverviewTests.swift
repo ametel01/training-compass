@@ -19,7 +19,7 @@ final class RollingWorkoutOverviewTests: XCTestCase {
       record("baseline-4-b", date: today.adding(days: -28)),
       record("baseline-4-c", date: today.adding(days: -28)),
       record("baseline-4-d", date: today.adding(days: -34)),
-      record("outside", date: today.adding(days: -35)),
+      record("outside", date: today.adding(days: -35))
     ]
 
     let overview = RollingWorkoutOverviewCalculator().calculate(
@@ -39,7 +39,7 @@ final class RollingWorkoutOverviewTests: XCTestCase {
         .init(start: today.adding(days: -13), end: today.adding(days: -7)),
         .init(start: today.adding(days: -20), end: today.adding(days: -14)),
         .init(start: today.adding(days: -27), end: today.adding(days: -21)),
-        .init(start: today.adding(days: -34), end: today.adding(days: -28)),
+        .init(start: today.adding(days: -34), end: today.adding(days: -28))
       ])
     XCTAssertEqual(overview.workoutCount.currentValue, 2)
     XCTAssertEqual(overview.workoutCount.comparisonMedian, 2.5)
@@ -70,7 +70,7 @@ final class RollingWorkoutOverviewTests: XCTestCase {
       record("baseline-d", date: today.adding(days: -28), activityType: "Running"),
       record(
         "baseline-missing", date: today.adding(days: -34), activityType: "Running",
-        durationSeconds: nil),
+        durationSeconds: nil)
     ]
 
     let overview = RollingWorkoutOverviewCalculator().calculate(
@@ -107,7 +107,7 @@ final class RollingWorkoutOverviewTests: XCTestCase {
         zoneTimes: .available([.below50: 10, .zone1: 20, .zone2: 30])),
       record(
         "ride", date: today, activityType: "Cycling", durationSeconds: 500,
-        zoneTimes: .unavailable(reason: "Heart-rate samples unavailable")),
+        zoneTimes: .unavailable(reason: "Heart-rate samples unavailable"))
     ]
 
     let overview = RollingWorkoutOverviewCalculator().calculate(

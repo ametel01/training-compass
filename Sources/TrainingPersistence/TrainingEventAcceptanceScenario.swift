@@ -14,7 +14,7 @@ extension GRDBTrainingRepository {
       ("ui-deadlift", .progression(.deadlift), 120, 5),
       ("ui-bench", .progression(.benchPress), 75, 2.5),
       ("ui-overhead-press", .progression(.overheadPress), 50, 2.5),
-      ("ui-romanian-deadlift", .variant(name: "Romanian Deadlift"), 90, 5),
+      ("ui-romanian-deadlift", .variant(name: "Romanian Deadlift"), 90, 5)
     ]
     let timestamp = Int64(now.timeIntervalSince1970)
     for (index, fixture) in configurations.enumerated() {
@@ -108,7 +108,7 @@ extension GRDBTrainingRepository {
           identity: .progression(.benchPress),
           trainingMaxKg: 75,
           loadingIncrementKg: 2.5
-        ),
+        )
       ]
     )
     _ = try await saveTrainingCycle(
@@ -154,7 +154,7 @@ extension GRDBTrainingRepository {
         localDate: TrainingDate(date: unusualStart, calendar: calendar).iso8601String,
         firstImportedAt: now,
         reconciliationContext: "ui-scenario"
-      ),
+      )
     ]
     try await upsertHealthWorkouts(workouts, reconciliationContext: "ui-scenario")
   }

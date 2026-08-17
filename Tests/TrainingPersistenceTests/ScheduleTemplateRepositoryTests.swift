@@ -12,7 +12,7 @@ final class ScheduleTemplateRepositoryTests: XCTestCase {
     let repository = GRDBTrainingRepository(root: root)
     let lifts = [
       try LiftConfiguration(id: "squat", identity: .progression(.squat), trainingMaxKg: 100),
-      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
+      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75)
     ]
     for (index, lift) in lifts.enumerated() {
       _ = try await repository.saveLiftConfiguration(
@@ -35,7 +35,7 @@ final class ScheduleTemplateRepositoryTests: XCTestCase {
         intendedWeekday: .monday,
         primaryLiftID: "bench",
         assistanceLiftID: "squat"
-      ),
+      )
     ])
     let replacement = ScheduleTemplate(sessions: [
       ScheduleSession(

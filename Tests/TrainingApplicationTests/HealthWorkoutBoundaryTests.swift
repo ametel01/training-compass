@@ -27,7 +27,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
   func testConnectRequestsReadOnlyCoreTypesAndImportsEveryPage() async throws {
     let client = FakeHealthClient(pages: [
       HealthWorkoutPage(workouts: [fixture("one")], nextPageToken: "next"),
-      HealthWorkoutPage(workouts: [fixture("two")]),
+      HealthWorkoutPage(workouts: [fixture("two")])
     ])
     let repository = FakeHealthRepository()
     let boundary = HealthWorkoutImportBoundary(client: client, repository: repository)
@@ -180,8 +180,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
 
   func testCoordinatorReportsAStatusForEveryRequestedStreamWithoutClaimingPermission()
     async
-    throws
-  {
+    throws {
     let client = FakeHealthClient(pages: [HealthWorkoutPage(workouts: [])])
     let repository = FakeHealthRepository()
     let coordinator = HealthSyncCoordinator(
@@ -201,7 +200,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
   func testCoordinatorResumesFromCommittedAnchorAndCoalescesTriggers() async throws {
     let client = SequencedHealthClient(pages: [
       HealthWorkoutPage(workouts: [fixture("one")], nextPageToken: "anchor-1"),
-      HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: ["one"]),
+      HealthWorkoutPage(workouts: [], deletedHealthKitUUIDs: ["one"])
     ])
     let repository = SyncRepository()
     let coordinator = HealthSyncCoordinator(client: client, repository: repository)
@@ -225,7 +224,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
       HealthWorkoutPage(
         workouts: [fixture("first")], anchor: "anchor-1", reconciliationContext: "page-1"),
       HealthWorkoutPage(
-        workouts: [fixture("second")], anchor: nil, reconciliationContext: "page-2"),
+        workouts: [fixture("second")], anchor: nil, reconciliationContext: "page-2")
     ])
     let repository = MultiStreamRepository()
     let coordinator = HealthSyncCoordinator(
@@ -341,8 +340,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
   }
 
   func testHealthHistoryIsReverseChronologicalAndRetainsSourceAndReconciliationContext()
-    async throws
-  {
+    async throws {
     let older = fixture("older")
     let newer = HealthWorkout(
       healthKitUUID: "newer",
@@ -437,8 +435,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
 
   func testHistoryDeduplicatesRepeatedHealthKitUUIDsAndRetainsDeviceTimezoneSource()
     async
-    throws
-  {
+    throws {
     let first = HealthWorkout(
       healthKitUUID: "same-uuid",
       activityType: "running",
@@ -857,8 +854,7 @@ private actor ObserverHealthClient: HealthWorkoutClient {
 private actor FakeHealthRepository: HealthWorkoutRepository {
   private(set) var committed: [HealthWorkout] = []
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {
     committed.append(contentsOf: workouts)
   }
 
@@ -901,12 +897,10 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
   }
 
   func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
-    -> HealthSyncCheckpoint?
-  { checkpoints[stream] }
+    -> HealthSyncCheckpoint? { checkpoints[stream] }
 
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     let count = stream == .workouts ? values.count : recovery[stream]?.count
     return .init(stream: stream, recordCount: count)
   }
@@ -980,8 +974,7 @@ private actor SyncRepository: HealthWorkoutRepository {
   private var values: [HealthWorkout] = []
   private(set) var checkpoint: HealthSyncCheckpoint?
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {
     values = workouts
   }
 
@@ -1004,14 +997,12 @@ private actor SyncRepository: HealthWorkoutRepository {
     )
   }
 
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     checkpoint
   }
 
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     .init(stream: stream, recordCount: stream == .workouts && !values.isEmpty ? values.count : 0)
   }
 }
@@ -1033,21 +1024,18 @@ private actor HistoryRepository: HealthWorkoutRepository {
     self.storedCheckpoint = checkpoint
   }
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {
     values = workouts
   }
 
   func loadHealthWorkouts() async throws -> [HealthWorkout] { values }
 
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     stream == .workouts ? storedCheckpoint : nil
   }
 
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     .init(stream: stream, recordCount: stream == .workouts ? values.count : 0)
   }
 }
@@ -1088,8 +1076,7 @@ private actor EnrichmentRepository: HealthWorkoutRepository {
   private var enrichments: [String: HealthWorkoutEnrichment] = [:]
   private var checkpoint: HealthSyncCheckpoint?
 
-  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws
-  {
+  func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext: String) async throws {
     self.workouts = workouts
   }
 
@@ -1116,14 +1103,12 @@ private actor EnrichmentRepository: HealthWorkoutRepository {
     )
   }
 
-  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint?
-  {
+  func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws -> HealthSyncCheckpoint? {
     checkpoint
   }
 
   func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     .init(stream: stream, recordCount: stream == .workouts ? workouts.count : nil)
   }
 
@@ -1132,8 +1117,7 @@ private actor EnrichmentRepository: HealthWorkoutRepository {
   }
 
   func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  {
+    -> HealthWorkoutEnrichment? {
     enrichments[healthKitUUID]
   }
 }

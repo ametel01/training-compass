@@ -133,8 +133,7 @@ public struct LiftConfigurationBoundary: Sendable {
   }
 
   public func preview(_ request: LiftConfigurationRequest) async throws
-    -> LiftConfigurationChangePreview
-  {
+    -> LiftConfigurationChangePreview {
     let configured = try await repository.loadLiftConfigurations()
     let existing = configured.first { configuration in configuration.id == request.id }
     if request.id != nil, existing == nil {
@@ -168,8 +167,7 @@ public struct LiftConfigurationBoundary: Sendable {
 
   @discardableResult
   public func confirm(_ preview: LiftConfigurationChangePreview) async throws
-    -> LiftConfigurationAuditEntry
-  {
+    -> LiftConfigurationAuditEntry {
     try await repository.saveLiftConfiguration(
       preview.after,
       expectedBefore: preview.before,
@@ -180,8 +178,7 @@ public struct LiftConfigurationBoundary: Sendable {
   }
 
   @discardableResult
-  public func save(_ request: LiftConfigurationRequest) async throws -> LiftConfigurationAuditEntry
-  {
+  public func save(_ request: LiftConfigurationRequest) async throws -> LiftConfigurationAuditEntry {
     try await confirm(try await preview(request))
   }
 

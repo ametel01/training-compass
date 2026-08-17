@@ -72,8 +72,7 @@ public struct RunningPerformanceBoundary: Sendable {
 
     for workout in workoutsByID.values
     where !deleted.contains(workout.healthKitUUID)
-      && RunningWorkoutRecord.isSourceClassifiedRunning(activityType: workout.activityType)
-    {
+      && RunningWorkoutRecord.isSourceClassifiedRunning(activityType: workout.activityType) {
       let enrichment = try? await repository.loadHealthWorkoutEnrichment(
         for: workout.healthKitUUID)
       let routeAvailability = await routeAvailability(for: workout.healthKitUUID)

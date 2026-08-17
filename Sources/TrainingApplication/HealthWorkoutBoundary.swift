@@ -84,7 +84,7 @@ public struct HealthAuthorizationRequest: Codable, Equatable, Sendable {
   public static let core = HealthAuthorizationRequest(
     readTypes: [
       .workouts, .heartRate, .distance, .activeEnergy, .sleep, .restingHeartRate,
-      .heartRateVariability,
+      .heartRateVariability
     ],
     writeTypes: []
   )
@@ -1123,8 +1123,7 @@ public struct HealthDataStatus: Codable, Equatable, Sendable {
   public var requestedStreams: [HealthStreamStatus] { streams.filter(\.requested) }
 
   public func currentStreams(on date: Date = Date(), calendar: Calendar = .current)
-    -> [HealthStreamStatus]
-  {
+    -> [HealthStreamStatus] {
     streams.filter { $0.isCurrent(on: date, calendar: calendar) }
   }
 }
@@ -1326,14 +1325,12 @@ extension HealthWorkoutRepository {
   }
 
   public func loadHealthSyncCheckpoint(for stream: HealthSyncStream) async throws
-    -> HealthSyncCheckpoint?
-  {
+    -> HealthSyncCheckpoint? {
     nil
   }
 
   public func loadHealthMirrorContent(for stream: HealthSyncStream) async throws
-    -> HealthMirrorContentSnapshot
-  {
+    -> HealthMirrorContentSnapshot {
     .init(stream: stream, recordCount: nil)
   }
 
@@ -1342,8 +1339,7 @@ extension HealthWorkoutRepository {
   public func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {}
 
   public func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
-    -> HealthWorkoutEnrichment?
-  { nil }
+    -> HealthWorkoutEnrichment? { nil }
 
   public func loadHealthRebuildState() async throws -> HealthRebuildState? {
     throw HealthSyncError.unavailable
@@ -1368,16 +1364,14 @@ extension HealthWorkoutRepository {
   }
 
   public func loadHealthWorkoutLinkFacts(for healthKitUUID: String?) async throws
-    -> [HealthWorkoutLinkFact]
-  { throw HealthSyncError.unavailable }
+    -> [HealthWorkoutLinkFact] { throw HealthSyncError.unavailable }
 
   public func upsertHealthRecoverySamples(
     _ samples: [HealthRecoverySample], stream: HealthSyncStream, reconciliationContext: String
   ) async throws {}
 
   public func loadHealthRecoverySamples(for stream: HealthSyncStream) async throws
-    -> [HealthRecoverySample]
-  { [] }
+    -> [HealthRecoverySample] { [] }
 
 }
 
@@ -1505,8 +1499,7 @@ public actor HealthWorkoutImportBoundary {
   /// first import.  It never clears mirrored rows and it never writes back to
   /// HealthKit.
   public func refreshHealthData(trigger: HealthSyncTrigger = .foreground) async throws
-    -> HealthSyncResult
-  {
+    -> HealthSyncResult {
     guard authorization.state == .authorized else {
       if authorization.state == .postponed {
         return HealthSyncResult(
@@ -1612,8 +1605,7 @@ public actor HealthWorkoutImportBoundary {
     var enrichmentsByUUID: [String: HealthWorkoutEnrichment] = [:]
     for workout in workoutsByUUID.values {
       if let enrichment = try? await repository.loadHealthWorkoutEnrichment(
-        for: workout.healthKitUUID)
-      {
+        for: workout.healthKitUUID) {
         enrichmentsByUUID[workout.healthKitUUID] = enrichment
       }
     }
@@ -1671,8 +1663,7 @@ public actor HealthWorkoutImportBoundary {
   /// mirrored sleep stream.  A failed or missing refresh therefore leaves the
   /// last mirrored intervals inspectable without claiming new continuity.
   public func sleepEpisodes(calendar: Calendar = Calendar(identifier: .gregorian)) async
-    -> SleepEpisodeProjection
-  {
+    -> SleepEpisodeProjection {
     let evidence = await recoveryEvidence()
     return evidence.sleepEpisodes(preference: preferredSleepSourceOrder, calendar: calendar)
   }
@@ -1759,8 +1750,7 @@ public actor HealthWorkoutImportBoundary {
   }
 
   public func todayHealthWorkouts(on date: TrainingDate) async throws
-    -> [HealthWorkoutHistoryEntry]
-  {
+    -> [HealthWorkoutHistoryEntry] {
     let history = try await healthWorkoutHistory()
     return history.events.filter { $0.event.localDate == date.iso8601String }
   }

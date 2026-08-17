@@ -419,8 +419,7 @@ public struct RollingWorkoutOverviewCalculator: Sendable {
   }
 
   private static func zoneProjection(for record: RollingWorkoutRecord)
-    -> HeartRateZoneProjection?
-  {
+    -> HeartRateZoneProjection? {
     switch record.zoneTimes {
     case .projected(let projection):
       guard case .available = projection.state else { return nil }

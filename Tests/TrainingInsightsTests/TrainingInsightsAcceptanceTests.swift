@@ -20,7 +20,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
           durationSeconds: 1_800, zoneTimes: .available([.zone2: 600])),
         RollingWorkoutRecord(
           id: "workout-baseline", localDate: today.adding(days: -7), activityType: "Cycling",
-          durationSeconds: 900, zoneTimes: .unavailable(reason: "Samples unavailable")),
+          durationSeconds: 900, zoneTimes: .unavailable(reason: "Samples unavailable"))
       ],
       asOf: today,
       coverage: .complete(lastReconciliation: "health-check"))
@@ -33,7 +33,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
           source: "Watch"),
         HeartRateSample(
           id: "heart-rate-2", startDate: 1_150, endDate: 1_170, beatsPerMinute: 180,
-          source: "Watch"),
+          source: "Watch")
       ],
       maximumHeartRate: try MaximumHeartRate(beatsPerMinute: 200))
     let running = RunningPerformanceCalculator().calculate(
@@ -43,7 +43,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
           duration: 1_800, distance: 5_000),
         runningRecord(
           id: "run-prior", date: today.adding(days: -1), startDate: 1_000, importedAt: 10,
-          duration: 1_900, distance: 5_000),
+          duration: 1_900, distance: 5_000)
       ],
       asOf: today,
       sourceCoverage: "Health Workouts: available",
@@ -81,11 +81,11 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
       rolling.workoutCount.explanation.text,
       zone.explanation.text,
       running.runs.map(\.explanation.text).joined(separator: " "),
-      running.comparison?.explanation.text ?? "",
+      running.comparison?.explanation.text ?? ""
     ].joined(separator: " ").lowercased()
     for forbidden in [
       "training-load score", "personal record", "goal", "fitness claim", "inferred effort",
-      "race prediction", "causal claim", "recovery verdict", "automatic prescription",
+      "race prediction", "causal claim", "recovery verdict", "automatic prescription"
     ] {
       XCTAssertFalse(displayedLanguage.contains(forbidden), "Forbidden language: \(forbidden)")
     }

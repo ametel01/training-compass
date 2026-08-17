@@ -261,8 +261,7 @@ public struct TrainingImportBoundary: Sendable {
     }
     try validateAuthoritativeData(archive.authoritativeData, summary: archive.summary)
     if let mirror = archive.healthKitMirror,
-      mirror.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    {
+      mirror.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       throw TrainingImportError.invalidManifest
     }
     return archive
@@ -340,7 +339,7 @@ public struct TrainingImportBoundary: Sendable {
     "session_completions", "session_correction_audit", "training_max_proposals",
     "training_max_history", "health_workout_link_facts",
     "heart_rate_configuration", "running_comparison_exclusions",
-    "health_workout_write_backs",
+    "health_workout_write_backs"
   ]
 }
 

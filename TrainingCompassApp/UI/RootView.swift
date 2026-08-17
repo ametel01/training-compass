@@ -966,8 +966,7 @@ private struct HealthDataRebuildView: View {
     }
     .task {
       if let healthBoundary = model.healthWorkoutImportBoundary,
-        let rebuildBoundary = model.healthDataRebuildBoundary
-      {
+        let rebuildBoundary = model.healthDataRebuildBoundary {
         let authorization = await healthBoundary.authorizationSnapshot()
         await rebuildBoundary.setAuthorization(authorization)
       }
@@ -2798,8 +2797,7 @@ private struct TodayView: View {
     do {
       today = try await model.sessionLoggingBoundary.today()
       if let sessionID = today?.session.id,
-        let writeBackBoundary = model.healthWorkoutWriteBackBoundary
-      {
+        let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
         writeBackPreference = (try? await writeBackBoundary.preference()) ?? .init()
         writeBackRecord = try? await writeBackBoundary.state(for: sessionID)
       } else {
@@ -3082,7 +3080,7 @@ private struct CycleSetupView: View {
     (.progression(.deadlift), "Deadlift"),
     (.progression(.benchPress), "Bench Press"),
     (.progression(.overheadPress), "Overhead Press"),
-    (.variant(name: "Romanian Deadlift"), "Romanian Deadlift"),
+    (.variant(name: "Romanian Deadlift"), "Romanian Deadlift")
   ]
 
   private var missingLifts: [String] {
@@ -3769,8 +3767,7 @@ private struct CycleView: View {
       ),
       titleVisibility: .visible
     ) {
-      Button(lifecycleRequestConfirmTitle, role: lifecycleRequestIsDestructive ? .destructive : nil)
-      {
+      Button(lifecycleRequestConfirmTitle, role: lifecycleRequestIsDestructive ? .destructive : nil) {
         let request = pendingLifecycleRequest
         pendingLifecycleRequest = nil
         Task { await perform(request) }
@@ -4530,8 +4527,7 @@ extension TrainingWeekRequest {
 
 extension Array {
   fileprivate
-    func reordered(fromOffsets offsets: IndexSet, toOffset destination: Int) -> [Element]
-  {
+    func reordered(fromOffsets offsets: IndexSet, toOffset destination: Int) -> [Element] {
     var copy = self
     let moving = offsets.sorted(by: >).map { copy.remove(at: $0) }.reversed()
     let adjustedDestination = Swift.min(destination, copy.count)

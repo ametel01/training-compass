@@ -4,8 +4,7 @@ import XCTest
 @testable import TrainingApplication
 
 final class TrainingScheduleChangeBoundaryTests: XCTestCase {
-  func testCalendarChangeMovesOnlyScheduledDateAndRequiresOutsideWeekAcknowledgement() async throws
-  {
+  func testCalendarChangeMovesOnlyScheduledDateAndRequiresOutsideWeekAcknowledgement() async throws {
     let cycle = makeActiveCycle()
     let repository = ScheduleChangeRepository(active: cycle, template: makeTemplate())
     let boundary = makeBoundary(repository: repository)
@@ -69,7 +68,7 @@ final class TrainingScheduleChangeBoundaryTests: XCTestCase {
             TrainingCycleSessionRequest(
               id: "", intendedDate: TrainingDate(year: 2024, month: 1, day: 3),
               primaryLiftID: "squat", assistanceLiftID: "bench"
-            ),
+            )
           ]
         )
       ]
@@ -142,7 +141,7 @@ final class TrainingScheduleChangeBoundaryTests: XCTestCase {
         id: "monday", intendedWeekday: .monday, primaryLiftID: "squat", assistanceLiftID: "bench"),
       ScheduleSession(
         id: "thursday", intendedWeekday: .thursday, primaryLiftID: "bench",
-        assistanceLiftID: "squat"),
+        assistanceLiftID: "squat")
     ])
   }
 
@@ -164,7 +163,7 @@ final class TrainingScheduleChangeBoundaryTests: XCTestCase {
         TrainingCycleSession(
           id: "completed", intendedDate: TrainingDate(year: 2024, month: 1, day: 4),
           sourceTemplateSessionID: "thursday", primaryLiftID: "bench", assistanceLiftID: "squat",
-          prescriptions: prescriptions, status: .completed),
+          prescriptions: prescriptions, status: .completed)
       ]
     )
     return TrainingCycle(
@@ -175,7 +174,7 @@ final class TrainingScheduleChangeBoundaryTests: XCTestCase {
         "squat": LiftConfigurationSnapshot(
           identity: .progression(.squat), trainingMaxKg: 100, loadingIncrementKg: 2.5),
         "bench": LiftConfigurationSnapshot(
-          identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5),
+          identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5)
       ])
   }
 }
@@ -257,7 +256,7 @@ private actor ScheduleChangeRepository: TrainingRepository {
   func loadLiftConfigurations() async throws -> [LiftConfiguration] {
     [
       try LiftConfiguration(id: "squat", identity: .progression(.squat), trainingMaxKg: 100),
-      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
+      try LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75)
     ]
   }
   func saveLiftConfiguration(

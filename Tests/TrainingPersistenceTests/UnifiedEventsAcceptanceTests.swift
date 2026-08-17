@@ -6,8 +6,7 @@ import XCTest
 
 final class UnifiedEventsAcceptanceTests: XCTestCase {
   func testLinkedEventSurvivesLateEnrichmentDeletionExactReappearanceRebuildAndUnlink()
-    async throws
-  {
+    async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: "unified-events-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -163,7 +162,7 @@ final class UnifiedEventsAcceptanceTests: XCTestCase {
       for: exactWorkout.healthKitUUID,
       points: [
         .init(northSouthDegrees: 14.6195, eastWestDegrees: 121.0042),
-        .init(northSouthDegrees: 14.6295, eastWestDegrees: 121.0142),
+        .init(northSouthDegrees: 14.6295, eastWestDegrees: 121.0142)
       ])
     let changedRouteSaved = try await repository.saveHealthWorkoutRoute(changedRoute)
     XCTAssertTrue(changedRouteSaved)
@@ -329,7 +328,7 @@ private func unifiedAcceptanceCycle() -> TrainingCycle {
       "squat": .init(
         identity: .progression(.squat), trainingMaxKg: 100, loadingIncrementKg: 2.5),
       "bench": .init(
-        identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5),
+        identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5)
     ])
 }
 
@@ -357,7 +356,7 @@ private func unifiedAcceptanceRoute(
   for healthKitUUID: String,
   points: [HealthWorkoutRoutePoint] = [
     .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-    .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942),
+    .init(northSouthDegrees: 14.6095, eastWestDegrees: 120.9942)
   ]
 ) -> HealthWorkoutRoute {
   HealthWorkoutRoute(

@@ -47,7 +47,7 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         locations.authoritativeDirectory,
         locations.reconstructibleDirectory,
         locations.authoritativeDatabase,
-        locations.reconstructibleDatabase,
+        locations.reconstructibleDatabase
       ])
     XCTAssertEqual(protection.backupExcludedDirectories, [locations.reconstructibleDirectory])
     XCTAssertEqual(protection.verifiedProtectedDirectories, protection.protectedDirectories)

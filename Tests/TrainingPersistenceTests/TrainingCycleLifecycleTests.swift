@@ -39,8 +39,7 @@ final class TrainingCycleLifecycleTests: XCTestCase {
     XCTAssertEqual(completedCount, 1)
   }
 
-  func testAbandonmentTurnsOutstandingSessionsIntoUnperformedWithoutAdvancingCadence() async throws
-  {
+  func testAbandonmentTurnsOutstandingSessionsIntoUnperformedWithoutAdvancingCadence() async throws {
     let root = FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -124,14 +123,14 @@ final class TrainingCycleLifecycleTests: XCTestCase {
           startDate: TrainingDate(year: 2024, month: 1, day: 1),
           sessions: [
             session("session-1", TrainingDate(year: 2024, month: 1, day: 1)),
-            session("session-2", TrainingDate(year: 2024, month: 1, day: 2)),
+            session("session-2", TrainingDate(year: 2024, month: 1, day: 2))
           ]
         ),
         TrainingWeek(
           id: "week-2", position: 2, kind: .week2,
           startDate: TrainingDate(year: 2024, month: 1, day: 8),
           sessions: [session("session-3", TrainingDate(year: 2024, month: 1, day: 8))]
-        ),
+        )
       ],
       sourceTemplate: template.snapshot,
       includesProvisionalDeload: false,

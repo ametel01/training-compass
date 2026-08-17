@@ -25,8 +25,7 @@ final class SessionLoggingBoundaryTests: XCTestCase {
   }
 
   func testRecordingPersistsActualValuesAndSurfacesIncrementWarningWithoutChangingPrescription()
-    async throws
-  {
+    async throws {
     let repository = SessionLoggingTestRepository(active: makeActiveCycle())
     let boundary = SessionLoggingBoundary(
       cycleRepository: repository,
@@ -197,7 +196,7 @@ final class SessionLoggingBoundaryTests: XCTestCase {
       TrainingSetPrescription(
         id: "prescription-4", setNumber: 1, role: .assistance, percentage: 0.65,
         repetitions: 10, weightKg: 50
-      ),
+      )
     ]
     let session = TrainingCycleSession(
       id: "session",
@@ -228,7 +227,7 @@ final class SessionLoggingBoundaryTests: XCTestCase {
         ),
         "bench": LiftConfigurationSnapshot(
           identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5
-        ),
+        )
       ]
     )
   }

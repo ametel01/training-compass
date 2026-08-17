@@ -9,8 +9,7 @@ import TrainingApplication
 /// application-owned values so HealthKit cannot leak through the application
 /// or persistence layers.
 public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteClient,
-  HealthWorkoutWriteBackClient
-{
+  HealthWorkoutWriteBackClient {
   #if canImport(HealthKit)
     private let store: HKHealthStore
   #endif
@@ -104,7 +103,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         (continuation: CheckedContinuation<Void, any Error>) in
         builder.addMetadata([
           HKMetadataKeySyncIdentifier: summary.syncIdentifier,
-          HKMetadataKeySyncVersion: summary.syncVersion,
+          HKMetadataKeySyncVersion: summary.syncVersion
         ]) { success, error in
           if let error {
             continuation.resume(throwing: Self.mapWriteBackError(error))
@@ -250,8 +249,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
   #endif
 
   public func requestWorkoutRouteAuthorization() async throws
-    -> HealthWorkoutRouteAuthorizationState
-  {
+    -> HealthWorkoutRouteAuthorizationState {
     #if canImport(HealthKit)
       guard HKHealthStore.isHealthDataAvailable() else { return .unavailable }
       let routeType = HKSeriesType.workoutRoute()
@@ -374,7 +372,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         HKObjectType.workoutType(),
         HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
         HKObjectType.quantityType(forIdentifier: .restingHeartRate),
-        HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
+        HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
       ].compactMap { $0 }
     }
   #endif
@@ -419,8 +417,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
   }
 
   public func fetchWorkoutEnrichment(for workout: HealthWorkout) async
-    -> HealthWorkoutEnrichment?
-  {
+    -> HealthWorkoutEnrichment? {
     #if canImport(HealthKit)
       guard HKHealthStore.isHealthDataAvailable(),
         let uuid = UUID(uuidString: workout.healthKitUUID)
@@ -523,8 +520,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
     }
 
     private func routeCoordinatePages(for route: HKWorkoutRoute)
-      -> AsyncThrowingStream<RouteCoordinatePage, any Error>
-    {
+      -> AsyncThrowingStream<RouteCoordinatePage, any Error> {
       // Absorb ordinary HealthKit delivery bursts while the adapter actor
       // simplifies a page. The fixed capacity keeps this queue bounded.
       AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
@@ -565,8 +561,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
     }
 
     private func fetchHeartRateSamples(for workout: HKWorkout) async throws
-      -> [HealthWorkoutHeartRateSample]
-    {
+      -> [HealthWorkoutHeartRateSample] {
       guard let sampleType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
         return []
       }
@@ -808,7 +803,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
         metadata?["runningEnvironment"],
         metadata?["RunningEnvironment"],
         metadata?["HKRunningEnvironment"],
-        metadata?[HKMetadataKeyIndoorWorkout],
+        metadata?[HKMetadataKeyIndoorWorkout]
       ].compactMap { $0 }
       for value in explicitValues {
         if let text = value as? String {
@@ -854,7 +849,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
           HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning),
           HKObjectType.quantityType(forIdentifier: .distanceCycling),
           HKObjectType.quantityType(forIdentifier: .distanceSwimming),
-          HKObjectType.quantityType(forIdentifier: .distanceWheelchair),
+          HKObjectType.quantityType(forIdentifier: .distanceWheelchair)
         ].compactMap { $0 }
       case .activeEnergy:
         [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
@@ -868,7 +863,7 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
 
     private static func distanceMeters(from workout: HKWorkout) -> Double? {
       let types: [HKQuantityTypeIdentifier] = [
-        .distanceWalkingRunning, .distanceCycling, .distanceSwimming, .distanceWheelchair,
+        .distanceWalkingRunning, .distanceCycling, .distanceSwimming, .distanceWheelchair
       ]
       let values = types.compactMap { identifier -> Double? in
         guard let type = HKObjectType.quantityType(forIdentifier: identifier),

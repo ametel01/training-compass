@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap verify verify-performance verify-evidence verify-final-release test-ui run-simulator fixtures verify-migrations device-smoke verify-release evidence acceptance personal-team-refresh install-personal-team-refresh-reminder
+.PHONY: help bootstrap verify verify-performance verify-evidence verify-final-release test-ui run-simulator fixtures verify-migrations device-smoke verify-release evidence acceptance install-iphone personal-team-refresh install-personal-team-refresh-reminder
 
 help:
 	@echo "Training Compass Gate 0 commands"
@@ -22,6 +22,7 @@ help:
 	@echo "  make device-smoke MILESTONE=recovery-evidence"
 	@echo "  make verify-release MILESTONE=gate-0|health-foundation|unified-events|training-insights|recovery-evidence|personal-team-refresh|healthkit-write-back"
 	@echo "  make evidence"
+	@echo "  make install-iphone"
 	@echo "  make personal-team-refresh"
 	@echo "  make install-personal-team-refresh-reminder"
 
@@ -64,6 +65,9 @@ verify-release:
 
 evidence:
 	@./scripts/evidence.sh
+
+install-iphone:
+	@TEAM_ID="$(TEAM_ID)" EXPORT_PATH="$(EXPORT_PATH)" ./scripts/install-connected-iphone.sh
 
 personal-team-refresh:
 	@./scripts/refresh-personal-team.sh

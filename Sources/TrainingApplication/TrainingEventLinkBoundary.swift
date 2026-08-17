@@ -165,8 +165,7 @@ public struct UnifiedTrainingEvent: Codable, Equatable, Identifiable, Sendable {
     self.healthCoverage = healthWorkout.map { _ in healthCoverage ?? .unknown }
     var disagreements: [TrainingEventDisagreement] = []
     if let session, let healthWorkout,
-      session.session.intendedDate.iso8601String != healthWorkout.localDate
-    {
+      session.session.intendedDate.iso8601String != healthWorkout.localDate {
       disagreements.append(
         .localDate(
           session: session.session.intendedDate.iso8601String,
@@ -339,8 +338,7 @@ public struct TrainingEventLinkBoundary: Sendable {
   }
 
   public func linkingSnapshot(for sessionID: String) async throws
-    -> TrainingEventLinkingSnapshot
-  {
+    -> TrainingEventLinkingSnapshot {
     let cycles = try await cycleRepository.loadTrainingCycles()
     guard
       let session = cycles.lazy.flatMap(\.weeks).lazy.flatMap(\.sessions)
@@ -433,8 +431,7 @@ public struct TrainingEventLinkBoundary: Sendable {
     var enrichmentsByID: [String: HealthWorkoutEnrichment] = [:]
     for workout in workouts {
       if let enrichment = try await healthRepository.loadHealthWorkoutEnrichment(
-        for: workout.healthKitUUID)
-      {
+        for: workout.healthKitUUID) {
         enrichmentsByID[workout.healthKitUUID] = enrichment
       }
     }
@@ -542,8 +539,7 @@ public struct TrainingEventLinkBoundary: Sendable {
 
     for workout in workouts
     where !consumedWorkoutIDs.contains(workout.healthKitUUID)
-      && (!workout.isAppAuthored || selectedAppAuthoredIDs.contains(workout.healthKitUUID))
-    {
+      && (!workout.isAppAuthored || selectedAppAuthoredIDs.contains(workout.healthKitUUID)) {
       events.append(
         UnifiedTrainingEvent(
           id: "health:\(workout.healthKitUUID)",
@@ -593,8 +589,7 @@ public struct TrainingEventLinkBoundary: Sendable {
   }
 
   public func completionLinkingSnapshot(for sessionID: String) async throws
-    -> TrainingEventLinkingSnapshot
-  {
+    -> TrainingEventLinkingSnapshot {
     let cycles = try await cycleRepository.loadTrainingCycles()
     guard
       let session = cycles.lazy.flatMap(\.weeks).lazy.flatMap(\.sessions)

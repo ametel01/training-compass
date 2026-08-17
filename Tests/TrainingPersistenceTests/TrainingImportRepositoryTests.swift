@@ -111,7 +111,7 @@ final class TrainingImportRepositoryTests: XCTestCase {
       .validatingStaging,
       .regeneratingProjections,
       .closingCurrentStore,
-      .swappingAuthoritativeStore,
+      .swappingAuthoritativeStore
     ] {
       let destinationRoot = temporaryRoot("phase-destination")
       defer { try? FileManager.default.removeItem(at: destinationRoot) }

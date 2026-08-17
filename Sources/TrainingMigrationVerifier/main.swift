@@ -79,7 +79,7 @@ guard
     "session_projections", "session_correction_audit",
     "training_max_proposals", "training_max_history", "health_workout_link_facts",
     "heart_rate_configuration", "running_comparison_exclusions",
-    "health_workout_write_back_preferences", "health_workout_write_backs",
+    "health_workout_write_back_preferences", "health_workout_write_backs"
   ]
 else {
   throw MigrationVerificationError.gateZeroMarkerMissing(store: "authoritative v16")
@@ -111,7 +111,7 @@ guard
   reconstructibleTables == [
     "health_workouts", "health_workout_deletions", "health_sync_streams", "health_sync_facts",
     "health_rebuild_state", "health_workout_enrichment", "health_workout_routes",
-    "health_recovery_samples",
+    "health_recovery_samples"
   ]
 else {
   throw MigrationVerificationError.gateZeroMarkerMissing(store: "reconstructible v10")
@@ -121,8 +121,7 @@ print(
   "Authoritative v16 and reconstructible v10 migration interruption, retry, idempotence, and every historical direct-upgrade path passed (\(compatibilityReport.migrationCount) prefixes; export v1)."
 )
 
-final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
-{
+final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable {
   private var shouldInterrupt = true
 
   func didMigrateAuthoritativeStore() throws {

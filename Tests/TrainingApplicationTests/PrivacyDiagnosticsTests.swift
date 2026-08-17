@@ -78,7 +78,7 @@ final class PrivacyDiagnosticsTests: XCTestCase {
       Set(object[0].keys),
       [
         "operation", "durationMilliseconds", "recordCount", "byteCount", "peakMemoryMiB",
-        "resultCategory", "deviceConditions",
+        "resultCategory", "deviceConditions"
       ]
     )
     XCTAssertNil(object[0]["date"])

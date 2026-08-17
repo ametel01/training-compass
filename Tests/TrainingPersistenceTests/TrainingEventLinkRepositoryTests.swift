@@ -233,7 +233,7 @@ final class TrainingEventLinkRepositoryTests: XCTestCase {
         loadingIncrementKg: 2.5),
       try LiftConfiguration(
         id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75,
-        loadingIncrementKg: 2.5),
+        loadingIncrementKg: 2.5)
     ] {
       _ = try await source.saveLiftConfiguration(
         lift, expectedBefore: nil, auditID: "audit-\(lift.id)", occurredAt: 1,
@@ -294,7 +294,7 @@ private func makeLinkingCycle() -> TrainingCycle {
       primaryLiftID: "squat", assistanceLiftID: "bench"),
     ScheduleSession(
       id: "template-2", intendedWeekday: .tuesday,
-      primaryLiftID: "bench", assistanceLiftID: "squat"),
+      primaryLiftID: "bench", assistanceLiftID: "squat")
   ])
   return TrainingCycle(
     id: "cycle",
@@ -319,7 +319,7 @@ private func makeLinkingCycle() -> TrainingCycle {
             sourceTemplateSessionID: "template-2",
             primaryLiftID: "bench",
             assistanceLiftID: "squat"
-          ),
+          )
         ]
       )
     ],
@@ -332,7 +332,7 @@ private func makeLinkingCycle() -> TrainingCycle {
       "squat": LiftConfigurationSnapshot(
         identity: .progression(.squat), trainingMaxKg: 100, loadingIncrementKg: 2.5),
       "bench": LiftConfigurationSnapshot(
-        identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5),
+        identity: .progression(.benchPress), trainingMaxKg: 75, loadingIncrementKg: 2.5)
     ]
   )
 }

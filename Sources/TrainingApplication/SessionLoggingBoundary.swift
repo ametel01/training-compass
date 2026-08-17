@@ -444,8 +444,7 @@ extension SetResultRepository {
   }
 
   public func loadSessionCorrectionSnapshot(sessionID: String) async throws
-    -> SessionCorrectionSnapshot?
-  { nil }
+    -> SessionCorrectionSnapshot? { nil }
 
   public func sessionBelongsToTerminalCycle(sessionID: String) async throws -> Bool { false }
 
@@ -460,8 +459,7 @@ extension SetResultRepository {
   }
 
   public func sessionCorrectionAuditHistory(for sessionID: String) async throws
-    -> [SessionCorrectionAuditEntry]
-  { [] }
+    -> [SessionCorrectionAuditEntry] { [] }
 }
 
 public struct SessionLoggingBoundary: Sendable {
@@ -909,8 +907,7 @@ public struct SessionLoggingBoundary: Sendable {
     }
     guard try await activeSession(sessionID: request.sessionID) != nil else {
       if let terminal = try await resultRepository.loadSessionCorrectionSnapshot(
-        sessionID: request.sessionID), terminal.status.isTerminal
-      {
+        sessionID: request.sessionID), terminal.status.isTerminal {
         throw SetResultRepositoryError.terminalCycle
       }
       throw SessionLoggingError.unknownSession
@@ -930,13 +927,11 @@ public struct SessionLoggingBoundary: Sendable {
     )
     if let writeBackBoundary {
       if request.status == .completed, let completedAt = request.completedAt,
-        let snapshot = try? await activeSession(sessionID: request.sessionID)
-      {
+        let snapshot = try? await activeSession(sessionID: request.sessionID) {
         _ = await writeBackBoundary.reconcileCompletedSession(
           snapshot, completedAt: Date(timeIntervalSince1970: TimeInterval(completedAt)))
       } else if request.status == .scheduled || request.status == .skipped
-        || request.status == .unperformed
-      {
+        || request.status == .unperformed {
         _ = await writeBackBoundary.unlinkSessionSummary(sessionID: request.sessionID)
       }
     }
@@ -1131,10 +1126,8 @@ public struct SessionLoggingBoundary: Sendable {
   }
 
   public func correctionSnapshot(sessionID: String) async throws
-    -> SessionCorrectionSnapshot?
-  {
-    if let snapshot = try await resultRepository.loadSessionCorrectionSnapshot(sessionID: sessionID)
-    {
+    -> SessionCorrectionSnapshot? {
+    if let snapshot = try await resultRepository.loadSessionCorrectionSnapshot(sessionID: sessionID) {
       return snapshot
     }
     guard let current = try await activeSession(sessionID: sessionID) else { return nil }
@@ -1152,8 +1145,7 @@ public struct SessionLoggingBoundary: Sendable {
   }
 
   public func correctionAuditHistory(for sessionID: String) async throws
-    -> [SessionCorrectionAuditEntry]
-  {
+    -> [SessionCorrectionAuditEntry] {
     try await resultRepository.sessionCorrectionAuditHistory(for: sessionID)
   }
 
@@ -1162,8 +1154,7 @@ public struct SessionLoggingBoundary: Sendable {
   }
 
   private func liftSnapshot(for id: String, in cycle: TrainingCycle) throws
-    -> LiftConfigurationSnapshot
-  {
+    -> LiftConfigurationSnapshot {
     guard let snapshot = cycle.liftSnapshots[id] else {
       throw SetResultRepositoryError.unknownPrescription
     }

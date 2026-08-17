@@ -57,14 +57,13 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
   }
 
   func testOverlappingDetailOpensShareOneOperationPerWorkoutAndSerializeDifferentWorkouts()
-    async
-  {
+    async {
     let firstWorkout = routeWorkout("first")
     let secondWorkout = routeWorkout("second")
     let client = SuspendedRouteClient(
       routes: [
         firstWorkout.healthKitUUID: retainedRoute(for: firstWorkout.healthKitUUID),
-        secondWorkout.healthKitUUID: retainedRoute(for: secondWorkout.healthKitUUID),
+        secondWorkout.healthKitUUID: retainedRoute(for: secondWorkout.healthKitUUID)
       ])
     let boundary = HealthWorkoutRouteBoundary(client: client, repository: RouteRepository())
 
@@ -126,7 +125,7 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
     let client = SuspendedRouteClient(
       routes: [
         firstWorkout.healthKitUUID: retainedRoute(for: firstWorkout.healthKitUUID),
-        queuedWorkout.healthKitUUID: retainedRoute(for: queuedWorkout.healthKitUUID),
+        queuedWorkout.healthKitUUID: retainedRoute(for: queuedWorkout.healthKitUUID)
       ])
     let repository = RouteRepository()
     let boundary = HealthWorkoutRouteBoundary(client: client, repository: repository)
@@ -207,7 +206,7 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
           availableStorageBytes: .max,
           lowPowerModeEnabled: false,
           batteryLevel: 0.19,
-          thermalState: .nominal),
+          thermalState: .nominal)
       ])
     let afterFetchBoundary = HealthWorkoutRouteBoundary(
       client: RouteClient(results: [.success(route)]),
@@ -278,7 +277,7 @@ final class HealthWorkoutRouteBoundaryTests: XCTestCase {
               sourceName: "Watch", sourceBundleIdentifier: "com.example.watch")),
           points: [
             .init(northSouthDegrees: 14.5995, eastWestDegrees: 120.9842),
-            .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852),
+            .init(northSouthDegrees: 14.6005, eastWestDegrees: 120.9852)
           ],
           originalPointCount: 2)
       ],

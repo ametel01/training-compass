@@ -42,11 +42,11 @@ final class RecoveryEvidenceAcceptanceTests: XCTestCase {
       HealthSleepSample(
         id: "ring-current", startDate: date(29, 1, 30), endDate: date(29, 8), provenance: ring),
       HealthSleepSample(
-        id: "nap-current", startDate: date(29, 13), endDate: date(29, 14), provenance: watch),
+        id: "nap-current", startDate: date(29, 13), endDate: date(29, 14), provenance: watch)
     ]
 
     let statuses = [
-      status(.sleep), status(.restingHeartRate), status(.heartRateVariability),
+      status(.sleep), status(.restingHeartRate), status(.heartRateVariability)
     ]
     let snapshot = HealthRecoveryEvidenceSnapshot(
       sleep: sleep,
@@ -75,7 +75,7 @@ final class RecoveryEvidenceAcceptanceTests: XCTestCase {
 
     let preferredWatch = snapshot.sleepEpisodes(
       preference: SleepSourcePreference(orderedSourceIDs: [
-        "bundle:com.example.watch", "bundle:com.example.ring",
+        "bundle:com.example.watch", "bundle:com.example.ring"
       ]),
       calendar: calendar)
     XCTAssertEqual(preferredWatch.primarySleep(on: asOf)?.source.id, "bundle:com.example.watch")
@@ -126,7 +126,7 @@ final class RecoveryEvidenceAcceptanceTests: XCTestCase {
     ).lowercased()
     for forbidden in [
       "score", "diagnosis", "medical", "injury risk", "causal", "performance prediction",
-      "warning threshold", "training prescription",
+      "warning threshold", "training prescription"
     ] {
       XCTAssertFalse(
         displayedLanguage.contains(forbidden), "Forbidden Recovery language: \(forbidden)")
@@ -191,8 +191,7 @@ final class RecoveryEvidenceAcceptanceTests: XCTestCase {
   }
 
   private func observation(_ id: String, day: Int, value: Double)
-    -> PersonalRecoveryBaselineObservation
-  {
+    -> PersonalRecoveryBaselineObservation {
     PersonalRecoveryBaselineObservation(
       id: id,
       date: TrainingDate(year: 2026, month: 8, day: day),

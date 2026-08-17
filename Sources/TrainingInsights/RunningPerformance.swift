@@ -788,8 +788,7 @@ public struct RunningPerformanceCalculator: Sendable {
   }
 
   private func isComparable(_ candidate: RunningWorkoutRecord, to reference: RunningWorkoutRecord)
-    -> Bool
-  {
+    -> Bool {
     guard let candidateDistance = candidate.distanceMeters,
       let candidateDuration = candidate.durationSeconds,
       let referenceDistance = reference.distanceMeters,

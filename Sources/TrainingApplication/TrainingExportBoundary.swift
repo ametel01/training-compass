@@ -243,7 +243,7 @@ public struct TrainingCompassExport: Codable, Equatable, Sendable {
       "training_cycle_audit", "set_results", "set_result_audit", "omitted_sets",
       "additional_sets", "session_completions", "session_correction_audit",
       "training_max_proposals", "training_max_history", "health_workout_link_facts",
-      "heart_rate_configuration", "running_comparison_exclusions", "health_workout_write_backs",
+      "heart_rate_configuration", "running_comparison_exclusions", "health_workout_write_backs"
     ]
     let data = TrainingAuthoritativeExportData(
       tables: tableNames.map { name in
@@ -255,7 +255,7 @@ public struct TrainingCompassExport: Codable, Equatable, Sendable {
                 id: "gate-zero",
                 fields: [
                   "schema_version": .integer(1),
-                  "owner_data_accepted": .integer(0),
+                  "owner_data_accepted": .integer(0)
                 ]
               )
             ]
@@ -346,8 +346,7 @@ public protocol TrainingExportSpaceChecking: Sendable {
 }
 
 public struct FoundationTrainingExportFileSystem: TrainingExportFileSystem,
-  TrainingExportSpaceChecking
-{
+  TrainingExportSpaceChecking {
   public init() {}
 
   public func temporaryExportDirectory() throws -> URL {
@@ -480,7 +479,7 @@ public struct TrainingExportBoundary: Sendable {
         "Training Compass Export preview",
         "Authoritative records: \(data.recordCount)",
         "Preferences: \(data.preferences.count)",
-        "HealthKit mirror: \(mirror == nil ? "not included" : "reference material included")",
+        "HealthKit mirror: \(mirror == nil ? "not included" : "reference material included")"
       ] + data.tables.map { "\($0.name): \($0.records.count)" }).joined(separator: "\n")
     return TrainingExportPreview(
       authoritativeData: data,

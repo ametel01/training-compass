@@ -49,7 +49,7 @@ final class RecoveryObservationsTests: XCTestCase {
     let samples = [
       resting("morning", day: 14, hour: 7, value: 51),
       resting("later", day: 14, hour: 9, value: 52),
-      resting("next-day", day: 16, value: 49),
+      resting("next-day", day: 16, value: 49)
     ]
 
     let projection = HealthRecoveryObservationCalculator().calculate(
@@ -75,7 +75,7 @@ final class RecoveryObservationsTests: XCTestCase {
       hrv("even-1", day: 15, value: 1),
       hrv("even-2", day: 15, value: 2),
       hrv("even-3", day: 15, value: 8),
-      hrv("even-4", day: 15, value: 9),
+      hrv("even-4", day: 15, value: 9)
     ]
 
     let observations = HealthRecoveryObservationCalculator().calculate(
@@ -158,7 +158,7 @@ final class RecoveryObservationsTests: XCTestCase {
       restingHeartRate: [],
       heartRateVariability: [
         hrv("one", day: 14, value: 42, algorithm: "v1"),
-        hrv("two", day: 14, value: 44, algorithm: "v2"),
+        hrv("two", day: 14, value: 44, algorithm: "v2")
       ],
       statuses: [status],
       calendar: calendar,
@@ -184,7 +184,7 @@ final class RecoveryObservationsTests: XCTestCase {
         resting("unknown", day: 15, value: 53, source: "com.phone"),
         HealthRestingHeartRateSample(
           id: "no-source", date: date(15, 9), beatsPerMinute: 54, provenance: .init()),
-        resting("good-later", day: 16, value: 51),
+        resting("good-later", day: 16, value: 51)
       ],
       heartRateVariability: [],
       statuses: [],
@@ -220,7 +220,7 @@ final class RecoveryObservationsTests: XCTestCase {
           authorization: .authorized,
           coverage: .available,
           mirroredContent: .available,
-          lastSuccessfulCheck: staleCheck),
+          lastSuccessfulCheck: staleCheck)
       ])
 
     let projection = snapshot.dailyObservations(calendar: calendar, now: now)
@@ -268,7 +268,7 @@ final class RecoveryObservationsTests: XCTestCase {
         authorization: .authorized,
         coverage: .available,
         mirroredContent: .available,
-        lastSuccessfulCheck: currentCheck),
+        lastSuccessfulCheck: currentCheck)
     ]
     let snapshot = HealthRecoveryEvidenceSnapshot(
       sleep: sleep,

@@ -113,8 +113,7 @@ struct BoundedHealthKitRouteSimplifier: Sendable {
         points[index], from: points[start], to: points[end])
       let midpointDistance = abs(Double(index) - midpoint)
       if distance > selectedDistance
-        || (distance == selectedDistance && midpointDistance < selectedMidpointDistance)
-      {
+        || (distance == selectedDistance && midpointDistance < selectedMidpointDistance) {
         selected = index
         selectedDistance = distance
         selectedMidpointDistance = midpointDistance

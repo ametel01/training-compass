@@ -29,7 +29,7 @@ public struct TrainingDate: Codable, Comparable, Equatable, Hashable, Sendable {
     guard (1...12).contains(month), year >= 1 else { return false }
     let daysInMonth = [
       31, Self.isLeap(year: year) ? 29 : 28, 31, 30, 31, 30,
-      31, 31, 30, 31, 30, 31,
+      31, 31, 30, 31, 30, 31
     ]
     return day >= 1 && day <= daysInMonth[month - 1]
   }
@@ -257,8 +257,7 @@ public enum AdditionalSetValidationError: Error, Codable, Equatable, Sendable {
 
 extension String {
   fileprivate
-    var nilIfEmpty: String?
-  { isEmpty ? nil : self }
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 /// Short aliases keep the domain vocabulary convenient at call sites.
@@ -284,25 +283,25 @@ public enum FiveThreeOnePrescription {
       [
         .init(percentage: 0.65, repetitions: 5, isPlusSetEligible: false),
         .init(percentage: 0.75, repetitions: 5, isPlusSetEligible: false),
-        .init(percentage: 0.85, repetitions: 5, isPlusSetEligible: true),
+        .init(percentage: 0.85, repetitions: 5, isPlusSetEligible: true)
       ]
     case (.week2, .primary):
       [
         .init(percentage: 0.70, repetitions: 3, isPlusSetEligible: false),
         .init(percentage: 0.80, repetitions: 3, isPlusSetEligible: false),
-        .init(percentage: 0.90, repetitions: 3, isPlusSetEligible: true),
+        .init(percentage: 0.90, repetitions: 3, isPlusSetEligible: true)
       ]
     case (.week3, .primary):
       [
         .init(percentage: 0.75, repetitions: 5, isPlusSetEligible: false),
         .init(percentage: 0.85, repetitions: 3, isPlusSetEligible: false),
-        .init(percentage: 0.95, repetitions: 1, isPlusSetEligible: true),
+        .init(percentage: 0.95, repetitions: 1, isPlusSetEligible: true)
       ]
     case (.deload, .primary):
       [
         .init(percentage: 0.40, repetitions: 5, isPlusSetEligible: false),
         .init(percentage: 0.50, repetitions: 5, isPlusSetEligible: false),
-        .init(percentage: 0.60, repetitions: 5, isPlusSetEligible: false),
+        .init(percentage: 0.60, repetitions: 5, isPlusSetEligible: false)
       ]
     case (.week1, .assistance), (.week2, .assistance), (.week3, .assistance):
       Array(repeating: .init(percentage: 0.65, repetitions: 10, isPlusSetEligible: false), count: 5)
