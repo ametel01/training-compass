@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-17T06:38:01+08:00",
+  "title": "Design System: Training Compass",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#f8f7f2",
+        "darkAppearance": "#13171f",
+        "source": "CompassPalette.paperUIColor",
+        "tonalRamp": ["#2f2a1d", "#514932", "#756c4e", "#999171", "#bbb493", "#d7d2b9", "#ebe8d8", "#fbfaf4"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Paper Surface",
+        "canonical": "#fffffc",
+        "darkAppearance": "#1f242e",
+        "source": "CompassPalette.surfaceUIColor",
+        "tonalRamp": ["#302f25", "#535143", "#787665", "#9d9a88", "#bebba9", "#d9d6c8", "#eeece4", "#fffffc"]
+      },
+      "navy": {
+        "role": "neutral",
+        "displayName": "Editorial Navy",
+        "canonical": "#091c33",
+        "darkAppearance": "#e8edf7",
+        "source": "CompassPalette.navyUIColor",
+        "tonalRamp": ["#061322", "#09213b", "#0e345a", "#16487a", "#2f6294", "#688bb1", "#a2b6d0", "#e8edf7"]
+      },
+      "compass-blue": {
+        "role": "primary",
+        "displayName": "Compass Blue",
+        "canonical": "#0654c7",
+        "darkAppearance": "#66abff",
+        "source": "CompassPalette.blueUIColor",
+        "tonalRamp": ["#04152f", "#062657", "#073985", "#064db4", "#1568de", "#4d91f0", "#91bdff", "#d8e8ff"]
+      },
+      "recovery-green": {
+        "role": "secondary",
+        "displayName": "Recovery Green",
+        "canonical": "#05803b",
+        "darkAppearance": "#52d17d",
+        "source": "CompassPalette.greenUIColor",
+        "tonalRamp": ["#062315", "#073d23", "#075b32", "#057942", "#169757", "#4fba7d", "#91d8ac", "#d8f3df"]
+      },
+      "destructive-red": {
+        "role": "secondary",
+        "displayName": "Destructive Red",
+        "canonical": "#c21a29",
+        "darkAppearance": "#ff6e75",
+        "source": "CompassPalette.redUIColor",
+        "tonalRamp": ["#31090d", "#5a1018", "#861722", "#b11b2c", "#d83a45", "#ed757b", "#f7b2b5", "#fde5e6"]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#474f5c",
+        "darkAppearance": "#adb5c2",
+        "source": "CompassPalette.inkMutedUIColor",
+        "tonalRamp": ["#15181d", "#272c33", "#3b424d", "#515a67", "#6b7481", "#8a929e", "#adb5c2", "#e0e4ea"]
+      },
+      "contour-line": {
+        "role": "neutral",
+        "displayName": "Contour Line",
+        "canonical": "#e0ded4",
+        "darkAppearance": "#38404d",
+        "source": "CompassPalette.lineUIColor",
+        "tonalRamp": ["#292820", "#47443a", "#696457", "#8b8577", "#aaa596", "#c5c0b3", "#dedbd1", "#f4f2eb"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Editorial Display",
+        "purpose": "Page orientation, native navigation title appearance, and empty-state headings only.",
+        "nativeSource": "SwiftUI .system(.largeTitle, design: .serif).weight(.bold); UIKit Georgia-Bold fallback"
+      },
+      "body": {
+        "displayName": "SF Operational Body",
+        "purpose": "Dense training, Health, provenance, settings, and form content.",
+        "nativeSource": "SwiftUI Dynamic Type body, subheadline, headline, caption, and caption2"
+      },
+      "label": {
+        "displayName": "SF Evidence Label",
+        "purpose": "Status labels, source badges, and compact explanatory metadata.",
+        "nativeSource": "SwiftUI caption/caption2 with semibold emphasis where state-bearing"
+      }
+    },
+    "shadows": [
+      {
+        "name": "native-bar-depth",
+        "value": "UIKit/SwiftUI tab and navigation bar appearance",
+        "purpose": "Let iOS provide tab and navigation separation; do not replace with custom web shadows."
+      },
+      {
+        "name": "tonal-card-depth",
+        "value": "surface fill plus 1pt contour-line stroke",
+        "purpose": "Separate cards and empty states without heavy elevation."
+      }
+    ],
+    "motion": [
+      {
+        "name": "native-navigation-motion",
+        "value": "system push, sheet, alert, and tab transitions",
+        "purpose": "Preserve iOS navigation expectations and Reduce Motion behavior."
+      },
+      {
+        "name": "privacy-shield-transition",
+        "value": "opacity",
+        "purpose": "Conceal sensitive content without changing the app's navigation state."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "iphone",
+        "value": "reviewed at 1206x2622 capture",
+        "purpose": "Primary phone layout evidence for Today."
+      },
+      {
+        "name": "iphone-dark",
+        "value": "reviewed at 1206x2622 dark capture",
+        "purpose": "Dark appearance evidence for Today."
+      },
+      {
+        "name": "ipad",
+        "value": "reviewed at 1640x2360 capture",
+        "purpose": "iPad framing evidence for Today."
+      }
+    ],
+    "evidence": [
+      ".impeccable/review/iphone-today.png",
+      ".impeccable/review/iphone-today-dark.png",
+      ".impeccable/review/ipad-today.png",
+      "TrainingCompassApp/UI/RootView.swift",
+      "TrainingCompassApp/UI/CompassDesignSystem.swift",
+      "PRODUCT.md",
+      "design/*.png"
+    ]
+  },
+  "components": [
+    {
+      "name": "Page Header",
+      "kind": "custom",
+      "refersTo": "page-header",
+      "description": "Top-level orientation block with a compass mark, editorial title, and SF subtitle.",
+      "html": "<div class=\"ds-page-header\"><div class=\"ds-compass-mark\">&#9650;</div><div><div class=\"ds-page-title\">Today</div><div class=\"ds-page-subtitle\">Monday, 17 August 2026</div></div></div>",
+      "css": ".ds-page-header { display: flex; align-items: center; gap: 12px; color: #091c33; } .ds-compass-mark { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: #fffffc; border: 1px solid #e0ded4; color: #0654c7; font-size: 22px; transform: rotate(24deg); } .ds-page-title { font-family: Georgia, serif; font-weight: 700; font-size: 44px; line-height: 1.05; letter-spacing: -0.5px; } .ds-page-subtitle { font: 400 17px/1.25 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: #474f5c; margin-top: 2px; }"
+    },
+    {
+      "name": "Empty State Card",
+      "kind": "card",
+      "refersTo": "empty-card",
+      "description": "Quiet paper card for empty or loading states with an icon well and centered explanation.",
+      "html": "<section class=\"ds-empty-card\"><div class=\"ds-empty-icon\">&#10003;</div><h2>Nothing scheduled today</h2><p>No local Session or imported Health Workout is available for today.</p></section>",
+      "css": ".ds-empty-card { box-sizing: border-box; width: min(100%, 640px); padding: 42px 24px; border-radius: 22px; border: 1px solid #e0ded4; background: #fffffc; text-align: center; color: #091c33; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-empty-icon { width: 72px; height: 72px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: rgba(6, 84, 199, 0.10); color: #0654c7; border: 4px solid #0654c7; font-size: 36px; line-height: 1; } .ds-empty-card h2 { margin: 0 0 16px; font-family: Georgia, serif; font-size: 32px; line-height: 1.1; } .ds-empty-card p { margin: 0; color: #474f5c; font-size: 20px; line-height: 1.3; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Native prominent action represented by the Compass Blue tint.",
+      "html": "<button class=\"ds-btn-primary\">Complete Session</button>",
+      "css": ".ds-btn-primary { min-height: 44px; border: 0; border-radius: 11px; padding: 10px 18px; background: #0654c7; color: #fffffc; font: 600 17px/1.2 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; cursor: pointer; } .ds-btn-primary:hover { background: #0749aa; } .ds-btn-primary:focus-visible { outline: 3px solid rgba(6, 84, 199, 0.28); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Grouped Evidence Row",
+      "kind": "custom",
+      "refersTo": "grouped-list-row",
+      "description": "Dense native-list row for Health, progress, and provenance summaries.",
+      "html": "<div class=\"ds-evidence-row\"><div class=\"ds-row-top\"><strong>Health Workouts</strong><span>Available</span></div><p>Last checked today</p><small>Cached content / Training Compass authoritative</small></div>",
+      "css": ".ds-evidence-row { min-height: 46px; padding: 10px 0; color: #091c33; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-row-top { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; } .ds-row-top strong { font-size: 17px; line-height: 1.2; } .ds-row-top span { color: #474f5c; font-size: 12px; font-weight: 600; } .ds-evidence-row p { margin: 3px 0 0; color: #091c33; font-size: 13px; } .ds-evidence-row small { display: block; margin-top: 3px; color: #474f5c; font-size: 11px; line-height: 1.2; }"
+    },
+    {
+      "name": "Privacy Shield",
+      "kind": "custom",
+      "refersTo": "privacy-shield",
+      "description": "Full-screen sensitive-content cover using platform background and restrained system treatment.",
+      "html": "<div class=\"ds-privacy-shield\"><div class=\"ds-lock\">LOCK</div><h2>Training Compass</h2><p>Private content concealed</p></div>",
+      "css": ".ds-privacy-shield { min-height: 320px; display: grid; place-content: center; gap: 16px; text-align: center; background: #f8f7f2; color: #091c33; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-lock { font-size: 48px; color: #091c33; } .ds-privacy-shield h2 { margin: 0; font-size: 22px; line-height: 1.2; } .ds-privacy-shield p { margin: 0; color: #474f5c; font-size: 17px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Evidence Field Guide",
+    "overview": "Training Compass is a native iOS field guide for orienting an athlete inside local training, Health context, recovery evidence, and training-max decisions. The built visual world is warm paper, editorial navy headings, SF body copy, compass blue actions, recovery green for positive health states, and quiet topographic contours behind grouped native surfaces.\n\nThe system refuses a generic fitness metric wall. It uses large native navigation, five stable tabs, grouped lists, native buttons, alerts, sheets, toggles, and content-unavailable states, then lets the brand live in exact color, serif display moments, compass marks, and evidence-notebook texture.",
+    "keyCharacteristics": [
+      "Native iOS structure first: tab shell, navigation stacks, grouped lists, toolbars, alerts, sheets, and Dynamic Type remain the behavioral frame.",
+      "Paper surfaces carry the product's local, durable, field-note character in both light and dark appearances.",
+      "Editorial serif display type appears in orientation moments; SF system typography carries operational content.",
+      "Compass blue is the single interactive tint and primary action color.",
+      "Green and red are semantic state colors, not decoration.",
+      "Topographic contour lines are background evidence texture, restrained enough to stay behind content."
+    ],
+    "rules": [
+      {
+        "name": "The One Tint Rule",
+        "body": "Compass Blue is the only general interaction color; do not introduce extra action colors for variety.",
+        "section": "colors"
+      },
+      {
+        "name": "The Evidence Color Rule",
+        "body": "Green and red must map to real state or consequence. They do not decorate static layouts.",
+        "section": "colors"
+      },
+      {
+        "name": "The Paper Adapts Rule",
+        "body": "Light and dark appearances keep the same roles, but values adapt through semantic `UIColor` providers rather than fixed one-mode hex values.",
+        "section": "colors"
+      },
+      {
+        "name": "The Serif Orientation Rule",
+        "body": "Use serif type only when the user is orienting to a surface or an empty state; do not use it for dense row data, forms, or controls.",
+        "section": "typography"
+      },
+      {
+        "name": "The Dynamic Type Rule",
+        "body": "New UI must use SwiftUI text styles and native controls so type scales with the user's iOS settings.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tonal Depth Rule",
+        "body": "Separate content with surface color, grouped-list structure, and 1pt strokes before adding shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Native Bar Rule",
+        "body": "Navigation and tab depth should come from UIKit/SwiftUI appearances, not custom glass or web-shaped navigation chrome.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the five-tab native shell and top-level navigation stacks intact.",
+      "Do apply `compassScreen()` to new app surfaces so tint, grouped lists, bars, and paper background stay consistent.",
+      "Do use SF Symbols for icons and native iOS controls for toggles, edit buttons, destructive actions, toolbars, sheets, alerts, and navigation links.",
+      "Do use serif display type for orientation moments and SF system styles for operational content.",
+      "Do treat contour lines as background texture only; they should never reduce text contrast or obscure controls.",
+      "Do verify light mode, dark mode, and iPad framing when changing shared visual primitives."
+    ],
+    "donts": [
+      "Don't invent testimonials, commercial proof, medical claims, or cloud-service claims in UI copy.",
+      "Don't turn Health, recovery, or training insights into unexplained scores; keep source and coverage visible.",
+      "Don't add a web-like dashboard grid, custom global navigation, hover-only affordances, or decorative cards inside cards.",
+      "Don't introduce a second action tint, ornamental green/red usage, or one-off accent colors.",
+      "Don't hard-code type sizes where native Dynamic Type styles are available.",
+      "Don't let field-guide decoration outrank the local record, explicit choices, and recoverable actions."
+    ]
+  }
+}
