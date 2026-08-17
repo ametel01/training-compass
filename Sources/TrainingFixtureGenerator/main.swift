@@ -1,32 +1,32 @@
 import Foundation
 import TrainingApplication
 
-let seed: UInt64
-if let seedIndex = CommandLine.arguments.firstIndex(of: "--seed"),
-  CommandLine.arguments.indices.contains(seedIndex + 1),
-  let parsedSeed = UInt64(CommandLine.arguments[seedIndex + 1]) {
-  seed = parsedSeed
+let seed: UInt64 = if let seedIndex = CommandLine.arguments.firstIndex(of: "--seed"),
+                      CommandLine.arguments.indices.contains(seedIndex + 1),
+                      let parsedSeed = UInt64(CommandLine.arguments[seedIndex + 1])
+{
+    parsedSeed
 } else {
-  seed = 21_571
+    21571
 }
 
 let generator = SyntheticFixtureGenerator()
-let profile: String
-if let profileIndex = CommandLine.arguments.firstIndex(of: "--profile"),
-  CommandLine.arguments.indices.contains(profileIndex + 1) {
-  profile = CommandLine.arguments[profileIndex + 1]
+let profile: String = if let profileIndex = CommandLine.arguments.firstIndex(of: "--profile"),
+                         CommandLine.arguments.indices.contains(profileIndex + 1)
+{
+    CommandLine.arguments[profileIndex + 1]
 } else {
-  profile = "gate-zero"
+    "gate-zero"
 }
 
 let value: any Encodable
 switch profile {
 case "gate-zero":
-  value = generator.manifest(seed: seed)
+    value = generator.manifest(seed: seed)
 case "verification-envelope":
-  value = generator.verificationEnvelope(seed: seed)
+    value = generator.verificationEnvelope(seed: seed)
 default:
-  throw FixtureGenerationError.unknownProfile(profile)
+    throw FixtureGenerationError.unknownProfile(profile)
 }
 
 let encoder = JSONEncoder()
@@ -37,5 +37,5 @@ output.append(0x0A)
 FileHandle.standardOutput.write(output)
 
 enum FixtureGenerationError: Error {
-  case unknownProfile(String)
+    case unknownProfile(String)
 }

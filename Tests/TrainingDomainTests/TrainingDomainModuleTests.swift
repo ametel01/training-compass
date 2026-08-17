@@ -1,9 +1,8 @@
+@testable import TrainingDomain
 import XCTest
 
-@testable import TrainingDomain
-
 final class TrainingDomainModuleTests: XCTestCase {
-  func testModuleLoadsWithoutFrameworkDependencies() {
-    XCTAssertNotNil(TrainingDomainModule.self)
-  }
+    func testModuleLoadsWithoutFrameworkDependencies() {
+        XCTAssertNotNil(TrainingDomainModule.self)
+    }
 }

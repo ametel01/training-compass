@@ -6,7 +6,7 @@ let package = Package(
     name: "TrainingCompassKit",
     platforms: [
         .iOS(.v26),
-        .macOS(.v15)
+        .macOS(.v15),
     ],
     products: [
         .library(name: "TrainingDomain", targets: ["TrainingDomain"]),
@@ -17,67 +17,67 @@ let package = Package(
         .executable(name: "training-fixtures", targets: ["TrainingFixtureGenerator"]),
         .executable(
             name: "training-migration-verifier",
-            targets: ["TrainingMigrationVerifier"]
-        )
+            targets: ["TrainingMigrationVerifier"],
+        ),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", "7.11.1"..<"8.0.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", "7.11.1" ..< "8.0.0"),
     ],
     targets: [
         .target(name: "TrainingDomain"),
         .target(
             name: "TrainingInsights",
-            dependencies: ["TrainingDomain"]
+            dependencies: ["TrainingDomain"],
         ),
         .target(
             name: "TrainingApplication",
-            dependencies: ["TrainingDomain", "TrainingInsights"]
+            dependencies: ["TrainingDomain", "TrainingInsights"],
         ),
         .target(
             name: "TrainingPersistence",
             dependencies: [
                 "TrainingApplication",
-                .product(name: "GRDB", package: "GRDB.swift")
-            ]
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
         ),
         .target(
             name: "HealthKitAdapter",
-            dependencies: ["TrainingApplication"]
+            dependencies: ["TrainingApplication"],
         ),
         .executableTarget(
             name: "TrainingFixtureGenerator",
-            dependencies: ["TrainingApplication"]
+            dependencies: ["TrainingApplication"],
         ),
         .executableTarget(
             name: "TrainingMigrationVerifier",
             dependencies: [
                 "TrainingPersistence",
-                .product(name: "GRDB", package: "GRDB.swift")
-            ]
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
         ),
         .testTarget(
             name: "TrainingDomainTests",
-            dependencies: ["TrainingDomain"]
+            dependencies: ["TrainingDomain"],
         ),
         .testTarget(
             name: "TrainingInsightsTests",
-            dependencies: ["TrainingInsights"]
+            dependencies: ["TrainingInsights"],
         ),
         .testTarget(
             name: "TrainingApplicationTests",
-            dependencies: ["TrainingApplication"]
+            dependencies: ["TrainingApplication"],
         ),
         .testTarget(
             name: "TrainingPersistenceTests",
             dependencies: [
                 "TrainingPersistence",
-                .product(name: "GRDB", package: "GRDB.swift")
-            ]
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
         ),
         .testTarget(
             name: "HealthKitAdapterTests",
-            dependencies: ["HealthKitAdapter"]
-        )
+            dependencies: ["HealthKitAdapter"],
+        ),
     ],
-    swiftLanguageModes: [.v6]
+    swiftLanguageModes: [.v6],
 )

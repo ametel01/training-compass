@@ -1,9 +1,8 @@
+@testable import TrainingPersistence
 import XCTest
 
-@testable import TrainingPersistence
-
 final class TrainingPersistenceModuleTests: XCTestCase {
-  func testModuleLoads() {
-    XCTAssertNotNil(TrainingPersistenceModule.self)
-  }
+    func testModuleLoads() {
+        XCTAssertNotNil(TrainingPersistenceModule.self)
+    }
 }

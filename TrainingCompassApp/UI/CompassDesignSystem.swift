@@ -7,82 +7,91 @@ import UIKit
 /// recognisably iOS while carrying the supplied compass, paper, and editorial
 /// reference system into every state.
 enum CompassPalette {
-  static let paper = Color(uiColor: paperUIColor)
-  static let surface = Color(uiColor: surfaceUIColor)
-  static let navy = Color(uiColor: navyUIColor)
-  static let blue = Color(uiColor: blueUIColor)
-  static let green = Color(uiColor: greenUIColor)
-  static let red = Color(uiColor: redUIColor)
-  static let inkMuted = Color(uiColor: inkMutedUIColor)
-  static let line = Color(uiColor: lineUIColor)
+    static let paper = Color(uiColor: paperUIColor)
+    static let surface = Color(uiColor: surfaceUIColor)
+    static let navy = Color(uiColor: navyUIColor)
+    static let blue = Color(uiColor: blueUIColor)
+    static let green = Color(uiColor: greenUIColor)
+    static let red = Color(uiColor: redUIColor)
+    static let inkMuted = Color(uiColor: inkMutedUIColor)
+    static let line = Color(uiColor: lineUIColor)
 
-  static let paperUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.075, green: 0.09, blue: 0.12, alpha: 1)
-      : UIColor(red: 0.973, green: 0.969, blue: 0.949, alpha: 1)
-  }
-  static let surfaceUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1)
-      : UIColor(red: 1, green: 1, blue: 0.99, alpha: 0.96)
-  }
-  static let navyUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.91, green: 0.93, blue: 0.97, alpha: 1)
-      : UIColor(red: 0.035, green: 0.11, blue: 0.20, alpha: 1)
-  }
-  static let blueUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.40, green: 0.67, blue: 1, alpha: 1)
-      : UIColor(red: 0.025, green: 0.33, blue: 0.78, alpha: 1)
-  }
-  static let greenUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.32, green: 0.82, blue: 0.49, alpha: 1)
-      : UIColor(red: 0.02, green: 0.50, blue: 0.23, alpha: 1)
-  }
-  static let redUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 1, green: 0.43, blue: 0.46, alpha: 1)
-      : UIColor(red: 0.76, green: 0.10, blue: 0.16, alpha: 1)
-  }
-  static let inkMutedUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.68, green: 0.71, blue: 0.76, alpha: 1)
-      : UIColor(red: 0.28, green: 0.31, blue: 0.36, alpha: 1)
-  }
-  static let lineUIColor = UIColor { traits in
-    traits.userInterfaceStyle == .dark
-      ? UIColor(red: 0.22, green: 0.25, blue: 0.30, alpha: 1)
-      : UIColor(red: 0.88, green: 0.87, blue: 0.83, alpha: 1)
-  }
+    static let paperUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.075, green: 0.09, blue: 0.12, alpha: 1)
+            : UIColor(red: 0.973, green: 0.969, blue: 0.949, alpha: 1)
+    }
+
+    static let surfaceUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1)
+            : UIColor(red: 1, green: 1, blue: 0.99, alpha: 0.96)
+    }
+
+    static let navyUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.91, green: 0.93, blue: 0.97, alpha: 1)
+            : UIColor(red: 0.035, green: 0.11, blue: 0.20, alpha: 1)
+    }
+
+    static let blueUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.40, green: 0.67, blue: 1, alpha: 1)
+            : UIColor(red: 0.025, green: 0.33, blue: 0.78, alpha: 1)
+    }
+
+    static let greenUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.32, green: 0.82, blue: 0.49, alpha: 1)
+            : UIColor(red: 0.02, green: 0.50, blue: 0.23, alpha: 1)
+    }
+
+    static let redUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1, green: 0.43, blue: 0.46, alpha: 1)
+            : UIColor(red: 0.76, green: 0.10, blue: 0.16, alpha: 1)
+    }
+
+    static let inkMutedUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.68, green: 0.71, blue: 0.76, alpha: 1)
+            : UIColor(red: 0.28, green: 0.31, blue: 0.36, alpha: 1)
+    }
+
+    static let lineUIColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.22, green: 0.25, blue: 0.30, alpha: 1)
+            : UIColor(red: 0.88, green: 0.87, blue: 0.83, alpha: 1)
+    }
 }
 
 struct CompassPaperBackground: View {
-  var body: some View {
-    Canvas { context, size in
-      context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(CompassPalette.paper))
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(CompassPalette.paper))
 
-      // A restrained contour field keeps the reference's topographic character
-      // without competing with content or reducing contrast.
-      let origin = CGPoint(x: size.width * 0.78, y: -size.height * 0.03)
-      for index in 0..<11 {
-        let inset = CGFloat(index) * 18
-        var path = Path()
-        path.move(to: CGPoint(x: origin.x - 120 - inset, y: origin.y + 12 + inset))
-        path.addCurve(
-          to: CGPoint(x: size.width + 36, y: origin.y + 80 + inset),
-          control1: CGPoint(x: origin.x - 36 - inset, y: origin.y - 26 + inset),
-          control2: CGPoint(x: size.width - 20, y: origin.y + 6 + inset))
-        path.addCurve(
-          to: CGPoint(x: size.width - 4, y: origin.y + 176 + inset),
-          control1: CGPoint(x: size.width + 40, y: origin.y + 114 + inset),
-          control2: CGPoint(x: size.width - 40, y: origin.y + 152 + inset))
-        context.stroke(path, with: .color(CompassPalette.line.opacity(0.44)), lineWidth: 0.7)
-      }
+            // A restrained contour field keeps the reference's topographic character
+            // without competing with content or reducing contrast.
+            let origin = CGPoint(x: size.width * 0.78, y: -size.height * 0.03)
+            for index in 0 ..< 11 {
+                let inset = CGFloat(index) * 18
+                var path = Path()
+                path.move(to: CGPoint(x: origin.x - 120 - inset, y: origin.y + 12 + inset))
+                path.addCurve(
+                    to: CGPoint(x: size.width + 36, y: origin.y + 80 + inset),
+                    control1: CGPoint(x: origin.x - 36 - inset, y: origin.y - 26 + inset),
+                    control2: CGPoint(x: size.width - 20, y: origin.y + 6 + inset),
+                )
+                path.addCurve(
+                    to: CGPoint(x: size.width - 4, y: origin.y + 176 + inset),
+                    control1: CGPoint(x: size.width + 40, y: origin.y + 114 + inset),
+                    control2: CGPoint(x: size.width - 40, y: origin.y + 152 + inset),
+                )
+                context.stroke(path, with: .color(CompassPalette.line.opacity(0.44)), lineWidth: 0.7)
+            }
+        }
+        .allowsHitTesting(false)
     }
-    .allowsHitTesting(false)
-  }
 }
 
 /// The product mark shared by the app icon and branded orientation moments.
@@ -90,215 +99,217 @@ struct CompassPaperBackground: View {
 /// Drawing the compact in-app version keeps it crisp at every display scale
 /// while preserving the geometry of the supplied reference.
 struct CompassBrandMark: View {
-  var body: some View {
-    Canvas { context, size in
-      let side = min(size.width, size.height)
-      let center = CGPoint(x: size.width / 2, y: size.height / 2)
-      let radius = side * 0.43
-      let lineWidth = max(1.25, side * 0.038)
+    var body: some View {
+        Canvas { context, size in
+            let side = min(size.width, size.height)
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = side * 0.43
+            let lineWidth = max(1.25, side * 0.038)
 
-      let ring = Path(
-        ellipseIn: CGRect(
-          x: center.x - radius,
-          y: center.y - radius,
-          width: radius * 2,
-          height: radius * 2
-        ))
-      context.stroke(ring, with: .color(CompassPalette.navy), lineWidth: lineWidth)
+            let ring = Path(
+                ellipseIn: CGRect(
+                    x: center.x - radius,
+                    y: center.y - radius,
+                    width: radius * 2,
+                    height: radius * 2,
+                ),
+            )
+            context.stroke(ring, with: .color(CompassPalette.navy), lineWidth: lineWidth)
 
-      for degrees in stride(from: 0.0, to: 360.0, by: 45.0) {
-        let angle = degrees * .pi / 180
-        let isCardinal = degrees.truncatingRemainder(dividingBy: 90) == 0
-        let outerRadius = radius - lineWidth * 0.45
-        let innerRadius = radius - side * (isCardinal ? 0.12 : 0.085)
-        var tick = Path()
-        tick.move(to: point(from: center, angle: angle, distance: innerRadius))
-        tick.addLine(to: point(from: center, angle: angle, distance: outerRadius))
-        context.stroke(
-          tick,
-          with: .color(isCardinal ? CompassPalette.navy : CompassPalette.line),
-          style: StrokeStyle(lineWidth: max(1, lineWidth * 0.72), lineCap: .round)
-        )
-      }
+            for degrees in stride(from: 0.0, to: 360.0, by: 45.0) {
+                let angle = degrees * .pi / 180
+                let isCardinal = degrees.truncatingRemainder(dividingBy: 90) == 0
+                let outerRadius = radius - lineWidth * 0.45
+                let innerRadius = radius - side * (isCardinal ? 0.12 : 0.085)
+                var tick = Path()
+                tick.move(to: point(from: center, angle: angle, distance: innerRadius))
+                tick.addLine(to: point(from: center, angle: angle, distance: outerRadius))
+                context.stroke(
+                    tick,
+                    with: .color(isCardinal ? CompassPalette.navy : CompassPalette.line),
+                    style: StrokeStyle(lineWidth: max(1, lineWidth * 0.72), lineCap: .round),
+                )
+            }
 
-      let needleAngle = -Double.pi / 4
-      let perpendicular = needleAngle + Double.pi / 2
-      let tipDistance = side * 0.31
-      let halfWidth = side * 0.105
-      let northTip = point(from: center, angle: needleAngle, distance: tipDistance)
-      let southTip = point(from: center, angle: needleAngle + .pi, distance: tipDistance)
-      let left = point(from: center, angle: perpendicular, distance: halfWidth)
-      let right = point(from: center, angle: perpendicular + .pi, distance: halfWidth)
+            let needleAngle = -Double.pi / 4
+            let perpendicular = needleAngle + Double.pi / 2
+            let tipDistance = side * 0.31
+            let halfWidth = side * 0.105
+            let northTip = point(from: center, angle: needleAngle, distance: tipDistance)
+            let southTip = point(from: center, angle: needleAngle + .pi, distance: tipDistance)
+            let left = point(from: center, angle: perpendicular, distance: halfWidth)
+            let right = point(from: center, angle: perpendicular + .pi, distance: halfWidth)
 
-      var northNeedle = Path()
-      northNeedle.move(to: center)
-      northNeedle.addLine(to: left)
-      northNeedle.addLine(to: northTip)
-      northNeedle.addLine(to: center)
-      context.fill(northNeedle, with: .color(CompassPalette.blue.opacity(0.48)))
-      context.stroke(northNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
+            var northNeedle = Path()
+            northNeedle.move(to: center)
+            northNeedle.addLine(to: left)
+            northNeedle.addLine(to: northTip)
+            northNeedle.addLine(to: center)
+            context.fill(northNeedle, with: .color(CompassPalette.blue.opacity(0.48)))
+            context.stroke(northNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
 
-      var southNeedle = Path()
-      southNeedle.move(to: center)
-      southNeedle.addLine(to: right)
-      southNeedle.addLine(to: southTip)
-      southNeedle.addLine(to: center)
-      context.fill(southNeedle, with: .color(CompassPalette.blue))
-      context.stroke(southNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
+            var southNeedle = Path()
+            southNeedle.move(to: center)
+            southNeedle.addLine(to: right)
+            southNeedle.addLine(to: southTip)
+            southNeedle.addLine(to: center)
+            context.fill(southNeedle, with: .color(CompassPalette.blue))
+            context.stroke(southNeedle, with: .color(CompassPalette.navy), lineWidth: lineWidth * 0.7)
 
-      context.fill(
-        Path(
-          ellipseIn: CGRect(
-            x: center.x - lineWidth,
-            y: center.y - lineWidth,
-            width: lineWidth * 2,
-            height: lineWidth * 2
-          )),
-        with: .color(CompassPalette.navy)
-      )
+            context.fill(
+                Path(
+                    ellipseIn: CGRect(
+                        x: center.x - lineWidth,
+                        y: center.y - lineWidth,
+                        width: lineWidth * 2,
+                        height: lineWidth * 2,
+                    ),
+                ),
+                with: .color(CompassPalette.navy),
+            )
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
     }
-    .aspectRatio(1, contentMode: .fit)
-    .accessibilityHidden(true)
-  }
 
-  private func point(from origin: CGPoint, angle: Double, distance: CGFloat) -> CGPoint {
-    CGPoint(
-      x: origin.x + CGFloat(cos(angle)) * distance,
-      y: origin.y + CGFloat(sin(angle)) * distance
-    )
-  }
+    private func point(from origin: CGPoint, angle: Double, distance: CGFloat) -> CGPoint {
+        CGPoint(
+            x: origin.x + CGFloat(cos(angle)) * distance,
+            y: origin.y + CGFloat(sin(angle)) * distance,
+        )
+    }
 }
 
 struct CompassPageHeader: View {
-  let title: String?
-  let subtitle: String?
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let title: String?
+    let subtitle: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-  init(title: String? = nil, subtitle: String? = nil) {
-    self.title = title
-    self.subtitle = subtitle
-  }
-
-  var body: some View {
-    HStack(alignment: .center, spacing: 12) {
-      CompassBrandMark()
-        .padding(3)
-        .background(CompassPalette.surface, in: Circle())
-        .frame(width: 42, height: 42)
-
-      VStack(alignment: .leading, spacing: 2) {
-        if let title {
-          Text(title)
-            .font(.system(.largeTitle, design: .serif).weight(.bold))
-            .foregroundStyle(CompassPalette.navy)
-            .tracking(-0.5)
-        }
-        if let subtitle {
-          Text(subtitle)
-            // The date is orientation metadata, so keep it subordinate to the
-            // native page title even when Dynamic Type is very large.
-            .font(
-              dynamicTypeSize.isAccessibilitySize
-                ? .footnote.weight(.medium)
-                : .subheadline.weight(.medium)
-            )
-            .foregroundStyle(CompassPalette.inkMuted)
-        }
-      }
+    init(title: String? = nil, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
     }
-    // Keep the orientation treatment legible without letting an extreme
-    // accessibility size push the work surface below the tab bar.
-    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-  }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            CompassBrandMark()
+                .padding(3)
+                .background(CompassPalette.surface, in: Circle())
+                .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if let title {
+                    Text(title)
+                        .font(.system(.largeTitle, design: .serif).weight(.bold))
+                        .foregroundStyle(CompassPalette.navy)
+                        .tracking(-0.5)
+                }
+                if let subtitle {
+                    Text(subtitle)
+                        // The date is orientation metadata, so keep it subordinate to the
+                        // native page title even when Dynamic Type is very large.
+                        .font(
+                            dynamicTypeSize.isAccessibilitySize
+                                ? .footnote.weight(.medium)
+                                : .subheadline.weight(.medium),
+                        )
+                        .foregroundStyle(CompassPalette.inkMuted)
+                }
+            }
+        }
+        // Keep the orientation treatment legible without letting an extreme
+        // accessibility size push the work surface below the tab bar.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    }
 }
 
 struct CompassEmptyState: View {
-  let title: String
-  let message: String
-  let systemImage: String
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let title: String
+    let message: String
+    let systemImage: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-  var body: some View {
-    VStack(spacing: 16) {
-      Image(systemName: systemImage)
-        .font(.system(size: 34, weight: .medium))
-        .foregroundStyle(CompassPalette.blue)
-        .frame(width: 72, height: 72)
-        .background(CompassPalette.blue.opacity(0.10), in: Circle())
-      Text(title)
-        .font(
-          .system(
-            dynamicTypeSize.isAccessibilitySize ? .subheadline : .title3,
-            design: .serif
-          ).weight(.bold)
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: systemImage)
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(CompassPalette.blue)
+                .frame(width: 72, height: 72)
+                .background(CompassPalette.blue.opacity(0.10), in: Circle())
+            Text(title)
+                .font(
+                    .system(
+                        dynamicTypeSize.isAccessibilitySize ? .subheadline : .title3,
+                        design: .serif,
+                    ).weight(.bold),
+                )
+                .foregroundStyle(CompassPalette.navy)
+                .multilineTextAlignment(.center)
+            Text(message)
+                .font(dynamicTypeSize.isAccessibilitySize ? .footnote : .body)
+                .foregroundStyle(CompassPalette.inkMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 42)
+        .background(CompassPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(CompassPalette.line.opacity(0.9), lineWidth: 1),
         )
-        .foregroundStyle(CompassPalette.navy)
-        .multilineTextAlignment(.center)
-      Text(message)
-        .font(dynamicTypeSize.isAccessibilitySize ? .footnote : .body)
-        .foregroundStyle(CompassPalette.inkMuted)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
-    .frame(maxWidth: .infinity)
-    .padding(.horizontal, 24)
-    .padding(.vertical, 42)
-    .background(CompassPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 22, style: .continuous)
-        .stroke(CompassPalette.line.opacity(0.9), lineWidth: 1)
-    )
-    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-  }
 }
 
 struct CompassScreenModifier: ViewModifier {
-  func body(content: Content) -> some View {
-    content
-      .tint(CompassPalette.blue)
-      .background(CompassPaperBackground().ignoresSafeArea())
-      .scrollContentBackground(.hidden)
-      .listStyle(.grouped)
-      .environment(\.defaultMinListRowHeight, 46)
-      .headerProminence(.standard)
-      .toolbarBackground(CompassPalette.paper, for: .navigationBar)
-      .toolbarBackground(.visible, for: .navigationBar)
-      .toolbarBackground(CompassPalette.paper, for: .tabBar)
-      .toolbarBackground(.visible, for: .tabBar)
-  }
+    func body(content: Content) -> some View {
+        content
+            .tint(CompassPalette.blue)
+            .background(CompassPaperBackground().ignoresSafeArea())
+            .scrollContentBackground(.hidden)
+            .listStyle(.grouped)
+            .environment(\.defaultMinListRowHeight, 46)
+            .headerProminence(.standard)
+            .toolbarBackground(CompassPalette.paper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(CompassPalette.paper, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
+    }
 }
 
 extension View {
-  func compassScreen() -> some View {
-    modifier(CompassScreenModifier())
-  }
+    func compassScreen() -> some View {
+        modifier(CompassScreenModifier())
+    }
 }
 
 enum CompassAppearance {
-  @MainActor
-  static func apply() {
-    let nav = UINavigationBarAppearance()
-    nav.configureWithOpaqueBackground()
-    nav.backgroundColor = CompassPalette.paperUIColor
-    nav.shadowColor = CompassPalette.lineUIColor
-    // Keep title sizing and color native so Dynamic Type and accessibility text
-    // sizes continue to scale and adapt with the navigation system.
-    UINavigationBar.appearance().standardAppearance = nav
-    UINavigationBar.appearance().scrollEdgeAppearance = nav
-    UINavigationBar.appearance().compactAppearance = nav
-    UINavigationBar.appearance().tintColor = CompassPalette.blueUIColor
+    @MainActor
+    static func apply() {
+        let nav = UINavigationBarAppearance()
+        nav.configureWithOpaqueBackground()
+        nav.backgroundColor = CompassPalette.paperUIColor
+        nav.shadowColor = CompassPalette.lineUIColor
+        // Keep title sizing and color native so Dynamic Type and accessibility text
+        // sizes continue to scale and adapt with the navigation system.
+        UINavigationBar.appearance().standardAppearance = nav
+        UINavigationBar.appearance().scrollEdgeAppearance = nav
+        UINavigationBar.appearance().compactAppearance = nav
+        UINavigationBar.appearance().tintColor = CompassPalette.blueUIColor
 
-    let tab = UITabBarAppearance()
-    tab.configureWithOpaqueBackground()
-    tab.backgroundColor = CompassPalette.paperUIColor
-    tab.shadowColor = CompassPalette.lineUIColor
-    UITabBar.appearance().standardAppearance = tab
-    if #available(iOS 15.0, *) {
-      UITabBar.appearance().scrollEdgeAppearance = tab
+        let tab = UITabBarAppearance()
+        tab.configureWithOpaqueBackground()
+        tab.backgroundColor = CompassPalette.paperUIColor
+        tab.shadowColor = CompassPalette.lineUIColor
+        UITabBar.appearance().standardAppearance = tab
+        if #available(iOS 15.0, *) {
+            UITabBar.appearance().scrollEdgeAppearance = tab
+        }
+        UITabBar.appearance().tintColor = CompassPalette.blueUIColor
+
+        UITableView.appearance().backgroundColor = .clear
+        UICollectionView.appearance().backgroundColor = .clear
     }
-    UITabBar.appearance().tintColor = CompassPalette.blueUIColor
-
-    UITableView.appearance().backgroundColor = .clear
-    UICollectionView.appearance().backgroundColor = .clear
-  }
 }
