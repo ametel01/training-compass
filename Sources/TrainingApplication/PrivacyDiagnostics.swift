@@ -105,8 +105,9 @@ public struct FileManagerPrivacyDiagnosticProtection: PrivacyDiagnosticProtectio
 
     public func applyCompleteFileProtection(to url: URL) throws {
         #if (os(iOS) || os(tvOS) || os(watchOS)) && !targetEnvironment(simulator)
-            try FileManager.default.setAttributes(
-                [.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path(),
+            try (url as NSURL).setResourceValue(
+                URLFileProtection.complete,
+                forKey: .fileProtectionKey,
             )
         #else
             _ = url
@@ -126,8 +127,8 @@ public struct FileManagerPrivacyDiagnosticProtection: PrivacyDiagnosticProtectio
 
     public func verifyCompleteFileProtection(at url: URL) throws {
         #if (os(iOS) || os(tvOS) || os(watchOS)) && !targetEnvironment(simulator)
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path())
-            guard attributes[.protectionKey] as? FileProtectionType == .complete else {
+            let values = try url.resourceValues(forKeys: [.fileProtectionKey])
+            guard values.fileProtection == .complete else {
                 throw PrivacyDiagnosticStoreError.invalidDirectory
             }
         #else
@@ -188,7 +189,7 @@ public actor PrivacyDiagnosticStore {
         try protection.verifyExcludedFromBackup(destination)
         try fileManager.setAttributes(
             [.modificationDate: clock.now()],
-            ofItemAtPath: destination.path(),
+            ofItemAtPath: destination.path(percentEncoded: false),
         )
         try prune()
     }
@@ -210,7 +211,7 @@ public actor PrivacyDiagnosticStore {
     /// or sharing has completed.
     public func export(to destination: URL) throws {
         guard destination.isFileURL else { throw PrivacyDiagnosticStoreError.invalidDirectory }
-        guard !fileManager.fileExists(atPath: destination.path()) else {
+        guard !fileManager.fileExists(atPath: destination.path(percentEncoded: false)) else {
             throw PrivacyDiagnosticStoreError.exportAlreadyExists
         }
         let payload = try JSONEncoder().encode(entries())
@@ -228,13 +229,13 @@ public actor PrivacyDiagnosticStore {
 
     public func removeExport(at destination: URL) throws {
         guard destination.isFileURL else { throw PrivacyDiagnosticStoreError.invalidDirectory }
-        if fileManager.fileExists(atPath: destination.path()) {
+        if fileManager.fileExists(atPath: destination.path(percentEncoded: false)) {
             try fileManager.removeItem(at: destination)
         }
     }
 
     private func diagnosticFiles() throws -> [URL] {
-        guard fileManager.fileExists(atPath: directory.path()) else { return [] }
+        guard fileManager.fileExists(atPath: directory.path(percentEncoded: false)) else { return [] }
         return try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey],

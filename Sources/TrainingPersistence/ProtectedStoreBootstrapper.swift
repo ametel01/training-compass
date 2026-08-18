@@ -48,11 +48,11 @@ public struct ProtectedStoreBootstrapper: Sendable {
         var configuration = Configuration()
         configuration.label = "TrainingCompass"
         let authoritative = try DatabaseQueue(
-            path: locations.authoritativeDatabase.path(),
+            path: locations.authoritativeDatabase.path(percentEncoded: false),
             configuration: configuration,
         )
         let reconstructible = try DatabaseQueue(
-            path: locations.reconstructibleDatabase.path(),
+            path: locations.reconstructibleDatabase.path(percentEncoded: false),
             configuration: configuration,
         )
 
@@ -144,8 +144,10 @@ public struct ProtectedStoreBootstrapper: Sendable {
     }
 
     private func checkMigrationSpace(for database: URL, at root: URL) throws {
-        let currentBytes: Int64 = if let attributes = try? FileManager.default.attributesOfItem(atPath: database.path()),
-                                     let fileSize = attributes[.size] as? NSNumber
+        let currentBytes: Int64 = if let attributes = try? FileManager.default.attributesOfItem(
+            atPath: database.path(percentEncoded: false),
+        ),
+            let fileSize = attributes[.size] as? NSNumber
         {
             max(0, fileSize.int64Value)
         } else {
@@ -209,11 +211,19 @@ public struct ProtectedStoreBootstrapper: Sendable {
 
     private func recoverPendingAuthoritativeSwap(_ locations: StoreLocations) throws {
         let fileManager = FileManager.default
-        let markerExists = fileManager.fileExists(atPath: locations.authoritativeSwapMarker.path())
-        let currentExists = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
-        let backupExists = fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path())
+        let markerExists = fileManager.fileExists(
+            atPath: locations.authoritativeSwapMarker.path(percentEncoded: false),
+        )
+        let currentExists = fileManager.fileExists(
+            atPath: locations.authoritativeDatabase.path(percentEncoded: false),
+        )
+        let backupExists = fileManager.fileExists(
+            atPath: locations.authoritativeBackupDatabase.path(percentEncoded: false),
+        )
         if !markerExists, !backupExists {
-            if fileManager.fileExists(atPath: locations.authoritativeStagingDatabase.path()) {
+            if fileManager.fileExists(
+                atPath: locations.authoritativeStagingDatabase.path(percentEncoded: false),
+            ) {
                 try fileManager.removeItem(at: locations.authoritativeStagingDatabase)
             }
             return
@@ -231,7 +241,9 @@ public struct ProtectedStoreBootstrapper: Sendable {
         if markerExists {
             try fileManager.removeItem(at: locations.authoritativeSwapMarker)
         }
-        if fileManager.fileExists(atPath: locations.authoritativeStagingDatabase.path()) {
+        if fileManager.fileExists(
+            atPath: locations.authoritativeStagingDatabase.path(percentEncoded: false),
+        ) {
             try fileManager.removeItem(at: locations.authoritativeStagingDatabase)
         }
     }

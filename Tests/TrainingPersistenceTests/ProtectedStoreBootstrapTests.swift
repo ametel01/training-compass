@@ -6,7 +6,7 @@ import XCTest
 final class ProtectedStoreBootstrapTests: XCTestCase {
     func testCreatesSeparateProtectedStoresAndExcludesOnlyReconstructibleDataFromBackup() throws {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            .appending(path: "Training Compass \(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let protection = ProtectionSpy()
         let bootstrapper = ProtectedStoreBootstrapper(protection: protection)

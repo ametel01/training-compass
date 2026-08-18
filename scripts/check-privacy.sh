@@ -95,7 +95,7 @@ collected=$(plutil -extract NSPrivacyCollectedDataTypes json -o - TrainingCompas
 accessed=$(plutil -extract NSPrivacyAccessedAPITypes json -o - TrainingCompassApp/Resources/PrivacyInfo.xcprivacy)
 [[ "$accessed" == "[]" ]] || { echo "Gate 0 privacy manifest must declare no required-reason APIs." >&2; exit 1; }
 
-require_pattern 'FileProtectionType\.complete' Sources/TrainingPersistence/StoreProtection.swift
+require_pattern 'URLFileProtection\.complete' Sources/TrainingPersistence/StoreProtection.swift
 require_pattern 'isExcludedFromBackup' Sources/TrainingPersistence/StoreProtection.swift
 require_pattern 'privacySensitive\(\)' TrainingCompassApp/UI/RootView.swift
 require_pattern 'scenePhase != \.active' TrainingCompassApp/App/TrainingCompassApp.swift
@@ -115,7 +115,7 @@ if search_recursive 'public (struct|enum|class) HealthKitRouteCoordinate' Source
   exit 1
 fi
 
-require_pattern 'maximumRetainedPoints = 2_000' Sources/TrainingApplication/HealthWorkoutRouteBoundary.swift
+require_pattern 'maximumRetainedPoints = 2000' Sources/TrainingApplication/HealthWorkoutRouteBoundary.swift
 
 if ! python3 - <<'PY'
 from pathlib import Path

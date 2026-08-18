@@ -235,7 +235,7 @@ public struct TrainingMigrationCompatibilityVerifier: Sendable {
         try FileManager.default.createDirectory(
             at: temporaryDirectory, withIntermediateDirectories: true,
         )
-        let database = try DatabaseQueue(path: url.path())
+        let database = try DatabaseQueue(path: url.path(percentEncoded: false))
         try migrator.migrate(database, upTo: migrator.migrations[sourceVersion - 1])
         return (database, url)
     }

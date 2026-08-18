@@ -115,8 +115,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         let fileManager = FileManager.default
         do {
             try fileManager.createDirectory(at: locations.root, withIntermediateDirectories: true)
-            if !fileManager.fileExists(atPath: marker.path()) {
-                guard fileManager.createFile(atPath: marker.path(), contents: Data("pending".utf8)) else {
+            if !fileManager.fileExists(atPath: marker.path(percentEncoded: false)) {
+                guard fileManager.createFile(
+                    atPath: marker.path(percentEncoded: false), contents: Data("pending".utf8),
+                ) else {
                     throw TrainingErasureError.cleanupFailed
                 }
             }
@@ -192,8 +194,10 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     public func requiredImportSpaceBytes(archiveBytes: Int64) async throws -> Int64 {
         let currentBytes: Int64
         let databaseURL = actualLocations().authoritativeDatabase
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: databaseURL.path()),
-           let fileSize = attributes[.size] as? NSNumber
+        if let attributes = try? FileManager.default.attributesOfItem(
+            atPath: databaseURL.path(percentEncoded: false),
+        ),
+            let fileSize = attributes[.size] as? NSNumber
         {
             currentBytes = max(0, fileSize.int64Value)
         } else {
@@ -380,18 +384,18 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         try await stores.reconstructible.write { db in
             let existingUUIDs: Set<String> = try
                 stream == .workouts
-                    ? Set(String.fetchAll(db, sql: "SELECT healthkit_uuid FROM health_workouts"))
-                    : []
+                ? Set(String.fetchAll(db, sql: "SELECT healthkit_uuid FROM health_workouts"))
+                : []
             let existingRecoveryIDs: Set<String> = try
                 RecoveryEvidenceStream(stream) != nil
-                    ? Set(
-                        String.fetchAll(
-                            db,
-                            sql: "SELECT sample_id FROM health_recovery_samples WHERE stream = ?",
-                            arguments: [stream.rawValue],
-                        ),
-                    )
-                    : []
+                ? Set(
+                    String.fetchAll(
+                        db,
+                        sql: "SELECT sample_id FROM health_recovery_samples WHERE stream = ?",
+                        arguments: [stream.rawValue],
+                    ),
+                )
+                : []
             let recoverySamples = page.recoverySamples(for: stream)
             for workout in page.workouts where stream == .workouts {
                 try db.execute(
@@ -2982,7 +2986,8 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             var configuration = Configuration()
             configuration.label = "TrainingCompassImport"
             staged = try DatabaseQueue(
-                path: locations.authoritativeStagingDatabase.path(), configuration: configuration,
+                path: locations.authoritativeStagingDatabase.path(percentEncoded: false),
+                configuration: configuration,
             )
             guard let stagingDatabase = staged else {
                 throw TrainingImportError.stagingFailed("staging database unavailable")
@@ -3043,14 +3048,20 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             ),
         )
         do {
-            if fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
+            if fileManager.fileExists(
+                atPath: locations.authoritativeBackupDatabase.path(percentEncoded: false),
+            ) {
                 try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
             }
-            guard fileManager.createFile(atPath: locations.authoritativeSwapMarker.path(), contents: nil)
+            guard fileManager.createFile(
+                atPath: locations.authoritativeSwapMarker.path(percentEncoded: false), contents: nil,
+            )
             else {
                 throw TrainingImportError.replacementFailed("swap marker unavailable")
             }
-            let hadCurrent = fileManager.fileExists(atPath: locations.authoritativeDatabase.path())
+            let hadCurrent = fileManager.fileExists(
+                atPath: locations.authoritativeDatabase.path(percentEncoded: false),
+            )
             if hadCurrent {
                 try fileManager.moveItem(
                     at: locations.authoritativeDatabase, to: locations.authoritativeBackupDatabase,
@@ -3063,14 +3074,20 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
                 try bootstrapper.protectAuthoritativeStore(in: root)
             } catch {
                 try? fileManager.removeItem(at: locations.authoritativeDatabase)
-                if hadCurrent, fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
+                if hadCurrent,
+                   fileManager.fileExists(
+                       atPath: locations.authoritativeBackupDatabase.path(percentEncoded: false),
+                   )
+                {
                     try? fileManager.moveItem(
                         at: locations.authoritativeBackupDatabase, to: locations.authoritativeDatabase,
                     )
                 }
                 throw error
             }
-            if fileManager.fileExists(atPath: locations.authoritativeBackupDatabase.path()) {
+            if fileManager.fileExists(
+                atPath: locations.authoritativeBackupDatabase.path(percentEncoded: false),
+            ) {
                 try fileManager.removeItem(at: locations.authoritativeBackupDatabase)
             }
             try? fileManager.removeItem(at: locations.authoritativeSwapMarker)
@@ -3092,7 +3109,9 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
     private func recoverPendingErasure() throws {
         let locations = actualLocations()
         let marker = erasureMarker(for: locations)
-        guard FileManager.default.fileExists(atPath: marker.path()) else { return }
+        guard FileManager.default.fileExists(atPath: marker.path(percentEncoded: false)) else {
+            return
+        }
         do {
             try removeIfPresent(locations.authoritativeDirectory)
             try removeIfPresent(locations.reconstructibleDirectory)
@@ -3107,7 +3126,7 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
 
     private func removeIfPresent(_ url: URL) throws {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: url.path()) else { return }
+        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else { return }
         try fileManager.removeItem(at: url)
     }
 
