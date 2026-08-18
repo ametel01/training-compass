@@ -18,6 +18,7 @@ BUILD_DIR="${TRAINING_COMPASS_REFRESH_BUILD_DIR:-$USER_HOME/Library/Developer/Xc
 CHECKS_FILE="$(mktemp -t training-compass-refresh-checks)"
 PROFILE_PLIST="$(mktemp -t training-compass-refresh-profile)"
 DEVICE_JSON="$(mktemp -t training-compass-refresh-device)"
+LOCK_JSON="$(mktemp -t training-compass-refresh-lock)"
 COMMAND_OUTPUT="$(mktemp -t training-compass-refresh-command)"
 PROFILE_CREATION_DATE=""
 PROFILE_EXPIRATION_DATE=""
@@ -29,7 +30,7 @@ macos_version="$(sw_vers -productVersion 2>/dev/null || true)"
 export TRAINING_COMPASS_MACOS_VERSION="$macos_version"
 
 cleanup() {
-  rm -f "$CHECKS_FILE" "$PROFILE_PLIST" "$DEVICE_JSON" "$COMMAND_OUTPUT"
+  rm -f "$CHECKS_FILE" "$PROFILE_PLIST" "$DEVICE_JSON" "$LOCK_JSON" "$COMMAND_OUTPUT"
 }
 trap cleanup EXIT
 
@@ -75,11 +76,37 @@ command_available() {
 login_keychain_signing_identity_available() {
   local login_keychain="$USER_HOME/Library/Keychains/login.keychain-db"
   local attempt
-  for attempt in 1 2 3 4 5 6; do
+  # Xcode can finish signing before securityd publishes the new identity to
+  # the login keychain. Allow the same bounded one-minute propagation window
+  # used by the attended installer.
+  for attempt in {1..30}; do
     if command_available security \
       && [[ -f "$login_keychain" ]] \
       && security find-identity -v -p codesigning "$login_keychain" 2>/dev/null \
-        | grep -Eq 'valid identities found: [1-9][0-9]*'; then
+        | grep -Eq '[1-9][0-9]* valid identities found'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_unlocked_device() {
+  local device_id="$1"
+  local attempt
+  echo "Keep the iPhone unlocked while Training Compass is installed and launched…"
+  for attempt in {1..30}; do
+    if xcrun devicectl device info lockState \
+      --device "$device_id" \
+      --json-output "$LOCK_JSON" >"$COMMAND_OUTPUT" 2>&1 \
+      && python3 - "$LOCK_JSON" <<'PY'
+import json
+import sys
+
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+raise SystemExit(0 if payload.get("result", {}).get("passcodeRequired") is False else 1)
+PY
+    then
       return 0
     fi
     sleep 2
@@ -308,8 +335,8 @@ inspect_profile() {
     return 1
   fi
 
-  PROFILE_CREATION_DATE="$(/usr/libexec/PlistBuddy -c 'Print :CreationDate' "$PROFILE_PLIST" 2>/dev/null || true)"
-  PROFILE_EXPIRATION_DATE="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$PROFILE_PLIST" 2>/dev/null || true)"
+  PROFILE_CREATION_DATE="$(plutil -extract CreationDate raw -o - "$PROFILE_PLIST" 2>/dev/null || true)"
+  PROFILE_EXPIRATION_DATE="$(plutil -extract ExpirationDate raw -o - "$PROFILE_PLIST" 2>/dev/null || true)"
   application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST" 2>/dev/null || true)"
   profile_team="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' "$PROFILE_PLIST" 2>/dev/null || true)"
   profile_bundle="${application_identifier#*.}"
@@ -441,7 +468,7 @@ if not path.exists():
     raise SystemExit
 try:
     value = json.loads(path.read_text()).get("profile", {}).get("expirationDate", "")
-    parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
 except (OSError, ValueError, json.JSONDecodeError):
     print("unknown")
     raise SystemExit
@@ -545,6 +572,14 @@ run_refresh() {
     return 1
   fi
 
+  if ! wait_for_unlocked_device "$device_id"; then
+    fail_check "recentUnlock"
+    RESULT="fail"
+    write_record "$RESULT"
+    echo "The iPhone remained locked; no install was attempted." >&2
+    return 1
+  fi
+
   echo "Installing Training Compass on the connected iPhone…"
   if xcrun devicectl device install app --device "$device_id" "$APP_PATH" >"$COMMAND_OUTPUT" 2>&1; then
     pass_check "inPlaceInstall"
@@ -555,6 +590,14 @@ run_refresh() {
     RESULT="fail"
     write_record "$RESULT"
     echo "In-place install failed; no uninstall was attempted." >&2
+    return 1
+  fi
+
+  if ! wait_for_unlocked_device "$device_id"; then
+    fail_check "recentUnlock"
+    RESULT="fail"
+    write_record "$RESULT"
+    echo "The iPhone locked before launch; the installed app and its data were left in place." >&2
     return 1
   fi
 

@@ -127,6 +127,8 @@ def main() -> int:
     for needle in (
         "xcrun devicectl list devices --json-output",
         "xcrun devicectl device info apps",
+        "xcrun devicectl device info files",
+        "authoritative.sqlite",
         "select_xcode_toolchain",
         "discover-xcode-development-team.py",
         'hardware.get("deviceType") == "iPhone"',
@@ -150,12 +152,11 @@ def main() -> int:
     ):
         require(needle, connected_installer, errors, "connected-iPhone installer")
 
-    require(
+    for needle in (
         "login_keychain_signing_identity_available",
-        refresh,
-        errors,
-        "refresh workflow",
-    )
+        "wait_for_unlocked_device",
+    ):
+        require(needle, refresh, errors, "refresh workflow")
 
     for forbidden_prompt in ("Personal Team ID:", "Verified export path:"):
         if forbidden_prompt in connected_installer:

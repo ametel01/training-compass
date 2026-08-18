@@ -14,11 +14,12 @@ APP_BUNDLE_ID="com.ametel01.trainingcompass"
 USER_HOME="${HOME:?HOME must be set for a logged-in macOS session}"
 DEVICE_JSON="$(mktemp -t training-compass-install-device)"
 APP_JSON="$(mktemp -t training-compass-install-app)"
+APP_DATA_JSON="$(mktemp -t training-compass-install-app-data)"
 BOOTSTRAP_PROFILE="$(mktemp -t training-compass-install-profile)"
 SIGNING_BUILD_DIR="${TRAINING_COMPASS_SIGNING_BUILD_DIR:-$USER_HOME/Library/Developer/Xcode/DerivedData/TrainingCompassPersonalTeamSigning}"
 
 cleanup() {
-  rm -f "$DEVICE_JSON" "$APP_JSON" "$BOOTSTRAP_PROFILE"
+  rm -f "$DEVICE_JSON" "$APP_JSON" "$APP_DATA_JSON" "$BOOTSTRAP_PROFILE"
 }
 trap cleanup EXIT
 
@@ -263,6 +264,32 @@ print("true" if found else "false")
 PY
 }
 
+installed_app_has_authoritative_store() {
+  local device_id="$1"
+  if ! xcrun devicectl device info files \
+    --device "$device_id" \
+    --domain-type appDataContainer \
+    --domain-identifier "$APP_BUNDLE_ID" \
+    --subdirectory 'Library/Application Support/TrainingCompass/authoritative' \
+    --json-output "$APP_DATA_JSON" >/dev/null; then
+    return 2
+  fi
+  python3 - "$APP_DATA_JSON" <<'PY'
+import json
+import sys
+
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+files = payload.get("result", {}).get("files", [])
+found = any(
+    isinstance(item, dict)
+    and item.get("name") == "authoritative.sqlite"
+    and not item.get("resources", {}).get("isDirectory", False)
+    for item in files
+)
+raise SystemExit(0 if found else 1)
+PY
+}
+
 resolve_verified_export() {
   local export_path="${TRAINING_COMPASS_EXPORT_PATH:-${EXPORT_PATH:-}}"
   if [[ -z "$export_path" ]]; then
@@ -305,12 +332,15 @@ has_login_keychain_signing_identity() {
   command -v security >/dev/null 2>&1 \
     && security find-identity -v -p codesigning \
       "$USER_HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
-      | grep -Eq 'valid identities found: [1-9][0-9]*'
+      | grep -Eq '[1-9][0-9]* valid identities found'
 }
 
 wait_for_login_keychain_signing_identity() {
   local attempt
-  for attempt in 1 2 3 4 5 6; do
+  # Xcode may finish the signed build before securityd publishes the newly
+  # created certificate/key pair to the login keychain. Keep this bounded, but
+  # allow up to one minute for that propagation before failing the handoff.
+  for attempt in {1..30}; do
     if has_login_keychain_signing_identity; then
       return 0
     fi
@@ -395,9 +425,20 @@ main() {
     || fail "Personal Team ID must contain exactly 10 uppercase letters or digits"
   export_path=""
   if [[ "$existing_app" == "true" ]]; then
-    export_path="$(resolve_verified_export)"
-    echo "Updating the existing Training Compass installation in place."
-    echo "Using verified export: $export_path"
+    local store_status=0
+    if installed_app_has_authoritative_store "$device_id"; then
+      export_path="$(resolve_verified_export)"
+      echo "Updating the existing Training Compass installation in place."
+      echo "Using verified export: $export_path"
+    else
+      store_status="$?"
+      if [[ "$store_status" == "1" ]]; then
+        existing_app="false"
+        echo "The installed app has no authoritative store; treating it as an interrupted fresh install."
+      else
+        fail "could not verify whether the installed app contains authoritative data; no install was attempted"
+      fi
+    fi
   else
     echo "Training Compass is not installed on this iPhone; treating this as a fresh install."
   fi
