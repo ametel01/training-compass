@@ -59,6 +59,25 @@ final class HeartRateZonesTests: XCTestCase {
         XCTAssertEqual(result.unavailableSeconds, 20, accuracy: 0.000_000_1)
     }
 
+    func testInstantaneousHealthSamplesOwnTimeUntilTheNextNearbySample() throws {
+        let result = try HeartRateZoneCalculator().calculate(
+            workoutStartDate: start.timeIntervalSince1970,
+            workoutEndDate: start.addingTimeInterval(30).timeIntervalSince1970,
+            samples: [
+                sample("first", offset: 0, duration: 0, bpm: 100),
+                sample("second", offset: 10, duration: 0, bpm: 140),
+                sample("third", offset: 20, duration: 0, bpm: 180),
+            ],
+            maximumHeartRate: MaximumHeartRate(beatsPerMinute: 200),
+        )
+
+        XCTAssertEqual(result.zoneDurations[.zone1], 10)
+        XCTAssertEqual(result.zoneDurations[.zone3], 10)
+        XCTAssertNil(result.zoneDurations[.zone5])
+        XCTAssertEqual(result.coveredSeconds, 20)
+        XCTAssertEqual(result.unavailableSeconds, 10)
+    }
+
     func testLongGapAndBothWorkoutEdgesRemainUnavailable() throws {
         let result = try HeartRateZoneCalculator().calculate(
             workoutStartDate: start.timeIntervalSince1970,

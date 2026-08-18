@@ -30,6 +30,67 @@ public struct HeartRateSample: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// A source-observed interval suitable for time-weighted calculations.
+/// Instantaneous Health samples own time only until the next sample and only
+/// when that gap is no longer than the same 60-second association ceiling used
+/// by the zone projection.
+public struct HeartRateWeightedInterval: Codable, Equatable, Sendable {
+    public let startDate: Double
+    public let endDate: Double
+    public let beatsPerMinute: Double
+    public let sampleID: String
+    public let source: String
+
+    public var durationSeconds: Double { endDate - startDate }
+}
+
+public struct HeartRateWeightedIntervalBuilder: Sendable {
+    public init() {}
+
+    public func intervals(
+        workoutStartDate: Double,
+        workoutEndDate: Double,
+        samples: [HeartRateSample],
+        maximumGapSeconds: Double = 60,
+    ) -> [HeartRateWeightedInterval] {
+        guard workoutEndDate > workoutStartDate else { return [] }
+        let candidates = samples.filter {
+            $0.endDate >= workoutStartDate && $0.startDate <= workoutEndDate
+        }.sorted {
+            if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
+            return $0.id < $1.id
+        }
+        var result: [HeartRateWeightedInterval] = []
+        var lastAssignedEnd = workoutStartDate
+
+        for (index, sample) in candidates.enumerated() {
+            let sampleStart = max(sample.startDate, workoutStartDate)
+            let sampleEnd = min(sample.endDate, workoutEndDate)
+            var assignedEnd = sampleEnd
+            if let next = candidates.dropFirst(index + 1).first {
+                let nextStart = min(max(next.startDate, workoutStartDate), workoutEndDate)
+                let gap = nextStart - sampleEnd
+                if gap >= 0, gap <= maximumGapSeconds {
+                    assignedEnd = nextStart
+                }
+            }
+            let assignedStart = max(sampleStart, lastAssignedEnd)
+            guard assignedEnd > assignedStart else { continue }
+            result.append(
+                HeartRateWeightedInterval(
+                    startDate: assignedStart,
+                    endDate: assignedEnd,
+                    beatsPerMinute: sample.beatsPerMinute,
+                    sampleID: sample.id,
+                    source: sample.source,
+                ),
+            )
+            lastAssignedEnd = assignedEnd
+        }
+        return result
+    }
+}
+
 public struct HeartRateZoneInterval: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let zone: RollingWorkoutZone?
@@ -207,25 +268,14 @@ public struct HeartRateZoneCalculator: Sendable {
             return .unavailable(reason: "Maximum heart rate is not configured")
         }
 
-        let candidates = samples.compactMap { sample -> HeartRateSample? in
-            let start = max(sample.startDate, workoutStartDate)
-            let end = min(sample.endDate, workoutEndDate)
-            guard end > start else { return nil }
-            return HeartRateSample(
-                id: sample.id,
-                startDate: start,
-                endDate: end,
-                beatsPerMinute: sample.beatsPerMinute,
-                source: sample.source,
-            )
-        }.sorted {
-            if $0.startDate != $1.startDate {
-                return $0.startDate < $1.startDate
-            }
-            return $0.id < $1.id
-        }
+        let weightedIntervals = HeartRateWeightedIntervalBuilder().intervals(
+            workoutStartDate: workoutStartDate,
+            workoutEndDate: workoutEndDate,
+            samples: samples,
+            maximumGapSeconds: Self.maximumAssociatedGapSeconds,
+        )
 
-        guard !candidates.isEmpty else {
+        guard !weightedIntervals.isEmpty else {
             return HeartRateZoneProjection(
                 state: .available,
                 maximumHeartRateBPM: maximumHeartRate.beatsPerMinute,
@@ -245,49 +295,32 @@ public struct HeartRateZoneCalculator: Sendable {
         var sourceCovered: [String: (duration: Double, sampleIDs: [String])] = [:]
         var coveredSeconds = 0.0
         var unclassifiedSeconds = 0.0
-        var lastAssignedEnd: Double?
-
-        for (index, sample) in candidates.enumerated() {
-            // HealthKit intervals are normally disjoint. If a source returns an
-            // overlap, assign each instant once in stable order rather than
-            // inflating coverage.
-            let start = max(sample.startDate, lastAssignedEnd ?? sample.startDate)
-            guard sample.endDate > start else { continue }
-            var duration = sample.endDate - start
-            let nextStart = candidates.dropFirst(index + 1).first?.startDate
-            if let nextStart {
-                let gap = nextStart - sample.endDate
-                if gap >= 0, gap <= Self.maximumAssociatedGapSeconds {
-                    duration += min(gap, workoutEndDate - sample.endDate)
-                }
-            }
-            guard duration > 0, duration.isFinite else { continue }
-
-            let zone = zone(for: sample.beatsPerMinute, maximum: maximumHeartRate.beatsPerMinute)
+        for weighted in weightedIntervals {
+            let duration = weighted.durationSeconds
+            let zone = zone(for: weighted.beatsPerMinute, maximum: maximumHeartRate.beatsPerMinute)
             intervals.append(
                 HeartRateZoneInterval(
-                    id: "\(sample.id):\(intervals.count)",
+                    id: "\(weighted.sampleID):\(intervals.count)",
                     zone: zone,
-                    startDate: start,
-                    endDate: start + duration,
+                    startDate: weighted.startDate,
+                    endDate: weighted.endDate,
                     durationSeconds: duration,
-                    sampleID: sample.id,
-                    source: sample.source,
+                    sampleID: weighted.sampleID,
+                    source: weighted.source,
                 ),
             )
             coveredSeconds += duration
-            var sourceValue = sourceCovered[sample.source] ?? (0, [])
+            var sourceValue = sourceCovered[weighted.source] ?? (0, [])
             sourceValue.duration += duration
-            if !sourceValue.sampleIDs.contains(sample.id) {
-                sourceValue.sampleIDs.append(sample.id)
+            if !sourceValue.sampleIDs.contains(weighted.sampleID) {
+                sourceValue.sampleIDs.append(weighted.sampleID)
             }
-            sourceCovered[sample.source] = sourceValue
+            sourceCovered[weighted.source] = sourceValue
             if let zone {
                 zoneDurations[zone, default: 0] += duration
             } else {
                 unclassifiedSeconds += duration
             }
-            lastAssignedEnd = max(lastAssignedEnd ?? sample.endDate, sample.endDate)
         }
 
         var unavailableIntervals: [HeartRateZoneUnavailableInterval] = []
