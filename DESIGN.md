@@ -28,7 +28,8 @@ typography:
     lineHeight: 1.2
 rounded:
   icon: "42pt"
-  card: "22pt"
+  card: "12pt"
+  empty-card: "13pt"
   capsule: "continuous circle"
 spacing:
   micro: "2pt"
@@ -56,8 +57,8 @@ components:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.navy}"
     typography: "{typography.body}"
-    rounded: "{rounded.card}"
-    padding: "24pt 42pt"
+    rounded: "{rounded.empty-card}"
+    padding: "28pt 24pt"
   button-primary:
     backgroundColor: "{colors.compass-blue}"
     textColor: "{colors.surface}"
@@ -70,7 +71,7 @@ components:
 
 **Creative North Star: "The Evidence Field Guide"**
 
-Training Compass is a native iOS field guide for orienting an athlete inside local training, Health context, recovery evidence, and training-max decisions. The built visual world is warm paper, editorial navy headings, SF body copy, compass blue actions, recovery green for positive health states, and quiet topographic contours behind grouped native surfaces.
+Training Compass is a native iOS field guide for orienting an athlete inside local training, Health context, recovery evidence, and training-max decisions. The built visual world is warm paper, editorial navy headings, SF body copy, compass blue actions, recovery green for positive health states, and crisp white work cards over a flat off-white field.
 
 The system refuses a generic fitness metric wall. It uses large native navigation, five stable tabs, grouped lists, native buttons, alerts, sheets, toggles, and content-unavailable states, then lets the brand live in exact color, serif display moments, compass marks, and evidence-notebook texture.
 
@@ -83,7 +84,19 @@ The current implementation is grounded in `TrainingCompassApp/UI/RootView.swift`
 - Editorial serif display type appears in orientation moments; SF system typography carries operational content.
 - Compass blue is the single interactive tint and primary action color.
 - Green and red are semantic state colors, not decoration.
-- Topographic contour lines are background evidence texture, restrained enough to stay behind content.
+- The app field stays visually flat so evidence, controls, and state color remain the focus.
+
+### Shipped Reference Contract
+
+The shipped native SwiftUI system is pinned to `/Users/alexmetelli/source/training-compass/design/ChatGPT Image Aug 17, 2026, 05_48_07 AM (1).png` with seed `bdb3937c`. Its durable visual contract is a warm off-white field, crisp white 12pt-radius work cards, navy serif editorial page and lift headings, compact SF data type, blue actions, green verified states, and red omissions.
+
+- The shared five-destination shell is Today, Cycle, Progress, Training Maxes (`TMs` in the compact tab item), and Health. Health is the required product adaptation to the four-phone reference, not an optional visual variation.
+- Shared primitives are the editorial page header, `CompassCard`, `CompassStatusPill`, and `CompassMetricValue`, composed inside native `TabView`, `NavigationStack`, list, scroll, toolbar, sheet, alert, and control behaviors.
+- Today preserves the reference-shaped `KG` / `REPS` / confirm / omit grid. Confirm uses the blue-to-green verified path; omit is an explicit red disposition.
+- Progress is a four-question decision surface: main-lift e1RM direction, seven-day Heart-Rate Zone distribution, cardio efficiency direction, and per-session heart-rate drift. Workout archives, activity mix, training-max internals, comparison controls, and source-ledger detail do not belong on this page.
+- `compassScreen()` reserves 112pt of bottom scroll-content clearance for the iOS 26 floating tab bar. Preserve native behavior, existing accessibility identifiers, Dynamic Type, Health evidence and source visibility, and every real loading, empty, connected, limited, failure, and populated data state.
+
+Final simulator verification passed on iPhone 17 with 18 imported workouts and 241 recovery samples. The finish reviewer disposition was **ready to ship**; no personal Health details beyond those aggregate verification counts belong in design evidence.
 
 ## Colors
 
@@ -104,7 +117,7 @@ The palette is a warm field-notebook base with navy editorial text, one compass-
 - **Paper Surface**: Raised grouped content, empty-state cards, icon wells, and quiet cards inside scroll views.
 - **Editorial Navy**: Display headings, branded page headers, and high-emphasis foreground copy.
 - **Muted Ink**: Subtitles, descriptions, provenance details, captions, and lower-emphasis explanation text.
-- **Contour Line**: Borders, toolbar separators, tab-bar hairlines, and the topographic contour field.
+- **Contour Line**: Dividers, toolbar separators, tab-bar hairlines, and other restrained structural rules.
 
 ### Named Rules
 
@@ -138,15 +151,15 @@ The palette is a warm field-notebook base with navy editorial text, one compass-
 
 ## Layout
 
-The app preserves a five-tab iOS shell: Today, Cycle, Progress, TMs, and Health. Each tab owns a `NavigationStack`, native tab item, and accessibility identifier. Deep destinations stay inside the navigation model.
+The app preserves a five-tab iOS shell: Today, Cycle, Progress, Training Maxes (`TMs` in the compact tab item), and Health. Each tab owns a `NavigationStack`, native tab item, and accessibility identifier. Deep destinations stay inside the navigation model.
 
-Most operational surfaces use grouped native `List` sections with a minimum row height of 46pt, hidden scroll backgrounds, warm paper behind the list, and visible navigation/tab bar backgrounds. The Today empty state uses a `ScrollView` with 20pt horizontal padding, 18pt top padding, 22pt vertical rhythm between header and card, and 32pt bottom padding.
+Most operational surfaces use grouped native `List` sections with a minimum row height of 42pt, hidden scroll backgrounds, warm paper behind the list, visible navigation/tab bar backgrounds, and 112pt of bottom scroll clearance for the floating tab bar. The Today empty state uses the same page header, paper field, and quiet centered work-card treatment.
 
 On iPhone, the first viewport leads with the native inline title, a compass page header, then one grouped work surface. On iPad, the same phone-like content width is presented inside the platform window rather than stretching into a dashboard. This keeps the field-guide density legible and avoids turning the app into a broad metric wall.
 
 ## Elevation & Depth
 
-Depth is tonal and structural, not shadow-heavy. The implementation uses warm paper backgrounds, surface cards, 1pt contour-line strokes, native toolbar/tab bar separators, and system grouped list surfaces. The only pronounced depth visible in the review captures comes from native iOS bar/material behavior, especially the floating tab bar treatment on modern iOS.
+Depth is tonal and structural, not shadow-heavy. The implementation uses warm paper backgrounds, restrained surface-card shadows, native toolbar/tab bar separators, and system grouped list surfaces. The only pronounced depth visible in the review captures comes from native iOS bar/material behavior, especially the floating tab bar treatment on modern iOS.
 
 ### Named Rules
 
@@ -156,7 +169,7 @@ Depth is tonal and structural, not shadow-heavy. The implementation uses warm pa
 
 ## Shapes
 
-The form language is native, rounded, and continuous. Compass icons sit in 42pt circles. Empty-state cards use a 22pt continuous rounded rectangle with a 1pt contour-line stroke. Larger empty-state icon wells use 72pt circles with a 10 percent blue tint fill. The tab bar uses the platform's rounded/capsule behavior.
+The form language is native, rounded, and continuous. Shared work cards use a 12pt continuous rounded rectangle; empty-state cards use 13pt. Compass icons sit in 42pt circles, and larger empty-state icon wells use 72pt circles with a 10 percent blue tint fill. The tab bar uses the platform's rounded/capsule behavior.
 
 Grouped lists, toggles, text fields, navigation links, edit buttons, confirmation dialogs, and sheets remain native. Shapes should feel like iOS controls on paper, not a custom web card system.
 
@@ -179,14 +192,45 @@ Grouped lists, toggles, text fields, navigation links, edit buttons, confirmatio
 
 ### Page Header
 
-- **Shape:** 42pt compass icon circle plus leading text stack.
-- **Primary:** Warm Paper background, Paper Surface icon well, and the shared Compass Brand Mark.
-- **Typography:** Serif large title for the page name; SF subheadline for date or supporting orientation copy.
-- **Behavior:** This is an orientation component for top-level paper surfaces, not a replacement for native navigation titles.
+- **Shape:** Leading title stack inset through the native top safe area.
+- **Primary:** Warm Paper background with the platform navigation bar retained.
+- **Typography:** Navy serif title for the page name; compact SF caption for an optional date or supporting orientation line.
+- **Behavior:** This is the visible top-level orientation heading; the native navigation bar remains responsible for actions, back navigation, and platform behavior.
+
+### Work Card, Status Pill, And Metric
+
+- **Work card:** `CompassCard` is a crisp Paper Surface with 12pt continuous corners, 12pt internal padding, and restrained tonal lift.
+- **Status pill:** `CompassStatusPill` uses compact SF type and a low-opacity semantic fill; blue is active/default, green is verified, and red is reserved for omission or failure.
+- **Metric:** `CompassMetricValue` keeps labels and source detail compact while values use semibold monospaced digits for fast comparison.
+
+### Today Set Grid
+
+- **Columns:** Preserve the compact `KG`, `REPS`, confirm, and omit controls beside planned set evidence.
+- **State:** Confirmed actuals become green verified evidence; omitted or failed rows use restrained red treatment without hiding the disposition.
+- **Behavior:** Keep the existing text-field, button, keyboard, accessibility-label, and accessibility-identifier contracts.
+
+### Progress Decision Surface
+
+- **Purpose:** Answer four questions only: are the four main-lift e1RMs increasing, how measured training time is distributed across HR Zones 1–5, whether distance per heartbeat is improving, and what heart-rate drift occurred in each recent cardio session.
+- **e1RM:** Show Squat, Deadlift, Bench Press, and Overhead Press together. Each row carries the latest eligible e1RM and its trailing-90-day direction; insufficient history is an answer, not a reason to expose the underlying archive.
+- **e1RM evidence:** Direction compares the first and last eligible observations in the inclusive trailing 90-day window and requires at least two observations. Eligible evidence is the primary plus set outside deload weeks; failed, omitted, assistance, non-plus, and additional sets stay excluded.
+- **HR zones:** Use the current seven-day window. Show duration plus percent of measured heart-rate time for Zones 1–5 and disclose overall workout HR coverage. When maximum heart rate is missing, the only secondary action opens the focused Maximum Heart Rate form; other empty zone states explain missing measured HR without showing that action.
+- **Cardio efficiency:** Define the metric as distance per heartbeat. Compare the latest eligible distance-based cardio session across available history with the median of up to four preceding sessions of the same activity. Require at least 80 percent heart-rate coverage.
+- **Heart-rate drift:** Limit rows to cardio sessions in the current seven-day window. Remove the first 10 elapsed minutes, split the remaining elapsed interval into equal halves, calculate time-weighted average heart rate for each half, then show `(second − first) / first × 100`. Require at least 80 percent HR coverage in each half. Drift is displayed neutrally in Compass Blue; the product does not invent a good/bad threshold.
+- **Observed HR intervals:** Zone, efficiency, and drift calculations are time-weighted over source-observed intervals. An instantaneous sample may own time forward to the next sample only when the gap is at most 60 seconds; larger gaps and workout edges remain uncovered.
+- **Visual rule:** Use four linear `CompassCard` blocks with fine dividers and compact monospaced measurements. Never restore workout counts, activity mix, run history, event history, training-max values, or verbose calculation explanations to the Progress destination.
+
+### Health Control Surface
+
+- **Purpose:** Keep Health operational, not analytical. The top-level destination exposes only read approval, refresh, and the choice to add completed strength-session summaries to Apple Health.
+- **Layout:** Use one `CompassCard` beneath the Health page header. The card contains connection state, one short freshness/workout summary, one primary action, and the write-back toggle only after read approval.
+- **Automatic refresh:** After the owner completes the Health read request, persist that completed-request fact locally. On launch, foreground, or Health observer delivery, reconcile once on the first app open of each local calendar day. Every automatic trigger uses the same due check. Manual refresh is the sole bypass and is not rate-limited by the daily policy.
+- **Progressive disclosure:** Maximum-heart-rate configuration belongs to its focused Progress route. Deep rebuild remains in Settings. Recovery evidence, stream-by-stream diagnostics, source preference controls, and workout-history rows do not appear on the top-level Health destination.
+- **States:** Before approval, show one `Approve Health Access` button. When connected, show `Refresh Health Data` and `Add completed sessions to Health`. Conditional connection/write errors may add a single recovery action; loading changes the refresh label in place.
 
 ### Empty State Card
 
-- **Shape:** 22pt continuous rounded rectangle with 1pt Contour Line stroke.
+- **Shape:** 13pt continuous rounded rectangle with restrained tonal lift.
 - **Primary:** Paper Surface background, centered 72pt icon well, serif title, muted SF body message.
 - **Use:** Quiet loading/empty moments where the user needs state clarity without urgency.
 - **Behavior:** Text stays centered and multiline. The card remains a work surface, not a marketing hero.
@@ -201,14 +245,8 @@ Grouped lists, toggles, text fields, navigation links, edit buttons, confirmatio
 ### Grouped Lists
 
 - **Style:** `.listStyle(.grouped)` with hidden default scroll background and Warm Paper behind it.
-- **Rows:** Minimum row height is 46pt; row content uses SF headline, subheadline, caption, and caption2 styles.
+- **Rows:** Minimum row height is 42pt; row content uses SF headline, subheadline, caption, and caption2 styles.
 - **State:** Provenance, failure, cached, limited-history, and attention labels stay textual and source-specific.
-
-### Health Status And Evidence Rows
-
-- **Style:** Dense VStack rows with 3pt internal text spacing and caption/caption2 provenance lines.
-- **State:** Orange appears only for warnings/failures that need attention; green appears for connected/success states.
-- **Behavior:** Explanation links use SF Symbols `info.circle` and preserve navigation to evidence explanations.
 
 ### Privacy Shield
 
@@ -225,7 +263,7 @@ Grouped lists, toggles, text fields, navigation links, edit buttons, confirmatio
 - **Do** use SF Symbols for icons and native iOS controls for toggles, edit buttons, destructive actions, toolbars, sheets, alerts, and navigation links.
 - **Do** use `CompassBrandMark` for product identity and orientation; keep action and status iconography semantic.
 - **Do** use serif display type for orientation moments and SF system styles for operational content.
-- **Do** treat contour lines as background texture only; they should never reduce text contrast or obscure controls.
+- **Do** use the structural line token only for quiet dividers and platform hairlines.
 - **Do** verify light mode, dark mode, and iPad framing when changing shared visual primitives.
 
 ### Don't:
