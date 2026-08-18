@@ -2095,6 +2095,13 @@ private struct TodayView: View {
                     CompassStatusPill(title: today.state.displayName)
                 }
 
+                if today.completion != nil {
+                    Label("5/3/1 Session saved locally", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(CompassPalette.green)
+                        .accessibilityIdentifier("today.session.saved")
+                }
+
                 Divider()
 
                 HStack(alignment: .bottom) {
@@ -2289,7 +2296,14 @@ private struct TodayView: View {
                     .foregroundStyle(.secondary)
             }
         } else if let candidates = linkingSnapshot?.candidates, !candidates.isEmpty {
-            Section("Link External Health Workout") {
+            Section("Optional: Link External Health Workout") {
+                Label(
+                    "Your 5/3/1 Session is already saved locally. "
+                        + "These are separate Apple Health workouts; linking is optional.",
+                    systemImage: "info.circle",
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Text(
                     "Choose explicitly. Ranking is advisory and Training Compass never links automatically.",
                 )

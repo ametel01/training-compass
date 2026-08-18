@@ -237,6 +237,7 @@ final class TrainingCompassUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["today.training-event.session:ui-session"].waitForExistence(timeout: 15),
         )
+        XCTAssertTrue(app.staticTexts["today.session.saved"].exists)
         let likely = app.buttons["training-event.candidate.ui-likely"]
         let unusual = app.buttons["training-event.candidate.ui-unusual"]
         for _ in 0 ..< 8 {
