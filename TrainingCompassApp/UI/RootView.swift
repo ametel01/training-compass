@@ -3204,6 +3204,7 @@ private struct CycleView: View {
     @State private var showingCycleDiscardConfirmation = false
     @State private var pendingLifecycleRequest: CycleLifecycleRequest?
     @State private var errorMessage: String?
+    @State private var selectedOverviewWeekPosition = 1
 
     var body: some View {
         Group {
@@ -3573,7 +3574,12 @@ private struct CycleView: View {
     }
 
     private func cycleOverviewCard(_ cycle: TrainingCycle) -> some View {
-        CompassCard {
+        let selectedWeek = cycle.weeks.first(where: {
+            $0.position == selectedOverviewWeekPosition
+        }) ?? cycle.weeks.first
+        let selectedPosition = selectedWeek?.position
+
+        return CompassCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -3595,30 +3601,42 @@ private struct CycleView: View {
 
                 HStack(spacing: 6) {
                     ForEach(Array(cycle.weeks.prefix(4))) { week in
-                        Text(week.kind.displayName)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(
-                                week.position == 1 ? Color.white : CompassPalette.navy,
-                            )
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(
-                                week.position == 1
-                                    ? CompassPalette.blue
-                                    : CompassPalette.paper,
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous),
-                            )
+                        let isSelected = week.position == selectedPosition
+                        Button {
+                            selectedOverviewWeekPosition = week.position
+                        } label: {
+                            Text(week.kind.displayName)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(
+                                    isSelected ? Color.white : CompassPalette.navy,
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(
+                                    isSelected
+                                        ? CompassPalette.blue
+                                        : CompassPalette.paper,
+                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous),
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("cycle.overview.week.\(week.position)")
+                        .accessibilityValue(isSelected ? "Selected" : "Not selected")
                     }
                 }
 
-                if let firstWeek = cycle.weeks.first {
+                if let selectedWeek {
                     VStack(spacing: 0) {
-                        ForEach(firstWeek.sessions.prefix(5)) { session in
+                        ForEach(selectedWeek.sessions.prefix(5)) { session in
                             HStack(spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(session.intendedDate.iso8601String)
                                         .font(.caption2.weight(.semibold))
                                         .foregroundStyle(CompassPalette.blue)
+                                        .accessibilityIdentifier(
+                                            "cycle.overview.date.\(session.intendedDate.iso8601String)",
+                                        )
                                     Text(liftName(session.primaryLiftID))
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(CompassPalette.navy)
@@ -3643,7 +3661,7 @@ private struct CycleView: View {
                                 )
                             }
                             .padding(.vertical, 8)
-                            if session.id != firstWeek.sessions.prefix(5).last?.id {
+                            if session.id != selectedWeek.sessions.prefix(5).last?.id {
                                 Divider()
                             }
                         }

@@ -167,6 +167,36 @@ final class TrainingCompassUITests: XCTestCase {
         XCTAssertTrue(importHistory.waitForNonExistence(timeout: 15))
     }
 
+    func testActiveCycleWeekSelectorShowsWeekTwoAndThreeSessions() {
+        let app = cycleImportApp()
+        app.launch()
+
+        app.tabBars.buttons["Cycle"].tap()
+        let week1 = app.buttons["cycle.overview.week.1"]
+        let week2 = app.buttons["cycle.overview.week.2"]
+        let week3 = app.buttons["cycle.overview.week.3"]
+        XCTAssertTrue(week1.waitForExistence(timeout: 15))
+        XCTAssertTrue(week2.exists)
+        XCTAssertTrue(week3.exists)
+        XCTAssertTrue(week2.isHittable)
+        XCTAssertTrue(week3.isHittable)
+
+        let visibleDate = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "cycle.overview.date."),
+        ).firstMatch
+        XCTAssertTrue(visibleDate.exists)
+        let week1Date = visibleDate.label
+
+        week2.tap()
+        XCTAssertEqual(week2.value as? String, "Selected")
+        XCTAssertNotEqual(visibleDate.label, week1Date)
+        let week2Date = visibleDate.label
+
+        week3.tap()
+        XCTAssertEqual(week3.value as? String, "Selected")
+        XCTAssertNotEqual(visibleDate.label, week2Date)
+    }
+
     func testFullAppErasureShowsScopedConfirmationAndExternalCopyWarning() {
         let app = cleanApp()
         app.launch()
