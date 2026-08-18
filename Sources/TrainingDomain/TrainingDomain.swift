@@ -32,6 +32,83 @@ public struct MaximumHeartRate: Codable, Equatable, Sendable {
     }
 }
 
+public enum HeartRateZoneBoundaryValidationError: Error, Codable, Equatable, Sendable {
+    case mustBeFinite
+    case mustBePositive
+    case boundariesMustBeWholeBPM
+    case restingMustBeBelowMaximum
+    case boundariesMustIncrease
+    case zoneFiveMustNotExceedMaximum
+}
+
+/// The owner's explicit Apple Watch heart-rate zone profile. Resting and
+/// maximum heart rate are retained as source context, while the four lower
+/// boundaries reproduce the Watch's displayed five continuous BPM ranges.
+public struct HeartRateZoneBoundaries: Codable, Equatable, Sendable {
+    public let restingHeartRateBPM: Double
+    public let maximumHeartRate: MaximumHeartRate
+    public let zone2MinimumBPM: Double
+    public let zone3MinimumBPM: Double
+    public let zone4MinimumBPM: Double
+    public let zone5MinimumBPM: Double
+
+    public init(
+        restingHeartRateBPM: Double,
+        maximumHeartRate: MaximumHeartRate,
+        zone2MinimumBPM: Double,
+        zone3MinimumBPM: Double,
+        zone4MinimumBPM: Double,
+        zone5MinimumBPM: Double,
+    ) throws {
+        let values = [
+            restingHeartRateBPM, zone2MinimumBPM, zone3MinimumBPM, zone4MinimumBPM,
+            zone5MinimumBPM,
+        ]
+        guard values.allSatisfy(\.isFinite) else {
+            throw HeartRateZoneBoundaryValidationError.mustBeFinite
+        }
+        guard values.allSatisfy({ $0 > 0 }) else {
+            throw HeartRateZoneBoundaryValidationError.mustBePositive
+        }
+        guard [zone2MinimumBPM, zone3MinimumBPM, zone4MinimumBPM, zone5MinimumBPM]
+            .allSatisfy({ $0 == $0.rounded() })
+        else {
+            throw HeartRateZoneBoundaryValidationError.boundariesMustBeWholeBPM
+        }
+        guard restingHeartRateBPM < maximumHeartRate.beatsPerMinute else {
+            throw HeartRateZoneBoundaryValidationError.restingMustBeBelowMaximum
+        }
+        guard restingHeartRateBPM < zone2MinimumBPM,
+            zone2MinimumBPM < zone3MinimumBPM,
+            zone3MinimumBPM < zone4MinimumBPM,
+            zone4MinimumBPM < zone5MinimumBPM
+        else {
+            throw HeartRateZoneBoundaryValidationError.boundariesMustIncrease
+        }
+        guard zone5MinimumBPM <= maximumHeartRate.beatsPerMinute else {
+            throw HeartRateZoneBoundaryValidationError.zoneFiveMustNotExceedMaximum
+        }
+        self.restingHeartRateBPM = restingHeartRateBPM
+        self.maximumHeartRate = maximumHeartRate
+        self.zone2MinimumBPM = zone2MinimumBPM
+        self.zone3MinimumBPM = zone3MinimumBPM
+        self.zone4MinimumBPM = zone4MinimumBPM
+        self.zone5MinimumBPM = zone5MinimumBPM
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            restingHeartRateBPM: container.decode(Double.self, forKey: .restingHeartRateBPM),
+            maximumHeartRate: container.decode(MaximumHeartRate.self, forKey: .maximumHeartRate),
+            zone2MinimumBPM: container.decode(Double.self, forKey: .zone2MinimumBPM),
+            zone3MinimumBPM: container.decode(Double.self, forKey: .zone3MinimumBPM),
+            zone4MinimumBPM: container.decode(Double.self, forKey: .zone4MinimumBPM),
+            zone5MinimumBPM: container.decode(Double.self, forKey: .zone5MinimumBPM),
+        )
+    }
+}
+
 public enum ProgressionLift: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case squat = "Squat"
     case deadlift = "Deadlift"
@@ -59,15 +136,15 @@ public enum LiftIdentity: Codable, Equatable, Hashable, Sendable {
 
     public var displayName: String {
         switch self {
-        case let .progression(lift):
+        case .progression(let lift):
             lift.displayName
-        case let .variant(name), let .custom(name):
+        case .variant(let name), .custom(let name):
             name
         }
     }
 
     public var progressionLift: ProgressionLift? {
-        guard case let .progression(lift) = self else { return nil }
+        guard case .progression(let lift) = self else { return nil }
         return lift
     }
 

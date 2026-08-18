@@ -2,16 +2,24 @@ import Foundation
 import TrainingDomain
 
 public struct HeartRateConfiguration: Codable, Equatable, Sendable {
-    public let maximumHeartRate: MaximumHeartRate
+    public let zoneBoundaries: HeartRateZoneBoundaries
     public let updatedAt: Int64
 
-    public init(maximumHeartRate: MaximumHeartRate, updatedAt: Int64) {
-        self.maximumHeartRate = maximumHeartRate
+    public init(zoneBoundaries: HeartRateZoneBoundaries, updatedAt: Int64) {
+        self.zoneBoundaries = zoneBoundaries
         self.updatedAt = updatedAt
+    }
+
+    public var maximumHeartRate: MaximumHeartRate {
+        zoneBoundaries.maximumHeartRate
     }
 
     public var maximumHeartRateBPM: Double {
         maximumHeartRate.beatsPerMinute
+    }
+
+    public var restingHeartRateBPM: Double {
+        zoneBoundaries.restingHeartRateBPM
     }
 }
 
@@ -29,19 +37,19 @@ public protocol HeartRateConfigurationRepository: Sendable {
     func deleteHeartRateConfiguration() async throws
 }
 
-public extension HeartRateConfigurationRepository {
-    func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
+extension HeartRateConfigurationRepository {
+    public func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 
-    func saveHeartRateConfiguration(
+    public func saveHeartRateConfiguration(
         _: HeartRateConfiguration,
         expectedBefore _: HeartRateConfiguration?,
     ) async throws {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 
-    func deleteHeartRateConfiguration() async throws {
+    public func deleteHeartRateConfiguration() async throws {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 }
@@ -50,7 +58,8 @@ public struct HeartRateConfigurationBoundary: Sendable {
     private let repository: any HeartRateConfigurationRepository
     private let clock: any Clock
 
-    public init(repository: any HeartRateConfigurationRepository, clock: any Clock = SystemClock()) {
+    public init(repository: any HeartRateConfigurationRepository, clock: any Clock = SystemClock())
+    {
         self.repository = repository
         self.clock = clock
     }
@@ -59,11 +68,26 @@ public struct HeartRateConfigurationBoundary: Sendable {
         try await repository.loadHeartRateConfiguration()
     }
 
-    public func configure(maximumHeartRateBPM: Double) async throws -> HeartRateConfiguration {
+    public func configure(
+        restingHeartRateBPM: Double,
+        maximumHeartRateBPM: Double,
+        zone2MinimumBPM: Double,
+        zone3MinimumBPM: Double,
+        zone4MinimumBPM: Double,
+        zone5MinimumBPM: Double,
+    ) async throws -> HeartRateConfiguration {
         let maximumHeartRate = try MaximumHeartRate(beatsPerMinute: maximumHeartRateBPM)
+        let zoneBoundaries = try HeartRateZoneBoundaries(
+            restingHeartRateBPM: restingHeartRateBPM,
+            maximumHeartRate: maximumHeartRate,
+            zone2MinimumBPM: zone2MinimumBPM,
+            zone3MinimumBPM: zone3MinimumBPM,
+            zone4MinimumBPM: zone4MinimumBPM,
+            zone5MinimumBPM: zone5MinimumBPM,
+        )
         let before = try await repository.loadHeartRateConfiguration()
         let configuration = HeartRateConfiguration(
-            maximumHeartRate: maximumHeartRate,
+            zoneBoundaries: zoneBoundaries,
             updatedAt: Int64(clock.now().timeIntervalSince1970),
         )
         try await repository.saveHeartRateConfiguration(configuration, expectedBefore: before)

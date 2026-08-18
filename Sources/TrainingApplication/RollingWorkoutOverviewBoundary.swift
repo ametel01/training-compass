@@ -47,7 +47,7 @@ public struct HealthWorkoutHeartRateZoneProvider: RollingWorkoutZoneProjectionPr
         }
         guard let configuration = try? await configurationRepository.loadHeartRateConfiguration()
         else {
-            return .unavailable(reason: "Maximum heart rate is not configured")
+            return .unavailable(reason: "Heart-rate zone boundaries are not configured")
         }
         let samples = enrichment.heartRate.samples.map {
             HeartRateSample(
@@ -62,11 +62,11 @@ public struct HealthWorkoutHeartRateZoneProvider: RollingWorkoutZoneProjectionPr
             workoutStartDate: startDate.timeIntervalSince1970,
             workoutEndDate: endDate.timeIntervalSince1970,
             samples: samples,
-            maximumHeartRate: configuration.maximumHeartRate,
+            zoneBoundaries: configuration.zoneBoundaries,
         )
         switch projection.state {
         case .available: return .projected(projection)
-        case let .unavailable(reason): return .unavailable(reason: reason)
+        case .unavailable(let reason): return .unavailable(reason: reason)
         }
     }
 }
@@ -107,7 +107,7 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
             )
             let zoneTimes =
                 await zoneProvider?.zoneTimes(for: workout, enrichment: enrichment)
-                    ?? .unavailable(reason: Self.zoneUnavailableReason(for: enrichment))
+                ?? .unavailable(reason: Self.zoneUnavailableReason(for: enrichment))
             records.append(
                 RollingWorkoutRecord(
                     id: workout.healthKitUUID,
@@ -125,20 +125,21 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
             return $0.id < $1.id
         }
         let checkpoint = try await repository.loadHealthSyncCheckpoint(for: .workouts)
-        let coverage: RollingWorkoutSourceCoverage = if let checkpoint, !checkpoint.hasLimitedHistory {
-            .complete(lastReconciliation: checkpoint.committedAt.description)
-        } else if let checkpoint {
-            .incomplete(
-                reason:
-                "Health Workouts stream reported limited history; the complete comparison horizon is unavailable",
-                lastReconciliation: checkpoint.committedAt.description,
-            )
-        } else {
-            .incomplete(
-                reason:
-                "Health Workouts stream has not successfully checked the complete comparison horizon",
-            )
-        }
+        let coverage: RollingWorkoutSourceCoverage =
+            if let checkpoint, !checkpoint.hasLimitedHistory {
+                .complete(lastReconciliation: checkpoint.committedAt.description)
+            } else if let checkpoint {
+                .incomplete(
+                    reason:
+                        "Health Workouts stream reported limited history; the complete comparison horizon is unavailable",
+                    lastReconciliation: checkpoint.committedAt.description,
+                )
+            } else {
+                .incomplete(
+                    reason:
+                        "Health Workouts stream has not successfully checked the complete comparison horizon",
+                )
+            }
         return RollingWorkoutOverviewCalculator().calculate(
             records: records,
             asOf: asOf,
@@ -162,14 +163,17 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
         let year = components[0]
         let month = components[1]
         let day = components[2]
-        guard year > 0, (1 ... 12).contains(month) else { return nil }
+        guard year > 0, (1...12).contains(month) else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day))
+        else {
             return nil
         }
         let verified = calendar.dateComponents([.year, .month, .day], from: date)
-        guard verified.year == year, verified.month == month, verified.day == day else { return nil }
+        guard verified.year == year, verified.month == month, verified.day == day else {
+            return nil
+        }
         return TrainingDate(year: year, month: month, day: day)
     }
 }

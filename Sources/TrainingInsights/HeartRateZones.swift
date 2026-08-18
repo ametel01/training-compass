@@ -167,11 +167,11 @@ public enum HeartRateZoneProjectionState: Codable, Equatable, Sendable {
 /// inter-sample gaps; it is never extrapolated to workout edges.
 public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
     public let state: HeartRateZoneProjectionState
+    public let zoneBoundaries: HeartRateZoneBoundaries?
     public let maximumHeartRateBPM: Double?
     public let zoneDurations: [RollingWorkoutZone: Double]
     public let coveredSeconds: Double
     public let unavailableSeconds: Double
-    public let unclassifiedSeconds: Double
     public let totalWorkoutDurationSeconds: Double
     public let intervals: [HeartRateZoneInterval]
     public let unavailableIntervals: [HeartRateZoneUnavailableInterval]
@@ -179,22 +179,23 @@ public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
 
     public init(
         state: HeartRateZoneProjectionState,
+        zoneBoundaries: HeartRateZoneBoundaries? = nil,
         maximumHeartRateBPM: Double? = nil,
         zoneDurations: [RollingWorkoutZone: Double] = [:],
         coveredSeconds: Double = 0,
         unavailableSeconds: Double = 0,
-        unclassifiedSeconds: Double = 0,
         totalWorkoutDurationSeconds: Double = 0,
         intervals: [HeartRateZoneInterval] = [],
         unavailableIntervals: [HeartRateZoneUnavailableInterval] = [],
         sourceSummaries: [HeartRateZoneSourceSummary] = [],
     ) {
         self.state = state
-        self.maximumHeartRateBPM = maximumHeartRateBPM
+        self.zoneBoundaries = zoneBoundaries
+        self.maximumHeartRateBPM =
+            maximumHeartRateBPM ?? zoneBoundaries?.maximumHeartRate.beatsPerMinute
         self.zoneDurations = zoneDurations
         self.coveredSeconds = coveredSeconds
         self.unavailableSeconds = unavailableSeconds
-        self.unclassifiedSeconds = unclassifiedSeconds
         self.totalWorkoutDurationSeconds = totalWorkoutDurationSeconds
         self.intervals = intervals
         self.unavailableIntervals = unavailableIntervals
@@ -220,28 +221,29 @@ public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
             "\($0.reason) from \($0.startDate) through \($0.endDate)"
         }
         let sources = sourceSummaries.map { "\($0.source) (\($0.sampleIDs.count) samples)" }
-        let coverage = if sources.isEmpty {
-            "No associated heart-rate samples were available"
-        } else {
-            "Associated heart-rate sources: \(sources.joined(separator: ", "))"
-        }
-        let maximum = maximumHeartRateBPM.map { String($0) } ?? "not configured"
+        let coverage =
+            if sources.isEmpty {
+                "No associated heart-rate samples were available"
+            } else {
+                "Associated heart-rate sources: \(sources.joined(separator: ", "))"
+            }
+        let configuredRanges = zoneBoundaries?.summary ?? "not configured"
         return InsightExplanation(
             question: "How was this workout's Heart-Rate Zone time calculated?",
             includedRecordIDs: included,
             excludedRecords: [],
             formula:
-            "Assign elapsed time to the earlier associated sample when the gap is at most 60 seconds; gaps over 60 seconds and workout edges remain unavailable.",
+                "Assign elapsed time to the earlier associated sample when the gap is at most 60 seconds; gaps over 60 seconds and workout edges remain unavailable.",
             dateRange:
-            "Workout interval \(intervals.first?.startDate ?? 0) through \(intervals.last?.endDate ?? totalWorkoutDurationSeconds)",
+                "Workout interval \(intervals.first?.startDate ?? 0) through \(intervals.last?.endDate ?? totalWorkoutDurationSeconds)",
             roundingRule:
-            "Calculations retain full precision; displayed durations and percentages are rounded for presentation.",
+                "Calculations retain full precision; displayed durations and percentages are rounded for presentation.",
             sourceState: String(describing: state),
             sourceCoverage: coverage,
             calculationRule:
-            "Fixed bands are 50–59%, 60–69%, 70–79%, 80–89%, and 90–100%; time above the configured maximum remains unclassified.",
+                "Use the five continuous BPM ranges copied from Apple Watch; Zone 1 and Zone 5 are open-ended.",
             missingData: missing,
-            configuration: "Maximum heart rate used: \(maximum) bpm.",
+            configuration: configuredRanges,
         )
     }
 
@@ -250,7 +252,7 @@ public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
     }
 }
 
-/// Calculates fixed app-defined zones using only source-observed intervals.
+/// Calculates the owner's configured Apple Watch zones using only source-observed intervals.
 /// A short gap is attributed to the earlier sample; a gap over 60 seconds and
 /// both workout edges remain unavailable.
 public struct HeartRateZoneCalculator: Sendable {
@@ -262,14 +264,14 @@ public struct HeartRateZoneCalculator: Sendable {
         workoutStartDate: Double,
         workoutEndDate: Double,
         samples: [HeartRateSample],
-        maximumHeartRate: MaximumHeartRate?,
+        zoneBoundaries: HeartRateZoneBoundaries?,
     ) -> HeartRateZoneProjection {
         let totalDuration = workoutEndDate - workoutStartDate
         guard totalDuration.isFinite, totalDuration > 0 else {
             return .unavailable(reason: "Workout duration is unavailable")
         }
-        guard let maximumHeartRate else {
-            return .unavailable(reason: "Maximum heart rate is not configured")
+        guard let zoneBoundaries else {
+            return .unavailable(reason: "Heart-rate zone boundaries are not configured")
         }
 
         let weightedIntervals = HeartRateWeightedIntervalBuilder().intervals(
@@ -282,14 +284,14 @@ public struct HeartRateZoneCalculator: Sendable {
         guard !weightedIntervals.isEmpty else {
             return HeartRateZoneProjection(
                 state: .available,
-                maximumHeartRateBPM: maximumHeartRate.beatsPerMinute,
+                zoneBoundaries: zoneBoundaries,
                 unavailableSeconds: totalDuration,
                 totalWorkoutDurationSeconds: totalDuration,
                 unavailableIntervals: [
                     HeartRateZoneUnavailableInterval(
                         id: "unavailable:0", startDate: workoutStartDate, endDate: workoutEndDate,
                         reason: "Workout edge",
-                    ),
+                    )
                 ],
             )
         }
@@ -298,10 +300,9 @@ public struct HeartRateZoneCalculator: Sendable {
         var intervals: [HeartRateZoneInterval] = []
         var sourceCovered: [String: (duration: Double, sampleIDs: [String])] = [:]
         var coveredSeconds = 0.0
-        var unclassifiedSeconds = 0.0
         for weighted in weightedIntervals {
             let duration = weighted.durationSeconds
-            let zone = zone(for: weighted.beatsPerMinute, maximum: maximumHeartRate.beatsPerMinute)
+            let zone = zone(for: weighted.beatsPerMinute, boundaries: zoneBoundaries)
             intervals.append(
                 HeartRateZoneInterval(
                     id: "\(weighted.sampleID):\(intervals.count)",
@@ -320,11 +321,7 @@ public struct HeartRateZoneCalculator: Sendable {
                 sourceValue.sampleIDs.append(weighted.sampleID)
             }
             sourceCovered[weighted.source] = sourceValue
-            if let zone {
-                zoneDurations[zone, default: 0] += duration
-            } else {
-                unclassifiedSeconds += duration
-            }
+            zoneDurations[zone, default: 0] += duration
         }
 
         var unavailableIntervals: [HeartRateZoneUnavailableInterval] = []
@@ -353,11 +350,10 @@ public struct HeartRateZoneCalculator: Sendable {
 
         return HeartRateZoneProjection(
             state: .available,
-            maximumHeartRateBPM: maximumHeartRate.beatsPerMinute,
+            zoneBoundaries: zoneBoundaries,
             zoneDurations: zoneDurations,
             coveredSeconds: coveredSeconds,
             unavailableSeconds: max(0, totalDuration - coveredSeconds),
-            unclassifiedSeconds: unclassifiedSeconds,
             totalWorkoutDurationSeconds: totalDuration,
             intervals: intervals,
             unavailableIntervals: unavailableIntervals,
@@ -370,16 +366,37 @@ public struct HeartRateZoneCalculator: Sendable {
         )
     }
 
-    private func zone(for bpm: Double, maximum: Double) -> RollingWorkoutZone? {
-        let percentage = bpm / maximum
-        switch percentage {
-        case ..<0.5: return .below50
-        case ..<0.6: return .zone1
-        case ..<0.7: return .zone2
-        case ..<0.8: return .zone3
-        case ..<0.9: return .zone4
-        case ...1.0: return .zone5
-        default: return nil
+    private func zone(for bpm: Double, boundaries: HeartRateZoneBoundaries) -> RollingWorkoutZone {
+        switch bpm {
+        case ..<boundaries.zone2MinimumBPM: return .zone1
+        case ..<boundaries.zone3MinimumBPM: return .zone2
+        case ..<boundaries.zone4MinimumBPM: return .zone3
+        case ..<boundaries.zone5MinimumBPM: return .zone4
+        default: return .zone5
         }
+    }
+}
+
+extension HeartRateZoneBoundaries {
+    public func rangeDescription(for zone: RollingWorkoutZone) -> String {
+        switch zone {
+        case .zone1: "≤\(bpmText(zone2MinimumBPM - 1)) bpm"
+        case .zone2: "\(bpmText(zone2MinimumBPM))–\(bpmText(zone3MinimumBPM - 1)) bpm"
+        case .zone3: "\(bpmText(zone3MinimumBPM))–\(bpmText(zone4MinimumBPM - 1)) bpm"
+        case .zone4: "\(bpmText(zone4MinimumBPM))–\(bpmText(zone5MinimumBPM - 1)) bpm"
+        case .zone5: "≥\(bpmText(zone5MinimumBPM)) bpm"
+        }
+    }
+
+    public var summary: String {
+        "Apple Watch ranges: "
+            + RollingWorkoutZone.allCases.map {
+                "\($0.displayName) \(rangeDescription(for: $0))"
+            }.joined(separator: ", ")
+            + "; resting \(bpmText(restingHeartRateBPM)) bpm; maximum \(bpmText(maximumHeartRate.beatsPerMinute)) bpm."
+    }
+
+    private func bpmText(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(value)
     }
 }

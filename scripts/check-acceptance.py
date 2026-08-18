@@ -286,7 +286,7 @@ def main() -> int:
             errors.append(f"acceptance contract omits Personal Team refresh boundary: {contract}")
 
     required_migration_contracts = (
-        "authoritative v1–v16",
+        "authoritative v1–v17",
         "reconstructible v1–v10",
         "20%",
         "TrainingMigrationCompatibilityVerifier",

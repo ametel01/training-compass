@@ -15,7 +15,7 @@ capture workout measurements, dates, identifiers, routes, or notes.
 - [ ] Open explanations for rolling workout count, duration, each activity
   group, and every available Heart-Rate Zone aggregate.
 - [ ] Open a workout's Heart-Rate Zone detail and reach its explanation from
-  the displayed zone values; verify the configured maximum, source intervals,
+  the displayed zone values; verify the configured Apple Watch ranges, resting and maximum references, source intervals,
   covered duration, gaps, and workout-edge coverage are named.
 - [ ] Open the selected running workout, its pace and missing-fact explanation,
   each Running Volume measure, and the selected-run comparison.
@@ -27,7 +27,7 @@ capture workout measurements, dates, identifiers, routes, or notes.
 
 - [ ] Confirm a corrected local Set Result changes the affected e1RM projection
   while preserving the source fact and audit history.
-- [ ] Change the configured maximum heart rate and verify historical zones are
+- [ ] Change a configured Apple Watch zone boundary and verify historical zones are
   recalculated from the same Health samples without duplicating Training Events.
 - [ ] Refresh Health data with a replacement and a deletion; verify rolling,
   zone, running, volume, and comparison projections update while source UUIDs,

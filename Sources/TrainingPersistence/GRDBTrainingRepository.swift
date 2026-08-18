@@ -1324,15 +1324,19 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             guard
                 let row = try Row.fetchOne(
                     db,
-                    sql:
-                    "SELECT maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration WHERE id = 1",
+                    sql: """
+                    SELECT maximum_heart_rate_bpm, resting_heart_rate_bpm,
+                           zone2_minimum_bpm, zone3_minimum_bpm,
+                           zone4_minimum_bpm, zone5_minimum_bpm, updated_at
+                    FROM heart_rate_configuration WHERE id = 1
+                    """,
                 )
             else { return nil }
             guard
-                let maximum = try? MaximumHeartRate(beatsPerMinute: row["maximum_heart_rate_bpm"] as Double)
+                let boundaries = Self.heartRateZoneBoundaries(from: row)
             else { throw HeartRateConfigurationRepositoryError.unavailable }
             return HeartRateConfiguration(
-                maximumHeartRate: maximum, updatedAt: row["updated_at"] as Int64,
+                zoneBoundaries: boundaries, updatedAt: row["updated_at"] as Int64,
             )
         }
     }
@@ -1345,15 +1349,16 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         try await stores.authoritative.write { db in
             let current = try Row.fetchOne(
                 db,
-                sql: "SELECT maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration WHERE id = 1",
+                sql: """
+                SELECT maximum_heart_rate_bpm, resting_heart_rate_bpm,
+                       zone2_minimum_bpm, zone3_minimum_bpm,
+                       zone4_minimum_bpm, zone5_minimum_bpm, updated_at
+                FROM heart_rate_configuration WHERE id = 1
+                """,
             ).flatMap { row -> HeartRateConfiguration? in
-                guard
-                    let maximum = try? MaximumHeartRate(
-                        beatsPerMinute: row["maximum_heart_rate_bpm"] as Double,
-                    )
-                else { return nil }
+                guard let boundaries = Self.heartRateZoneBoundaries(from: row) else { return nil }
                 return HeartRateConfiguration(
-                    maximumHeartRate: maximum, updatedAt: row["updated_at"] as Int64,
+                    zoneBoundaries: boundaries, updatedAt: row["updated_at"] as Int64,
                 )
             }
             guard current == expectedBefore else {
@@ -1361,13 +1366,30 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             }
             try db.execute(
                 sql: """
-                INSERT INTO heart_rate_configuration (id, maximum_heart_rate_bpm, updated_at)
-                VALUES (1, ?, ?)
+                INSERT INTO heart_rate_configuration (
+                  id, maximum_heart_rate_bpm, resting_heart_rate_bpm,
+                  zone2_minimum_bpm, zone3_minimum_bpm, zone4_minimum_bpm,
+                  zone5_minimum_bpm, updated_at
+                )
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   maximum_heart_rate_bpm = excluded.maximum_heart_rate_bpm,
+                  resting_heart_rate_bpm = excluded.resting_heart_rate_bpm,
+                  zone2_minimum_bpm = excluded.zone2_minimum_bpm,
+                  zone3_minimum_bpm = excluded.zone3_minimum_bpm,
+                  zone4_minimum_bpm = excluded.zone4_minimum_bpm,
+                  zone5_minimum_bpm = excluded.zone5_minimum_bpm,
                   updated_at = excluded.updated_at
                 """,
-                arguments: [configuration.maximumHeartRateBPM, configuration.updatedAt],
+                arguments: [
+                    configuration.maximumHeartRateBPM,
+                    configuration.restingHeartRateBPM,
+                    configuration.zoneBoundaries.zone2MinimumBPM,
+                    configuration.zoneBoundaries.zone3MinimumBPM,
+                    configuration.zoneBoundaries.zone4MinimumBPM,
+                    configuration.zoneBoundaries.zone5MinimumBPM,
+                    configuration.updatedAt,
+                ],
             )
         }
     }
@@ -3240,14 +3262,19 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
         }
         let maximumHeartRateRows = try Row.fetchAll(
             db,
-            sql: "SELECT id, maximum_heart_rate_bpm, updated_at FROM heart_rate_configuration",
+            sql: """
+            SELECT id, maximum_heart_rate_bpm, resting_heart_rate_bpm,
+                   zone2_minimum_bpm, zone3_minimum_bpm,
+                   zone4_minimum_bpm, zone5_minimum_bpm, updated_at
+            FROM heart_rate_configuration
+            """,
         )
         guard maximumHeartRateRows.count <= 1 else {
             throw TrainingImportError.invariantViolation("maximum heart rate configuration")
         }
         for row in maximumHeartRateRows {
             guard (row["id"] as Int64) == 1,
-                  (try? MaximumHeartRate(beatsPerMinute: row["maximum_heart_rate_bpm"] as Double)) != nil,
+                  Self.heartRateZoneBoundaries(from: row) != nil,
                   (row["updated_at"] as Int64) >= 0
             else {
                 throw TrainingImportError.invariantViolation("maximum heart rate configuration")
@@ -4134,6 +4161,22 @@ public actor GRDBTrainingRepository: TrainingRepository, TrainingReplacementImpo
             identity: identity(kind: row["identity_kind"], value: row["identity_value"]),
             trainingMax: TrainingMax(kg: row["training_max_kg"]),
             loadingIncrement: LoadingIncrement(kg: row["loading_increment_kg"]),
+        )
+    }
+
+    private static func heartRateZoneBoundaries(from row: Row) -> HeartRateZoneBoundaries? {
+        guard
+            let maximum = try? MaximumHeartRate(
+                beatsPerMinute: row["maximum_heart_rate_bpm"] as Double,
+            )
+        else { return nil }
+        return try? HeartRateZoneBoundaries(
+            restingHeartRateBPM: row["resting_heart_rate_bpm"] as Double,
+            maximumHeartRate: maximum,
+            zone2MinimumBPM: row["zone2_minimum_bpm"] as Double,
+            zone3MinimumBPM: row["zone3_minimum_bpm"] as Double,
+            zone4MinimumBPM: row["zone4_minimum_bpm"] as Double,
+            zone5MinimumBPM: row["zone5_minimum_bpm"] as Double,
         )
     }
 

@@ -417,47 +417,68 @@ private struct HealthView: View {
     }
 }
 
-private struct MaximumHeartRateConfigurationView: View {
+private struct HeartRateZoneConfigurationView: View {
     let model: AppModel
 
+    @State private var restingHeartRateText = ""
     @State private var maximumHeartRateText = ""
-    @State private var maximumHeartRate: HeartRateConfiguration?
+    @State private var zone2MinimumText = ""
+    @State private var zone3MinimumText = ""
+    @State private var zone4MinimumText = ""
+    @State private var zone5MinimumText = ""
+    @State private var configuration: HeartRateConfiguration?
     @State private var errorMessage: String?
 
     var body: some View {
         Form {
             Section {
+                TextField("Resting heart rate (bpm)", text: $restingHeartRateText)
+                    .keyboardType(.decimalPad)
                 TextField("Maximum heart rate (bpm)", text: $maximumHeartRateText)
                     .keyboardType(.decimalPad)
                     .accessibilityIdentifier("health.maximum-heart-rate")
-                Button("Save Maximum Heart Rate") {
-                    Task { await saveMaximumHeartRate() }
+            } header: {
+                Text("Apple Watch reference")
+            } footer: {
+                Text("Copy the resting and maximum values shown by the Watch app.")
+            }
+            Section {
+                TextField("Zone 2 starts at", text: $zone2MinimumText)
+                    .keyboardType(.numberPad)
+                TextField("Zone 3 starts at", text: $zone3MinimumText)
+                    .keyboardType(.numberPad)
+                TextField("Zone 4 starts at", text: $zone4MinimumText)
+                    .keyboardType(.numberPad)
+                TextField("Zone 5 starts at", text: $zone5MinimumText)
+                    .keyboardType(.numberPad)
+                Button("Save Heart Rate Zones") {
+                    Task { await saveHeartRateZones() }
                 }
                 .disabled(model.heartRateConfigurationBoundary == nil)
                 .accessibilityIdentifier("health.maximum-heart-rate.save")
-                if let maximumHeartRate {
-                    LabeledContent(
-                        "Current",
-                        value: "\(String(format: "%.1f", maximumHeartRate.maximumHeartRateBPM)) bpm",
-                    )
-                    Button("Clear Maximum Heart Rate", role: .destructive) {
-                        Task { await clearMaximumHeartRate() }
+                if let configuration {
+                    ForEach(RollingWorkoutZone.allCases, id: \.self) { zone in
+                        LabeledContent(
+                            zone.displayName,
+                            value: configuration.zoneBoundaries.rangeDescription(for: zone),
+                        )
+                    }
+                    Button("Clear Heart Rate Zones", role: .destructive) {
+                        Task { await clearHeartRateZones() }
                     }
                     .accessibilityIdentifier("health.maximum-heart-rate.clear")
                 }
             } footer: {
-                Text("Progress uses this value to calculate time in heart-rate zones.")
+                Text("Use the four lower bounds displayed by Apple Watch. Zone 1 and Zone 5 remain open-ended.")
             }
         }
         .compassScreen()
-        .navigationTitle("Maximum Heart Rate")
+        .navigationTitle("Heart Rate Zones")
         .task {
-            maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
-            if let maximumHeartRate {
-                maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
-            }
+            configuration = try? await model.heartRateConfigurationBoundary?.current()
+            loadFields()
         }
-        .alert("Could not save maximum heart rate", isPresented: Binding(
+        .alert("Could not save heart-rate zones", isPresented: Binding(
             get: { errorMessage != nil },
             set: {
                 if !$0 {
@@ -471,30 +492,65 @@ private struct MaximumHeartRateConfigurationView: View {
         }
     }
 
-    private func saveMaximumHeartRate() async {
+    private func saveHeartRateZones() async {
         guard let boundary = model.heartRateConfigurationBoundary,
-              let value = Double(maximumHeartRateText.trimmingCharacters(in: .whitespacesAndNewlines))
+              let resting = value(from: restingHeartRateText),
+              let maximum = value(from: maximumHeartRateText),
+              let zone2 = value(from: zone2MinimumText),
+              let zone3 = value(from: zone3MinimumText),
+              let zone4 = value(from: zone4MinimumText),
+              let zone5 = value(from: zone5MinimumText)
         else {
-            errorMessage = "Enter a positive maximum heart rate in beats per minute."
+            errorMessage = "Enter positive resting, maximum, and Zone 2–5 boundary values."
             return
         }
         do {
-            maximumHeartRate = try await boundary.configure(maximumHeartRateBPM: value)
+            configuration = try await boundary.configure(
+                restingHeartRateBPM: resting,
+                maximumHeartRateBPM: maximum,
+                zone2MinimumBPM: zone2,
+                zone3MinimumBPM: zone3,
+                zone4MinimumBPM: zone4,
+                zone5MinimumBPM: zone5,
+            )
             model.heartRateConfigurationDidChange()
         } catch {
-            errorMessage = "Maximum heart rate must be a finite positive number."
+            errorMessage = "Use increasing zone boundaries above resting heart rate, with Zone 5 at or below maximum heart rate."
         }
     }
 
-    private func clearMaximumHeartRate() async {
+    private func clearHeartRateZones() async {
         do {
             try await model.heartRateConfigurationBoundary?.clear()
-            maximumHeartRate = nil
-            maximumHeartRateText = ""
+            configuration = nil
+            loadFields()
             model.heartRateConfigurationDidChange()
         } catch {
-            errorMessage = "The maximum heart rate could not be cleared."
+            errorMessage = "The heart-rate zones could not be cleared."
         }
+    }
+
+    private func loadFields() {
+        guard let configuration else {
+            restingHeartRateText = ""
+            maximumHeartRateText = ""
+            zone2MinimumText = ""
+            zone3MinimumText = ""
+            zone4MinimumText = ""
+            zone5MinimumText = ""
+            return
+        }
+        let boundaries = configuration.zoneBoundaries
+        restingHeartRateText = String(boundaries.restingHeartRateBPM)
+        maximumHeartRateText = String(boundaries.maximumHeartRate.beatsPerMinute)
+        zone2MinimumText = String(boundaries.zone2MinimumBPM)
+        zone3MinimumText = String(boundaries.zone3MinimumBPM)
+        zone4MinimumText = String(boundaries.zone4MinimumBPM)
+        zone5MinimumText = String(boundaries.zone5MinimumBPM)
+    }
+
+    private func value(from text: String) -> Double? {
+        Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -740,6 +796,7 @@ private struct StrengthProgressView: View {
                     }
                     HeartRateZoneRow(
                         zone: zone,
+                        rangeDescription: metric?.rangeDescription,
                         duration: metric?.coveredSeconds ?? 0,
                         percentage: metric?.percentOfCoveredTime ?? 0,
                         emphasis: Double(index + 1) / 5,
@@ -755,15 +812,15 @@ private struct StrengthProgressView: View {
                 ProgressView("Calculating zone time…")
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else if rollingOverview?.maximumHeartRateBPM == nil {
-                Text("Set your maximum heart rate to calculate zone time.")
+                Text("Set your Apple Watch heart-rate ranges to calculate zone time.")
                     .font(.caption)
                     .foregroundStyle(CompassPalette.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 8)
                 NavigationLink {
-                    MaximumHeartRateConfigurationView(model: model)
+                    HeartRateZoneConfigurationView(model: model)
                 } label: {
-                    Label("Set maximum heart rate", systemImage: "heart.text.square")
+                    Label("Set heart-rate zones", systemImage: "heart.text.square")
                         .font(.caption.weight(.semibold))
                 }
                 .accessibilityIdentifier("progress.set-maximum-heart-rate")
@@ -985,6 +1042,7 @@ private struct LiftE1RMSummary: Identifiable {
 
 private struct HeartRateZoneRow: View {
     let zone: RollingWorkoutZone
+    let rangeDescription: String?
     let duration: Double
     let percentage: Double
     let emphasis: Double
@@ -992,9 +1050,16 @@ private struct HeartRateZoneRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text(zone.shortName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(CompassPalette.navy)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(zone.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(CompassPalette.navy)
+                    if let rangeDescription {
+                        Text(rangeDescription)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(CompassPalette.inkMuted)
+                    }
+                }
                 Spacer()
                 Text(compactDuration(duration))
                     .font(.caption.monospacedDigit())
@@ -1066,17 +1131,6 @@ private struct HeartRateDriftRow: View {
 
 private extension RollingWorkoutZone {
     static let cardioZones: [RollingWorkoutZone] = [.zone1, .zone2, .zone3, .zone4, .zone5]
-
-    var shortName: String {
-        switch self {
-        case .below50: "Below 50%"
-        case .zone1: "Zone 1 · 50–59%"
-        case .zone2: "Zone 2 · 60–69%"
-        case .zone3: "Zone 3 · 70–79%"
-        case .zone4: "Zone 4 · 80–89%"
-        case .zone5: "Zone 5 · 90–100%"
-        }
-    }
 }
 
 private struct RunningRunDetailView: View {
@@ -1449,13 +1503,16 @@ private struct HeartRateZoneDetailView: View {
     var body: some View {
         Section("Heart-Rate Zones") {
             if let projection {
+                if let resting = projection.zoneBoundaries?.restingHeartRateBPM {
+                    LabeledContent("Resting reference", value: "\(String(format: "%.1f", resting)) bpm")
+                }
                 if let maximum = projection.maximumHeartRateBPM {
-                    LabeledContent("Maximum used", value: "\(String(format: "%.1f", maximum)) bpm")
+                    LabeledContent("Maximum reference", value: "\(String(format: "%.1f", maximum)) bpm")
                 }
                 ForEach(RollingWorkoutZone.allCases, id: \.self) { zone in
                     let seconds = projection.zoneDurations[zone] ?? 0
                     LabeledContent(
-                        zone.displayName,
+                        "\(zone.displayName) · \(projection.zoneBoundaries?.rangeDescription(for: zone) ?? "Range unavailable")",
                         value: String(
                             format: "%.1f min · %.1f%% covered",
                             seconds / 60,
@@ -1478,15 +1535,9 @@ private struct HeartRateZoneDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                if projection.unclassifiedSeconds > 0 {
-                    LabeledContent(
-                        "Above maximum / unclassified",
-                        value: "\(String(format: "%.1f", projection.unclassifiedSeconds / 60)) min",
-                    )
-                }
                 ForEach(projection.intervals) { interval in
                     Text(
-                        "Interval · \(interval.source) · \(String(format: "%.1f", interval.durationSeconds / 60)) min · \(interval.zone?.displayName ?? "Above maximum")",
+                        "Interval · \(interval.source) · \(String(format: "%.1f", interval.durationSeconds / 60)) min · \(interval.zone?.displayName ?? "Zone unavailable")",
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -1509,7 +1560,7 @@ private struct HeartRateZoneDetailView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             } else if enrichment.heartRate.state == .available {
-                Text("Configure a positive maximum heart rate to calculate zones.")
+                Text("Configure the Apple Watch heart-rate ranges to calculate zones.")
                     .foregroundStyle(.secondary)
             } else {
                 Text("Heart-rate zones are unavailable until associated samples are available.")

@@ -189,7 +189,7 @@ An explained, advisory self-check prompt available only when at least two Recove
 _Avoid_: automatic adaptation, readiness score, medical recommendation
 
 **Heart-Rate Zone**:
-One of five app-defined intensity bands calculated only from heart-rate samples HealthKit associates with a Health Workout and from the current maximum heart rate explicitly configured by the user: 50–59%, 60–69%, 70–79%, 80–89%, and 90–100%. Time below 50% is separate; changing the configured maximum recalculates historical zones, while missing inputs and sample gaps remain unavailable and coverage stays visible.
+One of five continuous intensity ranges calculated only from heart-rate samples HealthKit associates with a Health Workout and from the current Apple Watch boundaries explicitly copied by the user. The configured profile retains the Watch resting and maximum references plus the lower bounds for Zones 2–5; Zone 1 and Zone 5 are open-ended. Changing any boundary recalculates historical zones, while missing inputs and sample gaps remain unavailable and coverage stays visible.
 _Avoid_: source-provided zone, silently estimated zone, training-load score
 
 **Rolling Workout Overview**:

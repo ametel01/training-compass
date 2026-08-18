@@ -35,7 +35,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
             // The simulator does not provide the device's protected application-support
             // filesystem semantics. Keep the same schema and transaction behavior in its
             // writable cache container so UI journeys can exercise the real repository.
-            let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let simulatorRoot = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask)[0]
                 .appending(path: "TrainingCompass", directoryHint: .isDirectory)
             let locations = StoreLocations(root: simulatorRoot)
         #else
@@ -96,7 +97,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
         )
         do {
             try Self.reconstructibleMigrator.migrate(reconstructible)
-            try updateSchemaVersion(reconstructible, to: Self.reconstructibleMigrator.migrations.count)
+            try updateSchemaVersion(
+                reconstructible, to: Self.reconstructibleMigrator.migrations.count)
             try? FileManager.default.removeItem(at: locations.reconstructibleMigrationDiagnostic)
         } catch {
             writeDiagnostic(
@@ -144,21 +146,22 @@ public struct ProtectedStoreBootstrapper: Sendable {
     }
 
     private func checkMigrationSpace(for database: URL, at root: URL) throws {
-        let currentBytes: Int64 = if let attributes = try? FileManager.default.attributesOfItem(
-            atPath: database.path(percentEncoded: false),
-        ),
-            let fileSize = attributes[.size] as? NSNumber
-        {
-            max(0, fileSize.int64Value)
-        } else {
-            0
-        }
+        let currentBytes: Int64 =
+            if let attributes = try? FileManager.default.attributesOfItem(
+                atPath: database.path(percentEncoded: false),
+            ),
+                let fileSize = attributes[.size] as? NSNumber
+            {
+                max(0, fileSize.int64Value)
+            } else {
+                0
+            }
         let (recoveryCopy, recoveryOverflow) = currentBytes.addingReportingOverflow(currentBytes)
         let (withJournal, journalOverflow) = recoveryCopy.addingReportingOverflow(64 * 1024)
         let required =
             recoveryOverflow || journalOverflow
-                ? Int64.max
-                : Int64((Double(withJournal) * 1.2).rounded(.up))
+            ? Int64.max
+            : Int64((Double(withJournal) * 1.2).rounded(.up))
         let available = try spaceProvider.availableMigrationSpaceBytes(at: root)
         guard available >= required else {
             throw StoreMigrationError.insufficientSpace(
@@ -175,7 +178,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
     ) {
         let applied = (try? database.read { db in try migrator.appliedIdentifiers(db) }) ?? []
         let attemptedIndex =
-            migrator.migrations.firstIndex { !applied.contains($0) } ?? migrator.migrations.count - 1
+            migrator.migrations.firstIndex { !applied.contains($0) } ?? migrator.migrations.count
+            - 1
         let diagnostic = StoreMigrationDiagnostic(
             store: store,
             attemptedVersion: max(1, attemptedIndex + 1),
@@ -190,7 +194,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
     /// by a replacement import before it becomes authoritative.
     public func protectAuthoritativeStore(in root: URL) throws {
         #if targetEnvironment(simulator)
-            let simulatorRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let simulatorRoot = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask)[0]
                 .appending(path: "TrainingCompass", directoryHint: .isDirectory)
             let locations = StoreLocations(root: simulatorRoot)
         #else
@@ -340,7 +345,9 @@ public struct ProtectedStoreBootstrapper: Sendable {
             try db.create(table: "training_cycles") { table in
                 table.column("id", .text).primaryKey()
                 table.column("lifecycle_state", .text).notNull()
-                    .check { $0 == "draft" || $0 == "active" || $0 == "completed" || $0 == "abandoned" }
+                    .check {
+                        $0 == "draft" || $0 == "active" || $0 == "completed" || $0 == "abandoned"
+                    }
                 table.column("anchor_date", .text).notNull()
                 table.column("includes_provisional_deload", .boolean).notNull()
                 table.column("cycle_json", .text).notNull()
@@ -353,11 +360,11 @@ public struct ProtectedStoreBootstrapper: Sendable {
             )
             try db.execute(
                 sql:
-                "CREATE UNIQUE INDEX training_cycles_single_draft ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'draft'",
+                    "CREATE UNIQUE INDEX training_cycles_single_draft ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'draft'",
             )
             try db.execute(
                 sql:
-                "CREATE UNIQUE INDEX training_cycles_single_active ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'active'",
+                    "CREATE UNIQUE INDEX training_cycles_single_active ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'active'",
             )
             try db.create(table: "training_cycle_audit") { table in
                 table.column("id", .text).primaryKey()
@@ -441,7 +448,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
                 table.column("cycle_id", .text).notNull()
                 table.column("status", .text).notNull()
                     .check {
-                        $0 == "scheduled" || $0 == "inProgress" || $0 == "completed" || $0 == "skipped"
+                        $0 == "scheduled" || $0 == "inProgress" || $0 == "completed"
+                            || $0 == "skipped"
                     }
                 table.column("intended_date", .text).notNull()
                 table.column("primary_lift_id", .text).notNull().check { $0 != "" }
@@ -481,11 +489,11 @@ public struct ProtectedStoreBootstrapper: Sendable {
             }
             try db.execute(
                 sql: """
-                INSERT INTO schedule_template_audit_v8
-                  (id, template_id, action, occurred_at, before_json, after_json)
-                SELECT id, template_id, action, occurred_at, before_json, after_json
-                FROM schedule_template_audit
-                """,
+                    INSERT INTO schedule_template_audit_v8
+                      (id, template_id, action, occurred_at, before_json, after_json)
+                    SELECT id, template_id, action, occurred_at, before_json, after_json
+                    FROM schedule_template_audit
+                    """,
             )
             try db.drop(table: "schedule_template_audit")
             try db.rename(table: "schedule_template_audit_v8", to: "schedule_template_audit")
@@ -538,18 +546,18 @@ public struct ProtectedStoreBootstrapper: Sendable {
             )
             try db.execute(
                 sql: """
-                INSERT INTO training_max_history
-                  (id, lift_id, event, occurred_at, history_json)
-                SELECT
-                  lifts.id || ':initial', lifts.id, 'initial', lifts.created_at,
-                  json_object(
-                    'id', lifts.id || ':initial', 'liftID', lifts.id, 'event', 'initial',
-                    'occurredAt', lifts.created_at, 'beforeKg', NULL,
-                    'afterKg', lifts.training_max_kg, 'proposalID', NULL, 'cycleID', NULL,
-                    'effectiveCycleID', NULL, 'evidence', NULL, 'decision', NULL, 'note', NULL
-                  )
-                FROM lifts
-                """,
+                    INSERT INTO training_max_history
+                      (id, lift_id, event, occurred_at, history_json)
+                    SELECT
+                      lifts.id || ':initial', lifts.id, 'initial', lifts.created_at,
+                      json_object(
+                        'id', lifts.id || ':initial', 'liftID', lifts.id, 'event', 'initial',
+                        'occurredAt', lifts.created_at, 'beforeKg', NULL,
+                        'afterKg', lifts.training_max_kg, 'proposalID', NULL, 'cycleID', NULL,
+                        'effectiveCycleID', NULL, 'evidence', NULL, 'decision', NULL, 'note', NULL
+                      )
+                    FROM lifts
+                    """,
             )
         }
         migrator.registerMigration("authoritative_v12_health_workout_link_facts") { db in
@@ -568,24 +576,25 @@ public struct ProtectedStoreBootstrapper: Sendable {
         }
         migrator.registerMigration("authoritative_v13_training_event_links") { db in
             try db.alter(table: "health_workout_link_facts") { table in
-                table.add(column: "linked_during_completion", .boolean).notNull().defaults(to: false)
+                table.add(column: "linked_during_completion", .boolean).notNull().defaults(
+                    to: false)
                 table.add(column: "write_back_disposition", .text).notNull()
                     .defaults(to: TrainingEventWriteBackDisposition.notApplicable.rawValue)
                 table.add(column: "unlinked_at", .double)
             }
             try db.execute(
                 sql: """
-                CREATE UNIQUE INDEX health_workout_link_facts_active_uuid
-                ON health_workout_link_facts (healthkit_uuid)
-                WHERE unlinked_at IS NULL
-                """,
+                    CREATE UNIQUE INDEX health_workout_link_facts_active_uuid
+                    ON health_workout_link_facts (healthkit_uuid)
+                    WHERE unlinked_at IS NULL
+                    """,
             )
             try db.execute(
                 sql: """
-                  CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
-                  ON health_workout_link_facts (local_entity_kind, local_entity_id)
-                  WHERE unlinked_at IS NULL
-                """,
+                      CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
+                      ON health_workout_link_facts (local_entity_kind, local_entity_id)
+                      WHERE unlinked_at IS NULL
+                    """,
             )
         }
         migrator.registerMigration("authoritative_v14_heart_rate_configuration") { db in
@@ -610,7 +619,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
             }
             try db.execute(
                 sql:
-                "INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at) VALUES ('default', 0, 0)",
+                    "INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at) VALUES ('default', 0, 0)",
             )
             try db.create(table: "health_workout_write_backs") { table in
                 table.column("session_id", .text).primaryKey()
@@ -628,6 +637,17 @@ public struct ProtectedStoreBootstrapper: Sendable {
                 index: "health_workout_write_backs_sync_identifier",
                 on: "health_workout_write_backs", columns: ["sync_identifier"], unique: true,
             )
+        }
+        migrator.registerMigration("authoritative_v17_heart_rate_zone_boundaries") { db in
+            try db.alter(table: "heart_rate_configuration") { table in
+                // These defaults preserve the owner-supplied Apple Watch Automatic profile
+                // when upgrading the existing maximum-only configuration.
+                table.add(column: "resting_heart_rate_bpm", .double).notNull().defaults(to: 64)
+                table.add(column: "zone2_minimum_bpm", .double).notNull().defaults(to: 131)
+                table.add(column: "zone3_minimum_bpm", .double).notNull().defaults(to: 142)
+                table.add(column: "zone4_minimum_bpm", .double).notNull().defaults(to: 153)
+                table.add(column: "zone5_minimum_bpm", .double).notNull().defaults(to: 165)
+            }
         }
         return migrator
     }
@@ -756,7 +776,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
                     .check { $0 == false }
             }
             try db.execute(
-                sql: "INSERT INTO gate_zero_metadata (schema_version, owner_data_accepted) VALUES (1, 0)",
+                sql:
+                    "INSERT INTO gate_zero_metadata (schema_version, owner_data_accepted) VALUES (1, 0)",
             )
         }
         return migrator

@@ -1,6 +1,7 @@
 import TrainingDomain
-@testable import TrainingInsights
 import XCTest
+
+@testable import TrainingInsights
 
 final class RollingWorkoutOverviewTests: XCTestCase {
     func testTrailingSevenDatesUseMedianOfFourPrecedingNonOverlappingPeriods() {
@@ -50,7 +51,8 @@ final class RollingWorkoutOverviewTests: XCTestCase {
             overview.workoutCount.explanation.includedDates.contains("2026-08-09"),
         )
         XCTAssertTrue(
-            overview.workoutCount.explanation.dateRange.contains("Current: 2026-08-09 through 2026-08-15"),
+            overview.workoutCount.explanation.dateRange.contains(
+                "Current: 2026-08-09 through 2026-08-15"),
         )
         XCTAssertTrue(
             overview.workoutCount.explanation.exclusions.contains {
@@ -65,7 +67,8 @@ final class RollingWorkoutOverviewTests: XCTestCase {
             record("run", date: today, activityType: "Running", durationSeconds: 1800),
             record("ride", date: today, activityType: "Cycling", durationSeconds: nil),
             record(
-                "strength", date: today, activityType: "Traditional Strength Training", durationSeconds: 900,
+                "strength", date: today, activityType: "Traditional Strength Training",
+                durationSeconds: 900,
             ),
             record("baseline-a", date: today.adding(days: -7), activityType: "Running"),
             record("baseline-b", date: today.adding(days: -14), activityType: "Running"),
@@ -114,7 +117,7 @@ final class RollingWorkoutOverviewTests: XCTestCase {
         let records = [
             record(
                 "run", date: today, durationSeconds: 1000,
-                zoneTimes: .available([.below50: 10, .zone1: 20, .zone2: 30]),
+                zoneTimes: .available([.zone1: 10, .zone2: 20, .zone3: 30]),
             ),
             record(
                 "ride", date: today, activityType: "Cycling", durationSeconds: 500,
@@ -128,12 +131,14 @@ final class RollingWorkoutOverviewTests: XCTestCase {
             coverage: .complete(lastReconciliation: "checked"),
         )
 
-        XCTAssertEqual(overview.zoneMetrics.map(\.zone), [.below50, .zone1, .zone2])
+        XCTAssertEqual(overview.zoneMetrics.map(\.zone), [.zone1, .zone2, .zone3])
         XCTAssertEqual(overview.zoneMetrics.first?.coveredSeconds, 10)
         XCTAssertEqual(overview.zoneMetrics.first?.coveredWorkoutDurationSeconds, 1000)
         XCTAssertEqual(overview.zoneMetrics.first?.totalWorkoutDurationSeconds, 1500)
         XCTAssertTrue(
-            overview.zoneMetrics.first?.explanation.missingData.contains(where: { $0.contains("ride") })
+            overview.zoneMetrics.first?.explanation.missingData.contains(where: {
+                $0.contains("ride")
+            })
                 == true,
         )
         XCTAssertNil(overview.zoneAvailabilityExplanation)

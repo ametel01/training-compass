@@ -1,7 +1,8 @@
 import Foundation
 import GRDB
-@testable import TrainingPersistence
 import XCTest
+
+@testable import TrainingPersistence
 
 final class ProtectedStoreBootstrapTests: XCTestCase {
     func testCreatesSeparateProtectedStoresAndExcludesOnlyReconstructibleDataFromBackup() throws {
@@ -24,7 +25,7 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
             try stores.authoritative.read { db in
                 try Int.fetchOne(db, sql: "SELECT schema_version FROM gate_zero_metadata")
             },
-            16,
+            17,
         )
         XCTAssertEqual(
             try stores.reconstructible.read { db in
@@ -115,7 +116,8 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
                         sql: "SELECT confirmed_at FROM session_completions WHERE session_id = ?",
                         arguments: ["existing-session"],
                     ) == 42
-                return omitted && additional && completions && projections && corrections && preserved
+                return omitted && additional && completions && projections && corrections
+                    && preserved
             },
         )
     }
@@ -124,22 +126,59 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         let report = try TrainingMigrationCompatibilityVerifier(
             temporaryDirectory: FileManager.default.temporaryDirectory
                 .appending(
-                    path: "training-migration-verification-\(UUID().uuidString)", directoryHint: .isDirectory,
+                    path: "training-migration-verification-\(UUID().uuidString)",
+                    directoryHint: .isDirectory,
                 ),
         ).verify()
 
         XCTAssertTrue(report.passed)
-        XCTAssertEqual(report.authoritative.map(\.sourceVersion), Array(1 ... 16))
-        XCTAssertEqual(report.reconstructible.map(\.sourceVersion), Array(1 ... 10))
-        XCTAssertEqual(report.authoritative.last?.targetVersion, 16)
+        XCTAssertEqual(report.authoritative.map(\.sourceVersion), Array(1...17))
+        XCTAssertEqual(report.reconstructible.map(\.sourceVersion), Array(1...10))
+        XCTAssertEqual(report.authoritative.last?.targetVersion, 17)
         XCTAssertEqual(report.reconstructible.last?.targetVersion, 10)
         XCTAssertEqual(report.exportSchemaVersions, [1])
         XCTAssertTrue(report.exportVerified)
     }
 
+    func testV17AddsOwnerSuppliedWatchBoundariesToExistingMaximumConfiguration() throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appending(path: "training-heart-rate-v16-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let database = try DatabaseQueue(path: databaseURL.path())
+        let migrator = ProtectedStoreBootstrapper.authoritativeMigrator
+        try migrator.migrate(database, upTo: "authoritative_v16_health_workout_write_back")
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO heart_rate_configuration (id, maximum_heart_rate_bpm, updated_at)
+                    VALUES (1, 177, 42)
+                    """,
+            )
+        }
+
+        try migrator.migrate(database)
+
+        let values = try database.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT resting_heart_rate_bpm, zone2_minimum_bpm, zone3_minimum_bpm,
+                           zone4_minimum_bpm, zone5_minimum_bpm
+                    FROM heart_rate_configuration WHERE id = 1
+                    """,
+            )
+        }
+        XCTAssertEqual(values?["resting_heart_rate_bpm"] as Double?, 64)
+        XCTAssertEqual(values?["zone2_minimum_bpm"] as Double?, 131)
+        XCTAssertEqual(values?["zone3_minimum_bpm"] as Double?, 142)
+        XCTAssertEqual(values?["zone4_minimum_bpm"] as Double?, 153)
+        XCTAssertEqual(values?["zone5_minimum_bpm"] as Double?, 165)
+    }
+
     func testMigrationSpaceRefusalHappensBeforeAnySchemaMutationAndReportsProgress() throws {
         let root = FileManager.default.temporaryDirectory
-            .appending(path: "training-migration-space-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(
+                path: "training-migration-space-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let recorder = MigrationPhaseRecorder()
         let bootstrapper = ProtectedStoreBootstrapper(
@@ -156,7 +195,8 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         XCTAssertEqual(recorder.phases, [.checkingSpace])
         let locations = StoreLocations(root: root)
         XCTAssertFalse(
-            FileManager.default.fileExists(atPath: locations.authoritativeMigrationDiagnostic.path()),
+            FileManager.default.fileExists(
+                atPath: locations.authoritativeMigrationDiagnostic.path()),
         )
     }
 }
