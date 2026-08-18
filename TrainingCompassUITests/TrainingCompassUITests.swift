@@ -23,6 +23,13 @@ final class TrainingCompassUITests: XCTestCase {
         return app
     }
 
+    private func keepScreenshot(_ app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testLaunchShowsPreDataFourDestinationShell() {
         let app = cleanApp()
         app.launch()
@@ -35,18 +42,17 @@ final class TrainingCompassUITests: XCTestCase {
 
         app.tabBars.buttons["Cycle"].tap()
         XCTAssertTrue(app.staticTexts["Set up your first cycle"].exists)
-        XCTAssertTrue(app.staticTexts["0 of 5 lifts ready"].exists)
+        XCTAssertTrue(app.staticTexts["0 of 4 lifts ready"].exists)
         XCTAssertTrue(app.buttons["cycle.setup-training-maxes"].exists)
         XCTAssertFalse(app.buttons.matching(identifier: "save").firstMatch.exists)
 
         app.tabBars.buttons["TMs"].tap()
-        XCTAssertTrue(app.navigationBars["TMs"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Squat"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Deadlift"].exists)
         XCTAssertTrue(app.staticTexts["Bench Press"].exists)
         XCTAssertTrue(app.staticTexts["Overhead Press"].exists)
-        XCTAssertTrue(app.buttons["tm.add-variant"].exists)
-        XCTAssertTrue(app.buttons["tm.add-custom"].exists)
+        XCTAssertTrue(app.buttons["tm.data-recovery"].exists)
 
         let squatEdit = app.buttons.matching(identifier: "tm.edit.progression:Squat").firstMatch
         XCTAssertTrue(squatEdit.waitForExistence(timeout: 15))
@@ -61,18 +67,16 @@ final class TrainingCompassUITests: XCTestCase {
         app.buttons["tm.review"].tap()
         XCTAssertTrue(app.alerts["Confirm lift change"].waitForExistence(timeout: 15))
         app.alerts.buttons["Confirm"].tap()
-        XCTAssertTrue(
-            app.staticTexts["TM 100.00 kg · Increment 2.50 kg"].waitForExistence(timeout: 15),
-        )
+        XCTAssertTrue(app.staticTexts["100.0 kg"].waitForExistence(timeout: 15))
 
         app.tabBars.buttons["Cycle"].tap()
         XCTAssertTrue(app.staticTexts["Set up your first cycle"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["1 of 5 lifts ready"].exists)
+        XCTAssertTrue(app.staticTexts["1 of 4 lifts ready"].exists)
         XCTAssertFalse(app.staticTexts["Calendar Change"].exists)
 
         app.tabBars.buttons["Progress"].tap()
-        XCTAssertTrue(app.navigationBars["Progress"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["Rolling Workout Overview"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Last 7 Days"].waitForExistence(timeout: 15))
     }
 
     func testNewCycleCanBeReviewedAndStartedFromCycleTab() {
@@ -109,7 +113,7 @@ final class TrainingCompassUITests: XCTestCase {
         )
         confirmation.buttons["Start Cycle"].tap()
 
-        XCTAssertTrue(app.staticTexts["Active Training Cycle"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["5/3/1 – Training Cycle"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["cycle.activate"].exists)
         let activeScreenshot = XCTAttachment(screenshot: app.screenshot())
         activeScreenshot.name = "Active Training Cycle"
@@ -123,6 +127,9 @@ final class TrainingCompassUITests: XCTestCase {
 
         app.tabBars.buttons["Cycle"].tap()
         let importHistory = app.buttons["cycle.import-history"]
+        for _ in 0 ..< 6 where !importHistory.exists {
+            app.swipeUp()
+        }
         XCTAssertTrue(importHistory.waitForExistence(timeout: 15))
         importHistory.tap()
 
@@ -156,7 +163,7 @@ final class TrainingCompassUITests: XCTestCase {
         importSessions.tap()
 
         XCTAssertTrue(app.navigationBars["Add Past Results"].waitForNonExistence(timeout: 5))
-        XCTAssertTrue(app.navigationBars["Cycle"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         XCTAssertTrue(importHistory.waitForNonExistence(timeout: 15))
     }
 
@@ -165,7 +172,7 @@ final class TrainingCompassUITests: XCTestCase {
         app.launch()
 
         app.tabBars.buttons["TMs"].tap()
-        XCTAssertTrue(app.navigationBars["TMs"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         app.buttons["tm.data-recovery"].tap()
         XCTAssertTrue(app.buttons["tm.erase-all"].waitForExistence(timeout: 5))
         app.buttons["tm.erase-all"].tap()
@@ -199,62 +206,27 @@ final class TrainingCompassUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Erase All App Data"].exists)
     }
 
-    func testHealthFoundationNavigationAndConfirmedRebuildControls() {
+    func testHealthIsLimitedToApprovalRefreshAndAddingCompletedSessions() {
         let app = cleanApp()
         app.launch()
 
         app.tabBars.buttons["Health"].tap()
-        XCTAssertTrue(app.navigationBars["Health Data Status"].waitForExistence(timeout: 15))
-        for _ in 0 ..< 3 {
-            app.swipeUp()
-        }
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         let connect = app.buttons["health.connect"]
-        let checkAccess = app.buttons["health.check-access"]
-        let refresh = app.buttons["health.refresh-data.toolbar"]
+        let refresh = app.buttons["health.refresh-data"]
         XCTAssertTrue(
-            connect.waitForExistence(timeout: 15) || checkAccess.waitForExistence(timeout: 15)
-                || refresh.waitForExistence(timeout: 15),
-            "Health must expose an explicit connection, access, or refresh action",
+            connect.waitForExistence(timeout: 15) || refresh.waitForExistence(timeout: 15),
+            "Health must expose either approval or refresh as its primary action",
         )
-
-        if connect.exists {
-            connect.tap()
-        } else if checkAccess.exists {
-            checkAccess.tap()
-        } else {
-            refresh.tap()
+        if refresh.exists {
+            XCTAssertTrue(app.switches["health.write-back.enabled"].exists)
         }
-        if app.alerts["Health connection unavailable"].waitForExistence(timeout: 5) {
-            app.alerts.buttons["OK"].tap()
+        for removedSection in [
+            "Health Data Status", "Recovery Evidence", "Heart-Rate Zones", "Deep repair",
+            "Health Workouts", "Optional Session summaries",
+        ] {
+            XCTAssertFalse(app.staticTexts[removedSection].exists)
         }
-        for _ in 0 ..< 6 {
-            if refresh.exists {
-                break
-            }
-            app.swipeUp()
-        }
-        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
-        refresh.tap()
-        XCTAssertTrue(app.staticTexts["Health Data Status"].exists)
-        app.tabBars.buttons["Today"].tap()
-        XCTAssertTrue(app.tabBars.buttons["Today"].exists)
-        app.tabBars.buttons["Health"].tap()
-        XCTAssertTrue(app.navigationBars["Health Data Status"].exists)
-
-        for _ in 0 ..< 3 {
-            app.swipeUp()
-        }
-        XCTAssertTrue(app.buttons["health.rebuild"].waitForExistence(timeout: 5))
-        app.buttons["health.rebuild"].tap()
-        XCTAssertTrue(app.navigationBars["Health Data Rebuild"].waitForExistence(timeout: 5))
-        let rebuild = app.buttons["health.rebuild.confirm"]
-        XCTAssertTrue(rebuild.waitForExistence(timeout: 5))
-        rebuild.tap()
-        let cancel = app.sheets.buttons["Cancel"]
-        if cancel.waitForExistence(timeout: 5) {
-            cancel.tap()
-        }
-        XCTAssertTrue(app.navigationBars["Health Data Rebuild"].exists)
     }
 
     func testExplicitTrainingEventLinkingShowsWarningDualSourceDetailAndUnlink() {
@@ -327,5 +299,84 @@ final class TrainingCompassUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "Unlinked"),
         ).firstMatch
         XCTAssertTrue(unlinkedState.waitForExistence(timeout: 5))
+    }
+
+    func testImportedHealthMirrorCanBeInspectedAcrossEveryTopLevelPage() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 15))
+        let importedCount = app.descendants(matching: .any)["health.workouts.count"]
+        let configuredExpected = ProcessInfo.processInfo.environment[
+            "TRAINING_COMPASS_EXPECTED_IMPORTED_WORKOUTS"
+        ].flatMap(Int.init)
+        let expectedWorkouts: Int
+        if let configuredExpected, configuredExpected > 0 {
+            expectedWorkouts = configuredExpected
+        } else {
+            app.tabBars.buttons["Health"].tap()
+            for _ in 0 ..< 12 where !importedCount.exists {
+                app.swipeUp()
+            }
+            let observed = Int(importedCount.value as? String ?? "") ?? 0
+            guard observed > 0 else {
+                throw XCTSkip("No imported Health mirror is installed for the attended audit.")
+            }
+            expectedWorkouts = observed
+            app.tabBars.buttons["Today"].tap()
+        }
+        keepScreenshot(app, named: "Imported data - Today")
+
+        for tab in ["Cycle", "Progress", "TMs", "Health"] {
+            app.tabBars.buttons[tab].tap()
+            XCTAssertTrue(app.tabBars.buttons[tab].isSelected)
+            if tab == "Progress" {
+                XCTAssertTrue(
+                    app.staticTexts["Are my estimated 1RMs increasing?"].waitForExistence(timeout: 15),
+                )
+                XCTAssertTrue(app.staticTexts["Is my cardio efficiency improving?"].exists)
+                let drift = app.staticTexts["How is my heart rate drifting?"]
+                for _ in 0 ..< 8 where !drift.exists {
+                    app.swipeUp()
+                }
+                XCTAssertTrue(drift.waitForExistence(timeout: 10))
+                keepScreenshot(app, named: "Imported data - Progress drift")
+            }
+            keepScreenshot(app, named: "Imported data - \(tab)")
+        }
+
+        for _ in 0 ..< 12 where !importedCount.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(importedCount.waitForExistence(timeout: 10))
+        XCTAssertEqual(
+            importedCount.value as? String,
+            "\(expectedWorkouts)",
+            "The Health page must expose the expected imported workout count.",
+        )
+        keepScreenshot(app, named: "Imported data - Health workouts")
+    }
+
+    func testProgressIsLimitedToTheFourTrainingQuestions() {
+        let app = XCUIApplication()
+        app.launchEnvironment["TRAINING_COMPASS_INITIAL_TAB"] = "progress"
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Are my estimated 1RMs increasing?"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["How much training is in each HR zone?"].exists)
+
+        let efficiency = app.staticTexts["Is my cardio efficiency improving?"]
+        for _ in 0 ..< 6 where !efficiency.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(efficiency.waitForExistence(timeout: 10))
+
+        let drift = app.staticTexts["How is my heart rate drifting?"]
+        for _ in 0 ..< 8 where !drift.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(drift.exists)
+        XCTAssertTrue(drift.isHittable)
+        keepScreenshot(app, named: "Progress - four questions")
     }
 }

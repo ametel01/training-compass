@@ -14,7 +14,6 @@ extension GRDBTrainingRepository {
             ("ui-deadlift", .progression(.deadlift), 120, 5),
             ("ui-bench", .progression(.benchPress), 75, 2.5),
             ("ui-overhead-press", .progression(.overheadPress), 50, 2.5),
-            ("ui-romanian-deadlift", .variant(name: "Romanian Deadlift"), 90, 5),
         ]
         let timestamp = Int64(now.timeIntervalSince1970)
         for (index, fixture) in configurations.enumerated() {

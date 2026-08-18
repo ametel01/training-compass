@@ -20,7 +20,7 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
             template.sessions.map(\.primaryLiftID), ["squat", "press", "bench", "deadlift"],
         )
         XCTAssertEqual(
-            template.sessions.map(\.assistanceLiftID), ["bench", "rdl", "squat", "press"],
+            template.sessions.map(\.assistanceLiftID), ["bench", "deadlift", "squat", "press"],
         )
     }
 
@@ -130,9 +130,6 @@ final class ScheduleTemplateBoundaryTests: XCTestCase {
             LiftConfiguration(id: "bench", identity: .progression(.benchPress), trainingMaxKg: 75),
             LiftConfiguration(
                 id: "press", identity: .progression(.overheadPress), trainingMaxKg: 50,
-            ),
-            LiftConfiguration(
-                id: "rdl", identity: .variant(name: "Romanian Deadlift"), trainingMaxKg: 90,
             ),
         ]
     }

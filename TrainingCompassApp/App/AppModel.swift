@@ -18,6 +18,7 @@ final class AppModel {
     private(set) var phase: Phase = .preparing
     private(set) var isErasing = false
     private(set) var heartRateConfigurationRevision = 0
+    private var preparationInFlight = false
     private let preparePreDataShell: PreparePreDataShell
     let liftConfigurationBoundary: LiftConfigurationBoundary
     let scheduleTemplateBoundary: ScheduleTemplateBoundary
@@ -35,6 +36,7 @@ final class AppModel {
     let trainingEventLinkBoundary: TrainingEventLinkBoundary?
     let rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary?
     let runningPerformanceBoundary: RunningPerformanceBoundary?
+    let cardioProgressBoundary: CardioProgressBoundary?
     let heartRateConfigurationBoundary: HeartRateConfigurationBoundary?
     let heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider?
 
@@ -56,6 +58,7 @@ final class AppModel {
         trainingEventLinkBoundary: TrainingEventLinkBoundary? = nil,
         rollingWorkoutOverviewBoundary: RollingWorkoutOverviewBoundary? = nil,
         runningPerformanceBoundary: RunningPerformanceBoundary? = nil,
+        cardioProgressBoundary: CardioProgressBoundary? = nil,
         heartRateConfigurationBoundary: HeartRateConfigurationBoundary? = nil,
         heartRateZoneProvider: HealthWorkoutHeartRateZoneProvider? = nil,
     ) {
@@ -76,12 +79,20 @@ final class AppModel {
         self.trainingEventLinkBoundary = trainingEventLinkBoundary
         self.rollingWorkoutOverviewBoundary = rollingWorkoutOverviewBoundary
         self.runningPerformanceBoundary = runningPerformanceBoundary
+        self.cardioProgressBoundary = cardioProgressBoundary
         self.heartRateConfigurationBoundary = heartRateConfigurationBoundary
         self.heartRateZoneProvider = heartRateZoneProvider
     }
 
     func prepare() async {
-        guard phase == .preparing else { return }
+        guard phase != .ready, !preparationInFlight else { return }
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            phase = .preparing
+            return
+        }
+        phase = .preparing
+        preparationInFlight = true
+        defer { preparationInFlight = false }
         do {
             _ = try await preparePreDataShell()
             phase = .ready
@@ -278,6 +289,10 @@ final class AppModel {
                     calendar: dependencies.calendar,
                     zoneProvider: HealthWorkoutHeartRateZoneProvider(configurationRepository: repository),
                 )
+            }(),
+            cardioProgressBoundary: {
+                guard let healthRepository = repository as? any HealthWorkoutRepository else { return nil }
+                return CardioProgressBoundary(repository: healthRepository)
             }(),
             heartRateConfigurationBoundary: HeartRateConfigurationBoundary(
                 repository: repository,

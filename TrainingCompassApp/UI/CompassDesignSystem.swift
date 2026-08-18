@@ -3,9 +3,9 @@ import UIKit
 
 /// The visual language shared by every Training Compass surface.
 ///
-/// It deliberately stays on top of native SwiftUI controls: the app remains
-/// recognisably iOS while carrying the supplied compass, paper, and editorial
-/// reference system into every state.
+/// The pinned four-phone reference is the visual authority: a compact white
+/// working surface, editorial orientation type, dense operational typography,
+/// fine rules, blue actions, and green evidence states.
 enum CompassPalette {
     static let paper = Color(uiColor: paperUIColor)
     static let surface = Color(uiColor: surfaceUIColor)
@@ -19,31 +19,31 @@ enum CompassPalette {
     static let paperUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.075, green: 0.09, blue: 0.12, alpha: 1)
-            : UIColor(red: 0.973, green: 0.969, blue: 0.949, alpha: 1)
+            : UIColor(red: 0.965, green: 0.969, blue: 0.972, alpha: 1)
     }
 
     static let surfaceUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1)
-            : UIColor(red: 1, green: 1, blue: 0.99, alpha: 0.96)
+            : UIColor(red: 1, green: 1, blue: 1, alpha: 1)
     }
 
     static let navyUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.91, green: 0.93, blue: 0.97, alpha: 1)
-            : UIColor(red: 0.035, green: 0.11, blue: 0.20, alpha: 1)
+            : UIColor(red: 0.035, green: 0.075, blue: 0.13, alpha: 1)
     }
 
     static let blueUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.40, green: 0.67, blue: 1, alpha: 1)
-            : UIColor(red: 0.025, green: 0.33, blue: 0.78, alpha: 1)
+            : UIColor(red: 0.015, green: 0.35, blue: 0.74, alpha: 1)
     }
 
     static let greenUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.32, green: 0.82, blue: 0.49, alpha: 1)
-            : UIColor(red: 0.02, green: 0.50, blue: 0.23, alpha: 1)
+            : UIColor(red: 0.0, green: 0.52, blue: 0.24, alpha: 1)
     }
 
     static let redUIColor = UIColor { traits in
@@ -55,42 +55,139 @@ enum CompassPalette {
     static let inkMutedUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.68, green: 0.71, blue: 0.76, alpha: 1)
-            : UIColor(red: 0.28, green: 0.31, blue: 0.36, alpha: 1)
+            : UIColor(red: 0.32, green: 0.34, blue: 0.37, alpha: 1)
     }
 
     static let lineUIColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.22, green: 0.25, blue: 0.30, alpha: 1)
-            : UIColor(red: 0.88, green: 0.87, blue: 0.83, alpha: 1)
+            : UIColor(red: 0.86, green: 0.87, blue: 0.88, alpha: 1)
     }
 }
 
 struct CompassPaperBackground: View {
     var body: some View {
-        Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(CompassPalette.paper))
+        CompassPalette.paper
+        .allowsHitTesting(false)
+    }
+}
 
-            // A restrained contour field keeps the reference's topographic character
-            // without competing with content or reducing contrast.
-            let origin = CGPoint(x: size.width * 0.78, y: -size.height * 0.03)
-            for index in 0 ..< 11 {
-                let inset = CGFloat(index) * 18
-                var path = Path()
-                path.move(to: CGPoint(x: origin.x - 120 - inset, y: origin.y + 12 + inset))
-                path.addCurve(
-                    to: CGPoint(x: size.width + 36, y: origin.y + 80 + inset),
-                    control1: CGPoint(x: origin.x - 36 - inset, y: origin.y - 26 + inset),
-                    control2: CGPoint(x: size.width - 20, y: origin.y + 6 + inset),
-                )
-                path.addCurve(
-                    to: CGPoint(x: size.width - 4, y: origin.y + 176 + inset),
-                    control1: CGPoint(x: size.width + 40, y: origin.y + 114 + inset),
-                    control2: CGPoint(x: size.width - 40, y: origin.y + 152 + inset),
-                )
-                context.stroke(path, with: .color(CompassPalette.line.opacity(0.44)), lineWidth: 0.7)
+struct CompassCard<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CompassPalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: Color.black.opacity(0.07), radius: 4, x: 0, y: 2)
+    }
+}
+
+struct CompassSectionTitle: View {
+    let title: String
+    var trailing: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(CompassPalette.navy)
+            Spacer(minLength: 8)
+            if let trailing {
+                Text(trailing)
+                    .font(.caption2)
+                    .foregroundStyle(CompassPalette.inkMuted)
             }
         }
-        .allowsHitTesting(false)
+    }
+}
+
+struct CompassStatusPill: View {
+    let title: String
+    var color: Color = CompassPalette.blue
+
+    var body: some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .fixedSize()
+    }
+}
+
+struct CompassRoundSymbol: View {
+    let systemImage: String
+    var color: Color = CompassPalette.blue
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(color, in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
+struct CompassMetricValue: View {
+    let label: String
+    let value: String
+    var detail: String?
+    var detailColor: Color = CompassPalette.green
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(CompassPalette.inkMuted)
+            Text(value)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(CompassPalette.navy)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+            if let detail {
+                Text(detail)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(detailColor)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CompassTopBarTitleModifier: ViewModifier {
+    let title: String
+    let subtitle: String?
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(.title, design: .serif).weight(.bold))
+                    .foregroundStyle(CompassPalette.navy)
+                    .tracking(-0.5)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(CompassPalette.inkMuted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.trailing, 72)
+            .padding(.top, 2)
+            .padding(.bottom, 8)
+            .background(CompassPalette.paper)
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -191,18 +288,13 @@ struct CompassPageHeader: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            CompassBrandMark()
-                .padding(3)
-                .background(CompassPalette.surface, in: Circle())
-                .frame(width: 42, height: 42)
-
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 if let title {
                     Text(title)
-                        .font(.system(.largeTitle, design: .serif).weight(.bold))
+                        .font(.system(.title, design: .serif).weight(.bold))
                         .foregroundStyle(CompassPalette.navy)
-                        .tracking(-0.5)
+                        .tracking(-0.35)
                 }
                 if let subtitle {
                     Text(subtitle)
@@ -253,12 +345,9 @@ struct CompassEmptyState: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
-        .padding(.vertical, 42)
-        .background(CompassPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(CompassPalette.line.opacity(0.9), lineWidth: 1),
-        )
+        .padding(.vertical, 28)
+        .background(CompassPalette.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .shadow(color: Color.black.opacity(0.075), radius: 6, x: 0, y: 2)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
@@ -269,9 +358,12 @@ struct CompassScreenModifier: ViewModifier {
             .tint(CompassPalette.blue)
             .background(CompassPaperBackground().ignoresSafeArea())
             .scrollContentBackground(.hidden)
-            .listStyle(.grouped)
-            .environment(\.defaultMinListRowHeight, 46)
-            .headerProminence(.standard)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(10)
+            .contentMargins(.top, 4, for: .scrollContent)
+            .contentMargins(.bottom, 112, for: .scrollContent)
+            .environment(\.defaultMinListRowHeight, 42)
+            .headerProminence(.increased)
             .toolbarBackground(CompassPalette.paper, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(CompassPalette.paper, for: .tabBar)
@@ -283,6 +375,14 @@ extension View {
     func compassScreen() -> some View {
         modifier(CompassScreenModifier())
     }
+
+    func compassNavigationTitle(_ title: String) -> some View {
+        self
+    }
+
+    func compassTopBarTitle(_ title: String, subtitle: String? = nil) -> some View {
+        modifier(CompassTopBarTitleModifier(title: title, subtitle: subtitle))
+    }
 }
 
 enum CompassAppearance {
@@ -291,9 +391,25 @@ enum CompassAppearance {
         let nav = UINavigationBarAppearance()
         nav.configureWithOpaqueBackground()
         nav.backgroundColor = CompassPalette.paperUIColor
-        nav.shadowColor = CompassPalette.lineUIColor
-        // Keep title sizing and color native so Dynamic Type and accessibility text
-        // sizes continue to scale and adapt with the navigation system.
+        nav.shadowColor = .clear
+        let inlineDescriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .headline)
+            .withDesign(.serif)?
+            .withSymbolicTraits(.traitBold)
+        let largeDescriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle)
+            .withDesign(.serif)?
+            .withSymbolicTraits(.traitBold)
+        let inlineTitleFont = inlineDescriptor.map { UIFont(descriptor: $0, size: 0) }
+            ?? .preferredFont(forTextStyle: .headline)
+        let largeTitleFont = largeDescriptor.map { UIFont(descriptor: $0, size: 0) }
+            ?? .preferredFont(forTextStyle: .largeTitle)
+        nav.titleTextAttributes = [
+            .font: inlineTitleFont,
+            .foregroundColor: CompassPalette.navyUIColor,
+        ]
+        nav.largeTitleTextAttributes = [
+            .font: largeTitleFont,
+            .foregroundColor: CompassPalette.navyUIColor,
+        ]
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
@@ -311,5 +427,6 @@ enum CompassAppearance {
 
         UITableView.appearance().backgroundColor = .clear
         UICollectionView.appearance().backgroundColor = .clear
+        UITableViewCell.appearance().backgroundColor = CompassPalette.surfaceUIColor
     }
 }

@@ -2,18 +2,18 @@ import SwiftUI
 import TrainingApplication
 import UIKit
 
-// DESIGN CONTRACT · seed 825ac0f6 · operate / assigned grounded direction 7
-// THESIS: Training Compass is a calm field guide for making evidence-backed training decisions;
-//         it refuses the generic fitness dashboard's noisy metric wall.
-// OWN-WORLD: warm paper surfaces, navy editorial serif titles, SF body copy, compass blue actions,
-//            recovery green, and a restrained contour-line field.
-// STORY: the athlete can orient in Today, plan a Cycle, inspect Progress, decide on TMs, and audit
-//        optional Health evidence without losing the local record.
-// FIRST VIEWPORT: a native large title and compass mark lead into one clear grouped work surface;
-//                 empty and loading states are quiet paper cards, while actions remain native and visible.
-// FORM: field-guide / evidence notebook, candidate 7 of the grounded list, seed 825ac0f6.
-// RAISE — star atlas: use coordinate-like hierarchy and contour detail for source/provenance context.
-// RAISE — cutting bench: make state marks and recovery actions explicit instead of decorative.
+// DESIGN CONTRACT · seed bdb3937c · operate / user-pinned reference replacement
+// THESIS: Training Compass is a compact native training log, matching the approved four-iPhone
+//         reference rather than presenting a generic fitness dashboard.
+// OWN-WORLD: warm off-white field, crisp white cards, editorial navy serif headings, compact SF data,
+//            compass-blue actions, verified green, omission red, and hairline structure.
+// STORY: Today records the session; Cycle orients the plan; Progress explains recent evidence;
+//        Training Maxes supports review; Health audits the local evidence mirror.
+// FIRST VIEWPORT: a left-aligned editorial heading leads directly into one dense reference-shaped
+//                 work card, with native actions visible and supporting detail below the fold.
+// FORM: exact visual translation of the user-pinned Training Compass four-phone board, seed bdb3937c.
+// RAISE — comparison board: each tab reads as one member of the same compact visual system.
+// RAISE — native utility: retain Health, accessibility, and state controls while matching the board.
 // FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 struct RootView: View {
     private enum AppTab: Hashable {
@@ -27,16 +27,22 @@ struct RootView: View {
     let model: AppModel
     let concealsSensitiveContent: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("health.readAccessApproved") private var healthReadAccessApproved = false
     @State private var selectedTab: AppTab = .today
 
     init(model: AppModel, concealsSensitiveContent: Bool) {
         self.model = model
         self.concealsSensitiveContent = concealsSensitiveContent
-        _selectedTab = State(
-            initialValue: ProcessInfo.processInfo.environment["TRAINING_COMPASS_INITIAL_TAB"] == "cycle"
-                ? .cycle
-                : .today,
-        )
+        let requestedTab = ProcessInfo.processInfo.environment["TRAINING_COMPASS_INITIAL_TAB"]
+        let initialTab: AppTab
+        switch requestedTab {
+        case "cycle": initialTab = .cycle
+        case "progress": initialTab = .progress
+        case "training-maxes": initialTab = .trainingMaxes
+        case "health": initialTab = .health
+        default: initialTab = .today
+        }
+        _selectedTab = State(initialValue: initialTab)
         CompassAppearance.apply()
     }
 
@@ -82,14 +88,16 @@ struct RootView: View {
             }
             .tint(CompassPalette.blue)
             .privacySensitive()
-            .task { await model.prepare() }
+            .task {
+                await model.prepare()
+                await refreshHealthDataIfDue()
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task {
+                    await model.prepare()
                     await model.resumeHealthWorkoutWriteBacks()
-                    _ = try? await model.healthWorkoutImportBoundary?.refreshHealthData(
-                        trigger: .foreground,
-                    )
+                    await refreshHealthDataIfDue()
                 }
             }
             .onReceive(
@@ -97,7 +105,10 @@ struct RootView: View {
                     for: UIApplication.protectedDataDidBecomeAvailableNotification,
                 ),
             ) { _ in
-                Task { await model.resumeHealthWorkoutWriteBacks() }
+                Task {
+                    await model.prepare()
+                    await model.resumeHealthWorkoutWriteBacks()
+                }
             }
 
             if concealsSensitiveContent {
@@ -107,255 +118,63 @@ struct RootView: View {
             }
         }
     }
+
+    private func refreshHealthDataIfDue() async {
+        guard healthReadAccessApproved,
+              let boundary = model.healthWorkoutImportBoundary
+        else { return }
+        await boundary.resumePreviouslyApprovedHealthAccess()
+        try? await boundary.registerHealthObserver()
+        _ = try? await boundary.refreshHealthDataIfDue()
+    }
 }
 
 private struct HealthView: View {
     let model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("health.readAccessApproved") private var healthReadAccessApproved = false
 
     @State private var authorization = HealthAuthorizationSnapshot(state: .notRequested)
     @State private var healthStatus = HealthDataStatus()
-    @State private var recoveryEvidence = HealthRecoveryEvidenceSnapshot()
     @State private var healthHistory = HealthWorkoutHistorySnapshot(state: .loading)
     @State private var isConnecting = false
     @State private var isImporting = false
     @State private var errorMessage: String?
-    @State private var maximumHeartRateText = ""
-    @State private var maximumHeartRate: HeartRateConfiguration?
     @State private var writeBackPreference = HealthWorkoutWriteBackPreference()
-    @State private var writeBackRecords: [HealthWorkoutWriteBackRecord] = []
     @State private var writeBackError: String?
 
     var body: some View {
         List {
-            Section("Health Data Status") {
-                HealthStatusSection(
-                    status: healthStatus,
-                    isRefreshing: isImporting,
-                    canRefresh: model.healthWorkoutImportBoundary != nil,
-                    onRefresh: { Task { await refreshHealthData() } },
-                )
+            Section {
+                healthControlCard
             }
-
-            Section("Connect Health") {
-                Text(
-                    "Training Compass can read Health Workouts and selected recovery evidence from Apple Health. Local planning, logging, history, export, import, and restoration remain available without access.",
-                )
-                .font(.subheadline)
-                if authorization.state == .notRequested || authorization.state == .postponed {
-                    Text(
-                        "Requested read types: \(HealthAuthorizationRequest.core.readTypes.map(\.displayName).joined(separator: ", ")). Write-back is off.",
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    Button(isConnecting ? "Connecting…" : "Connect Health") {
-                        Task { await connect() }
-                    }
-                    .disabled(isConnecting || model.healthWorkoutImportBoundary == nil)
-                    .accessibilityIdentifier("health.connect")
-                    Button("Not now") {
-                        Task { await model.healthWorkoutImportBoundary?.postponeHealth() }
-                        authorization = .init(state: .postponed)
-                        Task { await model.healthDataRebuildBoundary?.setAuthorization(authorization) }
-                    }
-                    .disabled(isConnecting)
-                    .accessibilityIdentifier("health.postpone")
-                } else if authorization.state == .authorized {
-                    Label("Health access connected", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    if authorization.hasLimitedHistory {
-                        Text(
-                            "Health reports that only limited recent history is available. Training Compass will show that coverage context and keep local training usable.",
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    Text("Use Refresh Health Data above to reconcile every requested stream.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Health data is unavailable on this device. Local training remains fully available.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Optional Session summaries") {
-                Toggle(
-                    "Share completed Session summaries with Health",
-                    isOn: Binding(
-                        get: { writeBackPreference.enabled },
-                        set: { enabled in Task { await setWriteBackEnabled(enabled) } },
-                    ),
-                )
-                .disabled(model.healthWorkoutWriteBackBoundary == nil)
-                .accessibilityIdentifier("health.write-back.enabled")
-                Text(
-                    "Off by default. Enabling this preference requests permission to save only a Traditional Strength Training summary. Each completion can still opt out.",
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if let writeBackError {
-                    Text(writeBackError).font(.caption).foregroundStyle(.orange)
-                }
-                if !writeBackRecords.filter(\.state.requiresAttention).isEmpty {
-                    let attentionCount = writeBackRecords.filter(\.state.requiresAttention).count
-                    Text(
-                        "\(attentionCount) Session summary\(attentionCount == 1 ? "" : "s") need attention.",
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    Button("Check Health Access") {
-                        Task { await checkWriteAccess() }
-                    }
-                    .accessibilityIdentifier("health.write-back.check-access")
-                }
-            }
-
-            Section("Recovery Evidence") {
-                RecoveryEvidenceSection(
-                    snapshot: recoveryEvidence,
-                    boundary: model.healthWorkoutImportBoundary,
-                )
-            }
-
-            Section("Heart-Rate Zones") {
-                Text(
-                    "Zones use the maximum heart rate you configure here. Raw Health heart-rate samples remain visible when no maximum is configured, but no zone time is calculated.",
-                )
-                .font(.subheadline)
-                TextField("Maximum heart rate (bpm)", text: $maximumHeartRateText)
-                    .keyboardType(.decimalPad)
-                    .accessibilityIdentifier("health.maximum-heart-rate")
-                Button("Save Maximum Heart Rate") {
-                    Task { await saveMaximumHeartRate() }
-                }
-                .disabled(model.heartRateConfigurationBoundary == nil)
-                .accessibilityIdentifier("health.maximum-heart-rate.save")
-                if let maximumHeartRate {
-                    LabeledContent(
-                        "Configured",
-                        value: "\(String(format: "%.1f", maximumHeartRate.maximumHeartRateBPM)) bpm",
-                    )
-                    Button("Clear Maximum Heart Rate", role: .destructive) {
-                        Task { await clearMaximumHeartRate() }
-                    }
-                    .accessibilityIdentifier("health.maximum-heart-rate.clear")
-                } else {
-                    Text("Not configured")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Deep repair") {
-                NavigationLink {
-                    HealthDataRebuildView(model: model)
-                } label: {
-                    Label("Rebuild Health Data", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .accessibilityIdentifier("health.rebuild")
-            }
-
-            Section("Health Workouts") {
-                if healthHistory.state != .available {
-                    Label(healthHistory.state.displayName, systemImage: healthHistoryStateIcon)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(
-                            healthHistory.state == .delayedUpdate ? Color.orange : Color.secondary,
-                        )
-                        .accessibilityIdentifier("health.workouts.state")
-                }
-                if isImporting {
-                    ProgressView("Importing the first durable batch…")
-                    Button("Continue in background") {
-                        isImporting = false
-                    }
-                    .accessibilityIdentifier("health.dismiss-progress")
-                } else if healthHistory.events.isEmpty {
-                    ContentUnavailableView(
-                        "No Health data is currently available",
-                        systemImage: "heart.slash",
-                        description: Text(healthHistoryDescription),
-                    )
-                    Button("Check Health access") {
-                        Task { await connect() }
-                    }
-                    .accessibilityIdentifier("health.check-access")
-                    Button("Refresh Health Workouts") {
-                        Task { await importWorkouts() }
-                    }
-                    .disabled(isImporting)
-                    .accessibilityIdentifier("health.refresh-empty")
-                } else {
-                    ForEach(healthHistory.events) { entry in
-                        NavigationLink {
-                            HealthWorkoutHistoryDetailView(entry: entry, model: model)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(entry.event.activityType).font(.headline)
-                                    Spacer()
-                                    Text(entry.event.sourceBadge)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tint)
-                                }
-                                Text("\(entry.event.localDate) · \(Int(entry.event.duration / 60)) min")
-                                    .font(.subheadline)
-                                Text("Health Workout · \(entry.provenance.displayName)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(entry.provenance.detailLabel)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text(
-                                    "Heart rate: \(entry.enrichment.heartRate.state.displayName) · Distance: \(entry.enrichment.distance.state.displayName) · Active energy: \(entry.enrichment.activeEnergy.state.displayName)",
-                                )
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                if let context = entry.event.reconciliationContext {
-                                    Text("Last reconciliation: \(context)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("health.workout.\(entry.id)")
-                    }
-                }
-            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         }
         .compassScreen()
-        .navigationTitle("Health Data Status")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .compassTopBarTitle("Health")
+        .compassNavigationTitle("Health")
         .accessibilityIdentifier("health.destination")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Refresh Health Data") {
-                    Task { await refreshHealthData() }
-                }
-                .disabled(isImporting || model.healthWorkoutImportBoundary == nil)
-                .accessibilityIdentifier("health.refresh-data.toolbar")
-            }
-        }
         .task(id: "\(model.phase)-\(scenePhase)") {
             guard model.phase == .ready else { return }
             if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
                 writeBackPreference = await (try? writeBackBoundary.preference()) ?? .init()
-                writeBackRecords = await (try? writeBackBoundary.records()) ?? []
             }
             guard let boundary = model.healthWorkoutImportBoundary else { return }
+            if healthReadAccessApproved {
+                await boundary.resumePreviouslyApprovedHealthAccess()
+            }
             authorization = await boundary.authorizationSnapshot()
             await model.healthDataRebuildBoundary?.setAuthorization(authorization)
-            healthStatus = await boundary.healthDataStatus()
-            recoveryEvidence = await boundary.recoveryEvidence()
-            await healthHistory =
-                (try? boundary.healthWorkoutHistory())
-                    ?? HealthWorkoutHistorySnapshot(state: .unavailable)
-            maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
-            if let maximumHeartRate {
-                maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
-            }
+            await loadHealthState()
             if scenePhase == .active, authorization.state == .authorized {
                 try? await boundary.registerHealthObserver()
-                await refreshHealthData()
+                if (try? await boundary.refreshHealthDataIfDue()) != nil {
+                    await loadHealthState()
+                }
             }
         }
         .alert(
@@ -375,61 +194,159 @@ private struct HealthView: View {
         }
     }
 
+    private var healthControlCard: some View {
+        CompassCard {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    HStack(spacing: 9) {
+                        CompassRoundSymbol(
+                            systemImage: "heart.fill",
+                            color: authorization.state == .authorized
+                                ? CompassPalette.green
+                                : CompassPalette.blue,
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Apple Health")
+                                .font(.system(.headline, design: .serif).weight(.bold))
+                                .foregroundStyle(CompassPalette.navy)
+                            Text(freshnessLabel)
+                                .font(.caption2)
+                                .foregroundStyle(CompassPalette.inkMuted)
+                        }
+                    }
+                    Spacer()
+                    CompassStatusPill(
+                        title: authorizationLabel,
+                        color: authorization.state == .authorized
+                            ? CompassPalette.green
+                            : CompassPalette.inkMuted,
+                    )
+                }
+
+                Text(healthSummary)
+                    .font(.subheadline)
+                    .foregroundStyle(CompassPalette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("health.workouts.count")
+                    .accessibilityValue("\(healthHistory.events.count)")
+
+                if authorization.state == .authorized {
+                    Button {
+                        Task { await refreshHealthData() }
+                    } label: {
+                        Label(
+                            isImporting ? "Refreshing Health Data…" : "Refresh Health Data",
+                            systemImage: "arrow.clockwise",
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isImporting || model.healthWorkoutImportBoundary == nil)
+                    .accessibilityIdentifier("health.refresh-data")
+
+                    Divider()
+
+                    Toggle(
+                        "Add completed sessions to Health",
+                        isOn: Binding(
+                            get: { writeBackPreference.enabled },
+                            set: { enabled in Task { await setWriteBackEnabled(enabled) } },
+                        ),
+                    )
+                    .disabled(model.healthWorkoutWriteBackBoundary == nil)
+                    .accessibilityIdentifier("health.write-back.enabled")
+                    Text("Adds only a strength-workout summary. Sets, loads, notes, and training maxes stay in Training Compass.")
+                        .font(.caption2)
+                        .foregroundStyle(CompassPalette.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if authorization.state == .unavailable {
+                    Label("Apple Health is unavailable on this device.", systemImage: "heart.slash")
+                        .font(.subheadline)
+                        .foregroundStyle(CompassPalette.inkMuted)
+                } else {
+                    Button {
+                        Task { await connect() }
+                    } label: {
+                        Label(
+                            isConnecting ? "Requesting Health Access…" : "Approve Health Access",
+                            systemImage: "checkmark.shield",
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isConnecting || model.healthWorkoutImportBoundary == nil)
+                    .accessibilityIdentifier("health.connect")
+                }
+
+                if let writeBackError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(writeBackError)
+                            .font(.caption)
+                            .foregroundStyle(CompassPalette.red)
+                        Button("Check Health Access") {
+                            Task { await checkWriteAccess() }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .accessibilityIdentifier("health.write-back.check-access")
+                    }
+                }
+            }
+        }
+    }
+
+    private var freshnessLabel: String {
+        if isImporting { return "Refreshing now" }
+        if healthStatus.hasActionableAttention { return "Refresh needs attention" }
+        if healthStatus.requestedStreams.contains(where: { stream in
+            guard let lastSuccessfulCheck = stream.lastSuccessfulCheck else { return false }
+            return Calendar.current.isDateInToday(lastSuccessfulCheck)
+        }) {
+            return "Updated today"
+        }
+        if let lastCheck = healthStatus.requestedStreams.compactMap(\.lastSuccessfulCheck).max() {
+            return "Updated \(lastCheck.formatted(date: .abbreviated, time: .omitted))"
+        }
+        return authorization.state == .authorized ? "Ready to refresh" : "Approval required"
+    }
+
+    private var healthSummary: String {
+        guard authorization.state == .authorized else {
+            return "Approve read access once. Training Compass will then refresh Health data on the first app open each day."
+        }
+        let count = healthHistory.events.count
+        let workoutCopy = "\(count) workout\(count == 1 ? "" : "s") available."
+        if authorization.hasLimitedHistory {
+            return "\(workoutCopy) Apple Health is providing limited history. Refresh remains available at any time."
+        }
+        return "\(workoutCopy) Automatic refresh runs once each day; you can refresh now at any time."
+    }
+
+    private var authorizationLabel: String {
+        switch authorization.state {
+        case .authorized: "Connected"
+        case .notRequested: "Not connected"
+        case .postponed: "Not now"
+        case .unavailable: "Unavailable"
+        }
+    }
+
     private func connect() async {
         guard let boundary = model.healthWorkoutImportBoundary else { return }
         isConnecting = true
         defer { isConnecting = false }
         do {
             authorization = try await boundary.connectHealth()
+            healthReadAccessApproved = authorization.state == .authorized
             await model.healthDataRebuildBoundary?.setAuthorization(authorization)
-            healthStatus = await boundary.healthDataStatus()
-            recoveryEvidence = await boundary.recoveryEvidence()
             if authorization.state == .authorized {
                 try? await boundary.registerHealthObserver()
-                await importWorkouts()
+                await refreshHealthData()
+            } else {
+                await loadHealthState()
             }
         } catch {
             errorMessage =
                 "Health did not complete the connection request. Local training is still available."
-        }
-    }
-
-    private func importWorkouts() async {
-        guard let boundary = model.healthWorkoutImportBoundary else { return }
-        guard !isImporting else { return }
-        isImporting = true
-        Task {
-            do {
-                let result = try await boundary.importWorkouts { update in
-                    let cached = await
-                        (try? boundary.healthWorkoutHistory())
-                            ?? HealthWorkoutHistorySnapshot(state: .loading)
-                    await MainActor.run {
-                        healthHistory = cached
-                        if update.state == .limitedHistory {
-                            authorization = HealthAuthorizationSnapshot(
-                                state: .authorized, requested: .core, hasLimitedHistory: true,
-                            )
-                        }
-                    }
-                }
-                authorization = await boundary.authorizationSnapshot()
-                await model.healthDataRebuildBoundary?.setAuthorization(authorization)
-                healthStatus = await boundary.healthDataStatus()
-                recoveryEvidence = await boundary.recoveryEvidence()
-                healthHistory = try await boundary.healthWorkoutHistory()
-                if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
-                    writeBackRecords = await (try? writeBackBoundary.records()) ?? writeBackRecords
-                }
-                if result.state == .successfulEmpty {
-                    healthHistory = HealthWorkoutHistorySnapshot(state: .successfulEmpty)
-                }
-                isImporting = false
-            } catch {
-                isImporting = false
-                errorMessage =
-                    "Health data could not be refreshed. Cached local training remains available."
-            }
         }
     }
 
@@ -456,12 +373,7 @@ private struct HealthView: View {
         do {
             _ = try await boundary.refreshHealthData(trigger: .manualInvalidation)
             authorization = await boundary.authorizationSnapshot()
-            healthStatus = await boundary.healthDataStatus()
-            healthHistory = await (try? boundary.healthWorkoutHistory()) ?? healthHistory
-            recoveryEvidence = await boundary.recoveryEvidence()
-            if let writeBackBoundary = model.healthWorkoutWriteBackBoundary {
-                writeBackRecords = await (try? writeBackBoundary.records()) ?? writeBackRecords
-            }
+            await loadHealthState()
         } catch {
             healthStatus = await boundary.healthDataStatus()
             errorMessage =
@@ -470,37 +382,85 @@ private struct HealthView: View {
         isImporting = false
     }
 
-    private var healthHistoryDescription: String {
-        switch healthHistory.state {
-        case .firstFailure:
-            "The first Health check failed. Local training remains available; try Refresh Health Data."
-        case .delayedUpdate:
-            "Health has not refreshed successfully yet. Cached local views remain available."
-        case .limitedHistory:
-            "Health reports limited recent history. Refresh to check for more available data."
-        case .unavailableProvenance:
-            "Health data is available, but its source provenance is unavailable."
-        case .unavailable:
-            "Health data is unavailable on this device. Local training remains fully available."
-        case .deleted:
-            "The last Health workout was deleted in Health. Refresh to reconcile current events."
-        default:
-            "This successful empty result does not reveal whether a read type is denied. Check access in Health settings, then refresh."
+    private func loadHealthState() async {
+        guard let boundary = model.healthWorkoutImportBoundary else { return }
+        authorization = await boundary.authorizationSnapshot()
+        healthStatus = await boundary.healthDataStatus()
+        healthHistory = await (try? boundary.healthWorkoutHistory()) ?? healthHistory
+    }
+
+    private func setWriteBackEnabled(_ enabled: Bool) async {
+        guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+        do {
+            _ = try await boundary.setEnabled(enabled)
+            writeBackPreference = try await boundary.preference()
+            writeBackError = nil
+        } catch {
+            writeBackPreference = await (try? boundary.preference()) ?? .init()
+            writeBackError =
+                "Health write-back permission was not completed. Local training remains available."
         }
     }
 
-    private var healthHistoryStateIcon: String {
-        switch healthHistory.state {
-        case .loading: "arrow.triangle.2.circlepath"
-        case .cached: "internaldrive"
-        case .successfulEmpty: "heart.slash"
-        case .limitedHistory: "clock"
-        case .delayedUpdate: "clock.badge.exclamationmark"
-        case .firstFailure: "exclamationmark.triangle"
-        case .deleted: "trash"
-        case .unavailableProvenance: "questionmark.circle"
-        case .unavailable: "heart.slash"
-        case .available: "checkmark.circle"
+    private func checkWriteAccess() async {
+        guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
+        do {
+            _ = try await boundary.checkWriteAccess()
+            writeBackError = nil
+        } catch {
+            writeBackError =
+                "Health write access is still unavailable. Choose Try Again on the affected Session after checking Health settings."
+        }
+    }
+}
+
+private struct MaximumHeartRateConfigurationView: View {
+    let model: AppModel
+
+    @State private var maximumHeartRateText = ""
+    @State private var maximumHeartRate: HeartRateConfiguration?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Maximum heart rate (bpm)", text: $maximumHeartRateText)
+                    .keyboardType(.decimalPad)
+                    .accessibilityIdentifier("health.maximum-heart-rate")
+                Button("Save Maximum Heart Rate") {
+                    Task { await saveMaximumHeartRate() }
+                }
+                .disabled(model.heartRateConfigurationBoundary == nil)
+                .accessibilityIdentifier("health.maximum-heart-rate.save")
+                if let maximumHeartRate {
+                    LabeledContent(
+                        "Current",
+                        value: "\(String(format: "%.1f", maximumHeartRate.maximumHeartRateBPM)) bpm",
+                    )
+                    Button("Clear Maximum Heart Rate", role: .destructive) {
+                        Task { await clearMaximumHeartRate() }
+                    }
+                    .accessibilityIdentifier("health.maximum-heart-rate.clear")
+                }
+            } footer: {
+                Text("Progress uses this value to calculate time in heart-rate zones.")
+            }
+        }
+        .compassScreen()
+        .navigationTitle("Maximum Heart Rate")
+        .task {
+            maximumHeartRate = try? await model.heartRateConfigurationBoundary?.current()
+            if let maximumHeartRate {
+                maximumHeartRateText = String(maximumHeartRate.maximumHeartRateBPM)
+            }
+        }
+        .alert("Could not save maximum heart rate", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } },
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "Try again.")
         }
     }
 
@@ -519,32 +479,6 @@ private struct HealthView: View {
         }
     }
 
-    private func setWriteBackEnabled(_ enabled: Bool) async {
-        guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
-        do {
-            _ = try await boundary.setEnabled(enabled)
-            writeBackPreference = try await boundary.preference()
-            writeBackRecords = await (try? boundary.records()) ?? writeBackRecords
-            writeBackError = nil
-        } catch {
-            writeBackPreference = await (try? boundary.preference()) ?? .init()
-            writeBackError =
-                "Health write-back permission was not completed. Local training remains available."
-        }
-    }
-
-    private func checkWriteAccess() async {
-        guard let boundary = model.healthWorkoutWriteBackBoundary else { return }
-        do {
-            _ = try await boundary.checkWriteAccess()
-            writeBackRecords = await (try? boundary.records()) ?? writeBackRecords
-            writeBackError = nil
-        } catch {
-            writeBackError =
-                "Health write access is still unavailable. Choose Try Again on the affected Session after checking Health settings."
-        }
-    }
-
     private func clearMaximumHeartRate() async {
         do {
             try await model.heartRateConfigurationBoundary?.clear()
@@ -553,364 +487,6 @@ private struct HealthView: View {
             model.heartRateConfigurationDidChange()
         } catch {
             errorMessage = "The maximum heart rate could not be cleared."
-        }
-    }
-}
-
-private struct HealthStatusRow: View {
-    let status: HealthStreamStatus
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(status.stream.displayName).font(.headline)
-                Spacer()
-                Text(status.statusLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(status.failure == nil ? Color.secondary : Color.orange)
-            }
-            Text(status.lastCheckedLabel).font(.caption)
-            Text("\(status.historyLabel) · \(status.contentLabel)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            if let attention = status.attentionLabel {
-                Text(attention).font(.caption2).foregroundStyle(.orange)
-            }
-        }
-        .accessibilityIdentifier("health.status.\(status.stream.rawValue)")
-    }
-}
-
-private struct RecoveryEvidenceSection: View {
-    let snapshot: HealthRecoveryEvidenceSnapshot
-    let boundary: HealthWorkoutImportBoundary?
-    @State private var sleepPreference = SleepSourcePreference()
-    @AppStorage("recoveryGuidance.enabled") private var recoveryGuidanceEnabled = true
-
-    var body: some View {
-        let dailyObservations = snapshot.dailyObservations()
-        let personalBaselines = snapshot.personalRecoveryBaselines()
-        let guidance = snapshot.recoveryGuidance(enabled: recoveryGuidanceEnabled)
-        VStack(alignment: .leading, spacing: 8) {
-            Text(
-                "Sleep, resting heart rate, and HRV SDNN are independent recorded streams. Cached observations remain visible with their last-check context.",
-            )
-            .font(.subheadline)
-            Toggle("Optional Recovery Guidance", isOn: $recoveryGuidanceEnabled)
-                .accessibilityIdentifier("health.recovery-guidance.enabled")
-            Text(
-                "This controls only the explained self-check prompt. Recovery Evidence, history, collection, explanations, and training remain available either way.",
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            if let prompt = guidance.prompt {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Recovery Guidance")
-                        .font(.caption.weight(.semibold))
-                    Text(prompt)
-                        .font(.subheadline)
-                    NavigationLink {
-                        InsightExplanationDetailView(explanation: guidance.explanation)
-                    } label: {
-                        Label("Explain this self-check", systemImage: "info.circle")
-                    }
-                    .font(.caption)
-                }
-                .padding(.vertical, 4)
-                .accessibilityIdentifier("health.recovery-guidance.prompt")
-            } else if !recoveryGuidanceEnabled {
-                Text("Recovery Guidance is disabled; recorded evidence remains visible.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("health.recovery-guidance.disabled")
-            } else if let reason = guidance.suppressionReason {
-                Text("Recovery Guidance is currently withheld: \(reason.displayName).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("health.recovery-guidance.withheld")
-            }
-            ForEach(snapshot.statuses.filter { RecoveryEvidenceStream($0.stream) != nil }) { status in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(status.stream.displayName).font(.headline)
-                        Spacer()
-                        Text(status.statusLabel).font(.caption.weight(.semibold))
-                    }
-                    Text(status.lastCheckedLabel).font(.caption)
-                    Text("\(status.contentLabel) · \(status.historyLabel)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if !status.isCurrentToday, status.lastSuccessfulCheck != nil {
-                        Text("Cached observation; not current for today's comparison.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityIdentifier("health.recovery.status.\(status.stream.rawValue)")
-            }
-            if snapshot.isEmpty {
-                Text("No recovery measurements are currently mirrored.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                if !snapshot.sleep.isEmpty {
-                    Text("Sleep: \(snapshot.sleep.count) recorded intervals")
-                        .font(.caption)
-                    let projection = snapshot.sleepEpisodes(preference: sleepPreference)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Preferred Sleep Sources")
-                            .font(.caption.weight(.semibold))
-                        ForEach(projection.availableSources) { source in
-                            HStack {
-                                Text(source.displayName)
-                                Spacer()
-                                Button("Prefer") {
-                                    sleepPreference = sleepPreference.moving(sourceID: source.id, to: 0)
-                                    Task { await boundary?.setSleepSourcePreference(sleepPreference) }
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityIdentifier("health.sleep.prefer.\(source.id)")
-                            }
-                            .font(.caption2)
-                        }
-                        ForEach(projection.episodes) { episode in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(
-                                    "\(episode.kind.displayName) · \(episode.wakeUpDate.iso8601String) · \(episode.source.displayName) · \(Int(episode.durationSeconds / 60)) min",
-                                )
-                                if !episode.alternativeSources.isEmpty {
-                                    Text(
-                                        "Alternative source context: "
-                                            + episode.alternativeSources.map(\.displayName).joined(separator: ", "),
-                                    )
-                                    .foregroundStyle(.secondary)
-                                }
-                                Text("Intervals: " + episode.intervals.map(\.id).joined(separator: ", "))
-                                    .foregroundStyle(.secondary)
-                                Text(
-                                    "Midpoint: \(episode.midpoint.formatted(date: .abbreviated, time: .shortened))",
-                                )
-                                .foregroundStyle(.secondary)
-                                if !episode.explanation.missingData.isEmpty {
-                                    Text(
-                                        "Missing context: "
-                                            + episode.explanation.missingData.joined(separator: "; "),
-                                    )
-                                    .foregroundStyle(.secondary)
-                                }
-                                if !episode.explanation.exclusions.isEmpty {
-                                    Text(
-                                        "Excluded alternatives: "
-                                            + episode.explanation.exclusions.map(\.recordID).joined(separator: ", "),
-                                    )
-                                    .foregroundStyle(.secondary)
-                                }
-                            }
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("health.sleep.episode.\(episode.id)")
-                        }
-                    }
-                }
-                if !dailyObservations.restingHeartRate.isEmpty {
-                    Text("Daily resting-heart-rate observations")
-                        .font(.caption.weight(.semibold))
-                    ForEach(dailyObservations.restingHeartRate) { observation in
-                        RecoveryObservationRow(observation: observation)
-                    }
-                }
-                if !dailyObservations.heartRateVariability.isEmpty {
-                    Text("Daily HRV SDNN observations")
-                        .font(.caption.weight(.semibold))
-                    ForEach(dailyObservations.heartRateVariability) { observation in
-                        RecoveryObservationRow(observation: observation)
-                    }
-                }
-                if !personalBaselines.baselines.isEmpty {
-                    Text("Personal Recovery Baselines")
-                        .font(.caption.weight(.semibold))
-                    Text(
-                        "Each measure uses its own preceding 28 local calendar days. The current day is excluded from that measure's baseline; missing days are ignored and no measure becomes a score.",
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    ForEach(personalBaselines.baselines) { baseline in
-                        RecoveryBaselineRow(baseline: baseline)
-                    }
-                    NavigationLink {
-                        InsightExplanationDetailView(explanation: personalBaselines.explanation)
-                    } label: {
-                        Label("Explain all personal baselines", systemImage: "info.circle")
-                    }
-                    .font(.caption)
-                }
-                if !dailyObservations.explanation.missingData.isEmpty {
-                    Text(
-                        "Quantity context: "
-                            + dailyObservations.explanation.missingData.joined(separator: "; "),
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .task {
-            if let boundary {
-                sleepPreference = await boundary.sleepSourcePreference()
-            }
-        }
-    }
-}
-
-private struct RecoveryBaselineRow: View {
-    let baseline: PersonalRecoveryBaseline
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(baseline.metric.displayName)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if let median = baseline.median {
-                    Text("Median \(String(describing: median)) \(baseline.metric.unit)")
-                        .font(.caption.monospacedDigit())
-                }
-            }
-            if let lower = baseline.lowerQuartile, let upper = baseline.upperQuartile {
-                Text(
-                    "Middle 50%: \(String(describing: lower))–\(String(describing: upper)) \(baseline.metric.unit) · \(baseline.validObservationDays) valid days",
-                )
-                .font(.caption2)
-            } else {
-                Text(
-                    "Baseline forming: \(baseline.validObservationDays)/\(baseline.minimumObservationDays) valid days",
-                )
-                .font(.caption2)
-            }
-            if let current = baseline.currentObservation, let difference = baseline.differenceFromMedian {
-                Text(
-                    "Current \(String(describing: current.value)) \(baseline.metric.unit) · \(baseline.comparison.displayName) · \(baseline.neutralDirection ?? "same as") the baseline median · Difference: \(String(describing: difference)) \(baseline.metric.unit)",
-                )
-                .font(.caption2)
-            } else {
-                Text("No current source-comparable observation for comparison.")
-                    .font(.caption2)
-            }
-            if let sourceName = baseline.sourceName {
-                Text(
-                    "Source: \(sourceName) · Window: \(baseline.windowStart.iso8601String)–\(baseline.windowEnd.iso8601String)",
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
-            NavigationLink {
-                InsightExplanationDetailView(explanation: baseline.explanation)
-            } label: {
-                Label("Explain baseline", systemImage: "info.circle")
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 4)
-        .accessibilityIdentifier("health.recovery.baseline.\(baseline.metric.rawValue)")
-    }
-}
-
-private struct RecoveryObservationRow: View {
-    let observation: HealthRecoveryDailyObservation
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(observation.date.iso8601String)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("\(observation.value, specifier: "%.2f") \(observation.unit)")
-                    .font(.subheadline.monospacedDigit())
-            }
-            Text(
-                "Source: \(observation.source.displayName) · \(observation.sampleCount) sample\(observation.sampleCount == 1 ? "" : "s")",
-            )
-            .font(.caption)
-            Text(observation.sourceProvenance.detailLabel)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(
-                "Latest included sample: \(observation.latestIncludedSampleDate.formatted(date: .abbreviated, time: .shortened)) · \(observation.latestIncludedSampleID)",
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            if observation.algorithmVersions.isEmpty {
-                Text("Algorithm revision: not provided by Health")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Algorithm revisions: \(observation.algorithmVersions.joined(separator: ", "))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text(
-                "Coverage: \(observation.coverage.displayName) · Reconciliation: \(observation.reconciliation == .updating ? "Updating" : "Idle")",
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            Text(
-                "Last successful reconciliation: "
-                    + (observation.lastSuccessfulReconciliation?.formatted(
-                        date: .abbreviated, time: .shortened,
-                    )
-                        ?? "Never"),
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            if !observation.isCurrent {
-                Text("This recorded value is cached and not current for today's comparison.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if observation.isCorrected {
-                Text(
-                    "This recorded value was corrected during reconciliation; it remains visible but does not gate guidance.",
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
-            if let failure = observation.failure {
-                Text("Stream check failed: \(failure.code). Cached value remains visible.")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            }
-            NavigationLink {
-                InsightExplanationDetailView(explanation: observation.explanation)
-            } label: {
-                Label("Explain observed value", systemImage: "info.circle")
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 4)
-        .accessibilityIdentifier("health.recovery.observation.\(observation.id)")
-    }
-}
-
-private struct HealthStatusSection: View {
-    let status: HealthDataStatus
-    let isRefreshing: Bool
-    let canRefresh: Bool
-    let onRefresh: () -> Void
-
-    var body: some View {
-        Text(
-            "Each requested Health Data Stream reconciles independently. A check describes Health's response and mirror state—not the newest sample and not hidden read permission.",
-        )
-        .font(.subheadline)
-        ForEach(status.streams) { stream in
-            HealthStatusRow(status: stream)
-        }
-        Button(isRefreshing ? "Updating Health Data…" : "Refresh Health Data", action: onRefresh)
-            .disabled(isRefreshing || !canRefresh)
-            .accessibilityIdentifier("health.refresh-data")
-        if status.isUpdating {
-            ProgressView("Reconciliation is active; cached views remain available.")
-                .font(.caption)
         }
     }
 }
@@ -1003,6 +579,7 @@ private struct HealthDataRebuildView: View {
     private func rebuild() async {
         guard let boundary = model.healthDataRebuildBoundary else { return }
         isRebuilding = true
+        progress = nil
         defer { isRebuilding = false }
         do {
             let result = try await boundary.rebuild(confirmation: .confirmed) { update in
@@ -1012,9 +589,20 @@ private struct HealthDataRebuildView: View {
             progress = nil
         } catch HealthRebuildError.cancelled {
             state = await boundary.currentState()
+        } catch HealthRebuildError.resourcePressure {
+            state = await boundary.currentState()
+            progress = HealthRebuildProgress(
+                phase: .paused,
+                area: .healthMirror,
+                message: HealthRebuildError.resourcePressure.privacySafeDescription,
+            )
         } catch let HealthRebuildError.insufficientStorage(required, available) {
             errorMessage =
                 "Not enough staging space is available (requires \(required) bytes, has \(available) bytes)."
+        } catch let error as HealthRebuildError {
+            state = await boundary.currentState()
+            let stage = progress?.stream.map { " Last stage: \($0.displayName)." } ?? ""
+            errorMessage = "\(error.privacySafeDescription)\(stage) Local training remains available."
         } catch {
             state = await boundary.currentState()
             errorMessage =
@@ -1026,14 +614,10 @@ private struct HealthDataRebuildView: View {
 private struct StrengthProgressView: View {
     let model: AppModel
 
-    @State private var progress: E1RMProgress?
+    @State private var liftSummaries: [LiftE1RMSummary] = []
     @State private var rollingOverview: RollingWorkoutOverview?
-    @State private var runningPerformance: RunningPerformance?
-    @State private var eventTimeline: TrainingEventTimelineSnapshot?
-    @State private var selectedLiftID: String?
-    @State private var selectedRunningRunID: String?
-    @State private var showingLongerRunningHistory = false
-    @State private var showingLongerHistory = false
+    @State private var cardioProgress: CardioProgress?
+    @State private var isLoading = true
     @State private var errorMessage: String?
 
     var body: some View {
@@ -1044,143 +628,32 @@ private struct StrengthProgressView: View {
                     systemImage: "chart.line.uptrend.xyaxis",
                     description: Text("Preparing protected local stores."),
                 )
-            } else if let progress {
-                List {
-                    Section {
-                        NavigationLink {
-                            HealthView(model: model)
-                        } label: {
-                            Label("Health Data Status", systemImage: "heart.text.square")
-                        }
-                        .accessibilityIdentifier("progress.health-status")
-                    }
-
-                    rollingWorkoutOverviewSection
-                    runningPerformanceSection
-
-                    if !progress.availableLifts.isEmpty {
-                        Section("Lift") {
-                            Picker("Selected Lift", selection: selectedLiftBinding) {
-                                ForEach(progress.availableLifts) { lift in
-                                    Text(lift.name).tag(Optional(lift.id))
-                                }
-                            }
-                            .accessibilityIdentifier("progress.lift-picker")
-                        }
-                    }
-
-                    Section("e1RM Summary") {
-                        ProgressMetric(
-                            label: "Latest", observation: progress.latest, explanation: progress.explanation,
-                        )
-                        ProgressMetric(
-                            label: "Previous", observation: progress.previous, explanation: progress.explanation,
-                        )
-                        ProgressMetric(
-                            label: "Cycle best", observation: progress.cycleBest,
-                            explanation: progress.explanation,
-                        )
-                        NavigationLink {
-                            InsightExplanationDetailView(explanation: progress.explanation)
-                        } label: {
-                            LabeledContent(
-                                "Trailing 90-day direction", value: progress.trailing90DayDirection.displayName,
-                            )
-                        }
-                    }
-
-                    if let context = progress.currentTrainingMaxContext {
-                        Section("Current Training Max") {
-                            LabeledContent(
-                                "Current", value: String(format: "%.1f kg", context.currentTrainingMaxKg),
-                            )
-                            if let active = context.activeCycleTrainingMaxKg {
-                                LabeledContent(
-                                    "Active Cycle Snapshot", value: String(format: "%.1f kg", active),
-                                )
-                            }
-                            LabeledContent(
-                                "Loading Increment", value: String(format: "%.1f kg", context.loadingIncrementKg),
-                            )
-                        }
-                    }
-
-                    trainingEventHistorySection
-
-                    Section("History") {
-                        let visible =
-                            showingLongerHistory ? progress.observations : Array(progress.observations.suffix(3))
-                        if visible.isEmpty {
-                            Text("No eligible Plus Set Results yet.").foregroundStyle(.secondary)
-                        } else {
-                            ForEach(visible) { observation in
-                                NavigationLink {
-                                    ProgressSourceDetailView(
-                                        observation: observation, explanation: progress.explanation,
-                                    )
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        HStack {
-                                            Text(observation.displayValue).font(.headline)
-                                            Spacer()
-                                            Text(observation.date.iso8601String).font(.caption).foregroundStyle(
-                                                .secondary,
-                                            )
-                                        }
-                                        Text(
-                                            "\(observation.repetitions) reps at \(observation.weightKg, specifier: "%.2f") kg · \(observation.weekKind.displayName)",
-                                        )
-                                        .font(.caption)
-                                        Text(
-                                            "Plus Set Result \(observation.sourceLink.resultID) · Cycle \(observation.sourceLink.cycleID) · \(observation.correctionState.displayName)",
-                                        )
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .accessibilityIdentifier("progress.observation.\(observation.id)")
-                            }
-                        }
-                        if progress.hasLongerHistory, !showingLongerHistory {
-                            Button("Show Longer History") { showingLongerHistory = true }
-                                .accessibilityIdentifier("progress.show-history")
-                        }
-                    }
-
-                    Section("Insight Explanation") {
-                        Text(progress.explanation.text)
-                            .font(.caption)
-                        if !progress.excludedRecords.isEmpty {
-                            DisclosureGroup("Excluded Records (\(progress.excludedRecords.count))") {
-                                ForEach(progress.excludedRecords) { excluded in
-                                    Text("\(excluded.label) · \(excluded.reason.displayName)")
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                    }
-                }
-                .refreshable { await reload() }
             } else {
                 List {
-                    rollingWorkoutOverviewSection
-                    runningPerformanceSection
-                    Section("e1RM Progress") {
-                        ContentUnavailableView(
-                            "No Progress Yet",
-                            systemImage: "chart.line.uptrend.xyaxis",
-                            description: Text(
-                                "Complete an eligible normal-week Primary Plus Set to see e1RM progress.",
-                            ),
-                        )
-                    }
-                    trainingEventHistorySection
+                    e1RMSection
+                    heartRateZonesSection
+                    cardioEfficiencySection
+                    heartRateDriftSection
                 }
                 .refreshable { await reload() }
             }
         }
         .compassScreen()
-        .navigationTitle("Progress")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .compassTopBarTitle("Progress")
+        .compassNavigationTitle("Progress")
         .accessibilityIdentifier("progress.destination")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    HealthView(model: model)
+                } label: {
+                    Label("Health Data", systemImage: "calendar.badge.clock")
+                }
+                .accessibilityIdentifier("progress.health-status")
+            }
+        }
         .task(id: "\(model.phase)-\(model.heartRateConfigurationRevision)") {
             if model.phase == .ready {
                 await reload()
@@ -1190,469 +663,402 @@ private struct StrengthProgressView: View {
             "Could not load Progress",
             isPresented: Binding(
                 get: { errorMessage != nil },
-                set: {
-                    if !$0 {
-                        errorMessage = nil
-                    }
-                },
+                set: { if !$0 { errorMessage = nil } },
             ),
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "Try again.")
+            Text(errorMessage ?? "Pull to refresh and try again.")
         }
     }
 
-    private var selectedLiftBinding: Binding<String?> {
-        Binding(
-            get: { selectedLiftID ?? progress?.selectedLiftID },
-            set: {
-                selectedLiftID = $0
-                Task { await reload() }
-            },
-        )
+    private var e1RMSection: some View {
+        progressCard {
+            CompassSectionTitle(title: "Are my estimated 1RMs increasing?", trailing: "Trailing 90 days")
+            if isLoading && liftSummaries.isEmpty {
+                ProgressView("Calculating lift trends…")
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                ForEach(Array(liftSummaries.enumerated()), id: \.element.id) { index, lift in
+                    if index > 0 { Divider() }
+                    HStack(spacing: 12) {
+                        CompassRoundSymbol(
+                            systemImage: lift.symbol,
+                            color: lift.directionColor,
+                        )
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(lift.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(CompassPalette.navy)
+                            Text(lift.directionText)
+                                .font(.caption)
+                                .foregroundStyle(lift.directionColor)
+                        }
+                        Spacer()
+                        Text(lift.latestText)
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(CompassPalette.navy)
+                    }
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("progress.e1rm.\(lift.id)")
+                }
+            }
+        }
+        .accessibilityIdentifier("progress.e1rm-summary")
     }
 
-    private var rollingWorkoutOverviewSection: some View {
-        Section("Rolling Workout Overview") {
-            if let overview = rollingOverview {
-                Text(overview.currentWindow.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("progress.rolling-overview.window")
-                LabeledContent(
-                    "Workouts",
-                    value: overview.workoutCount.currentValue.formatted(.number.precision(.fractionLength(0))),
-                )
-                .accessibilityIdentifier("progress.rolling-overview.count")
-                NavigationLink {
-                    InsightExplanationDetailView(explanation: overview.workoutCount.explanation)
-                } label: {
-                    Label("Explain workout count", systemImage: "info.circle")
-                }
-                LabeledContent(
-                    "Available duration",
-                    value: String(format: "%.1f min", overview.totalDuration.currentValue / 60),
-                )
-                NavigationLink {
-                    InsightExplanationDetailView(explanation: overview.totalDuration.explanation)
-                } label: {
-                    Label("Explain available duration", systemImage: "info.circle")
-                }
-                if overview.comparisonAvailability == .available {
-                    Text(
-                        "Four-period median: \(overview.workoutCount.comparisonMedian ?? 0, specifier: "%.1f") workouts · \(overview.totalDuration.comparisonMedian.map { String(format: "%.1f min", $0 / 60) } ?? "—") duration",
+    private var heartRateZonesSection: some View {
+        progressCard {
+            CompassSectionTitle(
+                title: "How much training is in each HR zone?",
+                trailing: rollingOverview.map { $0.currentWindow.displayName },
+            )
+            Text("Last 7 Days")
+                .font(.caption)
+                .foregroundStyle(CompassPalette.inkMuted)
+                .accessibilityIdentifier("progress.rolling-overview.window")
+
+            if let overview = rollingOverview, !overview.zoneMetrics.isEmpty {
+                let metrics = Dictionary(uniqueKeysWithValues: overview.zoneMetrics.map { ($0.zone, $0) })
+                ForEach(Array(RollingWorkoutZone.cardioZones.enumerated()), id: \.element) { index, zone in
+                    let metric = metrics[zone]
+                    if index > 0 { Divider() }
+                    HeartRateZoneRow(
+                        zone: zone,
+                        duration: metric?.coveredSeconds ?? 0,
+                        percentage: metric?.percentOfCoveredTime ?? 0,
+                        emphasis: Double(index + 1) / 5,
                     )
+                }
+                if let coverage = overview.zoneMetrics.first?.coverageOfTotalWorkoutDuration {
+                    Text("\(coverage.formatted(.number.precision(.fractionLength(0))))% of workout time has measured heart rate.")
+                        .font(.caption2)
+                        .foregroundStyle(CompassPalette.inkMuted)
+                        .padding(.top, 2)
+                }
+            } else if isLoading {
+                ProgressView("Calculating zone time…")
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else if rollingOverview?.maximumHeartRateBPM == nil {
+                Text("Set your maximum heart rate to calculate zone time.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else if case let .withheld(reason) = overview.comparisonAvailability {
-                    Text("Comparison withheld: \(reason)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .foregroundStyle(CompassPalette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                NavigationLink {
+                    MaximumHeartRateConfigurationView(model: model)
+                } label: {
+                    Label("Set maximum heart rate", systemImage: "heart.text.square")
+                        .font(.caption.weight(.semibold))
                 }
-                if !overview.activityTypes.isEmpty {
-                    ForEach(overview.activityTypes) { activity in
-                        LabeledContent(
-                            activity.activityType,
-                            value: activity.metric.currentValue.formatted(.number.precision(.fractionLength(0))),
-                        )
-                        NavigationLink {
-                            InsightExplanationDetailView(explanation: activity.metric.explanation)
-                        } label: {
-                            Label("Explain \(activity.activityType)", systemImage: "info.circle")
-                        }
-                    }
-                }
-                if overview.zoneMetrics.isEmpty {
-                    if let explanation = overview.zoneAvailabilityExplanation {
-                        Text("Heart-Rate Zone time is unavailable for this window.")
-                            .foregroundStyle(.secondary)
-                        NavigationLink {
-                            InsightExplanationDetailView(explanation: explanation)
-                        } label: {
-                            Label("Explain Heart-Rate Zone coverage", systemImage: "info.circle")
-                        }
-                    }
-                } else {
-                    if let maximum = overview.maximumHeartRateBPM {
-                        Text("Maximum heart rate used: \(maximum, specifier: "%.1f") bpm")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(overview.zoneMetrics) { zone in
-                        LabeledContent(
-                            "Heart rate \(zone.zone.displayName)",
-                            value: String(
-                                format: "%.1f min · %.1f%% of covered · %.1f%% workout",
-                                zone.coveredSeconds / 60,
-                                zone.percentOfCoveredTime,
-                                zone.coverageOfTotalWorkoutDuration,
-                            ),
-                        )
-                        NavigationLink {
-                            InsightExplanationDetailView(explanation: zone.explanation)
-                        } label: {
-                            Label("Explain \(zone.zone.displayName)", systemImage: "info.circle")
-                        }
-                    }
-                }
+                .accessibilityIdentifier("progress.set-maximum-heart-rate")
             } else {
-                ProgressView("Loading workout overview…")
+                Text("No measured workout heart rate is available for this seven-day window.")
+                    .font(.caption)
+                    .foregroundStyle(CompassPalette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 12)
             }
         }
         .accessibilityIdentifier("progress.rolling-overview")
     }
 
-    private var runningPerformanceSection: some View {
-        Section("Running Performance") {
-            if let runningPerformance {
-                if let selected = runningPerformance.selectedRun {
-                    NavigationLink {
-                        RunningRunDetailView(
-                            summary: selected,
-                            model: model,
-                            isExcluded: runningPerformance.excludedRunIDs.contains(selected.id),
+    private var cardioEfficiencySection: some View {
+        progressCard {
+            CompassSectionTitle(title: "Is my cardio efficiency improving?")
+            if let efficiency = cardioProgress?.efficiency {
+                HStack(alignment: .center, spacing: 14) {
+                    CompassRoundSymbol(
+                        systemImage: efficiencySymbol(efficiency.direction),
+                        color: efficiencyColor(efficiency.direction),
+                    )
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(efficiency.direction.displayName)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(efficiencyColor(efficiency.direction))
+                        Text(efficiency.activityType ?? "Distance-based cardio")
+                            .font(.caption)
+                            .foregroundStyle(CompassPalette.inkMuted)
+                    }
+                    Spacer()
+                    if let change = efficiency.percentChange {
+                        Text(change, format: .percent.scale(1).precision(.fractionLength(1)).sign(strategy: .always()))
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(efficiencyColor(efficiency.direction))
+                    }
+                }
+                .padding(.vertical, 6)
+
+                Divider()
+
+                if let latest = efficiency.latestMetersPerHeartbeat {
+                    HStack {
+                        CompassMetricValue(
+                            label: "LATEST",
+                            value: "\(latest.formatted(.number.precision(.fractionLength(2)))) m/beat",
                         )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack {
-                                Text("Selected run").font(.headline)
-                                Spacer()
-                                Text(selected.record.localDate.iso8601String)
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text(selected.record.environment.displayName)
-                                .font(.subheadline)
-                            Text(selected.averageRunningPace?.displayValue ?? "Average Running Pace unavailable")
-                                .font(.caption)
-                            Text(
-                                "Distance: \(selected.record.distanceMeters.map { String(format: "%.1f m", $0) } ?? "Unavailable") · Duration: \(selected.record.durationSeconds.map { String(format: "%.1f min", $0 / 60) } ?? "Unavailable")",
+                        if let baseline = efficiency.baselineMetersPerHeartbeat {
+                            CompassMetricValue(
+                                label: "PRIOR \(efficiency.comparisonCount)",
+                                value: "\(baseline.formatted(.number.precision(.fractionLength(2)))) m/beat",
+                                detail: "same activity median",
+                                detailColor: CompassPalette.inkMuted,
                             )
-                            .font(.caption2).foregroundStyle(.secondary)
-                            Text("Comparison reference")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.tint)
                         }
                     }
-                    .accessibilityIdentifier("progress.running.selected")
                 } else {
-                    Text("No source-classified running Health Workouts are available.")
-                        .foregroundStyle(.secondary)
-                }
-                if !runningPerformance.runs.isEmpty {
-                    ForEach(runningPerformance.runs) { run in
-                        NavigationLink {
-                            RunningRunDetailView(
-                                summary: run,
-                                model: model,
-                                isExcluded: runningPerformance.excludedRunIDs.contains(run.id),
-                            )
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(run.record.localDate.iso8601String).font(.subheadline.weight(.semibold))
-                                    Spacer()
-                                    Text(run.record.environment.displayName)
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Text(
-                                    "\(run.averageRunningPace?.displayValue ?? "Average Running Pace unavailable") · \(run.record.distanceMeters.map { String(format: "%.1f km", $0 / 1000) } ?? "Distance unavailable")",
-                                )
-                                .font(.caption)
-                                Text("Source: \(run.record.source)")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        .accessibilityIdentifier("progress.running.run.\(run.id)")
-                        Button(
-                            run.id == runningPerformance.selectedRunID
-                                ? "Selected as comparison reference"
-                                : "Use as comparison reference",
-                        ) {
-                            selectedRunningRunID = run.id
-                            Task { await reload() }
-                        }
-                        .disabled(run.id == runningPerformance.selectedRunID)
+                    Text("Efficiency needs distance and at least 80% heart-rate coverage.")
                         .font(.caption)
-                    }
-                }
-                if let comparison = runningPerformance.comparison {
-                    Section("Running Comparison") {
-                        if let preceding = comparison.precedingComparableRun {
-                            Text(
-                                "Immediately preceding Comparable Run: \(preceding.record.localDate.iso8601String)",
-                            )
-                            .font(.subheadline)
-                            NavigationLink {
-                                InsightExplanationDetailView(explanation: comparison.explanation)
-                            } label: {
-                                Text(comparison.pace.statement)
-                            }
-                            NavigationLink {
-                                InsightExplanationDetailView(explanation: comparison.explanation)
-                            } label: {
-                                Text(comparison.duration.statement)
-                            }
-                            NavigationLink {
-                                InsightExplanationDetailView(explanation: comparison.explanation)
-                            } label: {
-                                Text(comparison.distance.statement)
-                            }
-                            if comparison.heartRate.isAvailable {
-                                NavigationLink {
-                                    InsightExplanationDetailView(explanation: comparison.explanation)
-                                } label: {
-                                    Text(comparison.heartRate.statement)
-                                }
-                            } else {
-                                Text("Heart-rate comparison unavailable below 80% coverage.")
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text("No preceding Comparable Run is available.")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let baseline = comparison.baseline {
-                            Text("Four-run median uses \(baseline.runIDs.count) preceding Comparable Runs.")
-                                .font(.caption)
-                            if let medianPace = comparison.medianPace {
-                                NavigationLink {
-                                    InsightExplanationDetailView(explanation: comparison.explanation)
-                                } label: {
-                                    Text("Median pace: \(medianPace.statement)")
-                                }
-                            }
-                            if let medianDuration = comparison.medianDuration {
-                                NavigationLink {
-                                    InsightExplanationDetailView(explanation: comparison.explanation)
-                                } label: {
-                                    Text("Median duration: \(medianDuration.statement)")
-                                }
-                            }
-                            if let medianDistance = comparison.medianDistance {
-                                NavigationLink {
-                                    InsightExplanationDetailView(explanation: comparison.explanation)
-                                } label: {
-                                    Text("Median distance: \(medianDistance.statement)")
-                                }
-                            }
-                            if let medianHeartRate = comparison.medianHeartRate {
-                                NavigationLink {
-                                    InsightExplanationDetailView(explanation: comparison.explanation)
-                                } label: {
-                                    Text(
-                                        medianHeartRate.isAvailable
-                                            ? "Median heart rate: \(medianHeartRate.statement)"
-                                            : "Median heart-rate comparison unavailable below 80% coverage.",
-                                    )
-                                    .foregroundStyle(medianHeartRate.isAvailable ? .primary : .secondary)
-                                }
-                            }
-                        } else {
-                            Text("Four-run median appears after four preceding Comparable Runs.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        NavigationLink {
-                            InsightExplanationDetailView(explanation: comparison.explanation)
-                        } label: {
-                            Label("Explain Running Comparison", systemImage: "info.circle")
-                        }
-                    }
-                }
-                if runningPerformance.comparisonHistoryDays == 90 {
-                    Button("Show Longer Comparison History") {
-                        showingLongerRunningHistory = true
-                        Task { await reload() }
-                    }
-                    .accessibilityIdentifier("progress.running.show-history")
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
-                } label: {
-                    LabeledContent(
-                        "Trailing seven-day runs",
-                        value: runningPerformance.volume.count.currentValue.formatted(
-                            .number.precision(.fractionLength(0)),
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
-                } label: {
-                    LabeledContent(
-                        "Run count vs median",
-                        value: comparisonValue(
-                            current: runningPerformance.volume.count.currentValue,
-                            median: runningPerformance.volume.count.comparisonMedian,
-                            suffix: " runs",
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDuration.explanation,
-                    )
-                } label: {
-                    LabeledContent(
-                        "Available duration",
-                        value: String(
-                            format: "%.1f min", runningPerformance.volume.availableDuration.currentValue / 60,
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDuration.explanation,
-                    )
-                } label: {
-                    LabeledContent(
-                        "Duration vs median",
-                        value: comparisonValue(
-                            current: runningPerformance.volume.availableDuration.currentValue / 60,
-                            median: runningPerformance.volume.availableDuration.comparisonMedian.map {
-                                $0 / 60
-                            },
-                            suffix: " min",
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDistance.explanation,
-                    )
-                } label: {
-                    LabeledContent(
-                        "Available distance",
-                        value: String(
-                            format: "%.1f km", runningPerformance.volume.availableDistance.currentValue / 1000,
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDistance.explanation,
-                    )
-                } label: {
-                    LabeledContent(
-                        "Distance vs median",
-                        value: comparisonValue(
-                            current: runningPerformance.volume.availableDistance.currentValue / 1000,
-                            median: runningPerformance.volume.availableDistance.comparisonMedian.map {
-                                $0 / 1000
-                            },
-                            suffix: " km",
-                        ),
-                    )
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(explanation: runningPerformance.volume.count.explanation)
-                } label: {
-                    Label("Explain Running Volume", systemImage: "info.circle")
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDuration.explanation,
-                    )
-                } label: {
-                    Label("Explain Running Duration", systemImage: "info.circle")
-                }
-                NavigationLink {
-                    InsightExplanationDetailView(
-                        explanation: runningPerformance.volume.availableDistance.explanation,
-                    )
-                } label: {
-                    Label("Explain Running Distance", systemImage: "info.circle")
-                }
-                if runningPerformance.runs.count > 1 {
-                    Text(
-                        "Runs are listed in reverse chronology; no personal-record or inferred-performance labels are used.",
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
+                        .foregroundStyle(CompassPalette.inkMuted)
                 }
             } else {
-                ProgressView("Loading running performance…")
+                ProgressView("Calculating cardio efficiency…")
+                    .frame(maxWidth: .infinity, minHeight: 80)
             }
         }
-        .accessibilityIdentifier("progress.running-performance")
+        .accessibilityIdentifier("progress.cardio-efficiency")
     }
 
-    private func comparisonValue(current: Double, median: Double?, suffix: String) -> String {
-        guard let median else { return String(format: "%.1f%@ · median unavailable", current, suffix) }
-        return String(format: "%.1f%@ · median %.1f%@", current, suffix, median, suffix)
-    }
-
-    private var trainingEventHistorySection: some View {
-        Section("Training Event History") {
-            if let eventTimeline {
-                if eventTimeline.events.isEmpty {
-                    Text("No completed Sessions or Health Workouts yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(eventTimeline.events) { event in
-                        NavigationLink {
-                            UnifiedTrainingEventDetailView(event: event, model: model)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(trainingEventTitle(event)).font(.headline)
-                                    Spacer()
-                                    Text(event.sourceBadges.map(\.displayName).joined(separator: " + "))
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tint)
-                                }
-                                Text(event.localDate)
-                                    .font(.caption)
-                                if event.linkState == .linked {
-                                    Text("Linked one-to-one · counted once")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if let context = event.reconciliationContext {
-                                    Text("Last reconciliation: \(context)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("progress.training-event.\(event.id)")
-                    }
+    private var heartRateDriftSection: some View {
+        progressCard {
+            CompassSectionTitle(title: "How is my heart rate drifting?", trailing: "Last 7 days")
+            let drifts = recentDrifts
+            if !drifts.isEmpty {
+                ForEach(Array(drifts.enumerated()), id: \.element.id) { index, drift in
+                    if index > 0 { Divider() }
+                    HeartRateDriftRow(drift: drift)
                 }
+            } else if isLoading {
+                ProgressView("Calculating session drift…")
+                    .frame(maxWidth: .infinity, minHeight: 80)
             } else {
-                ProgressView("Loading Training Event history…")
+                Text("No cardio sessions are available in the last 7 days.")
+                    .font(.caption)
+                    .foregroundStyle(CompassPalette.inkMuted)
+                    .padding(.vertical, 12)
             }
+            Text("First 10 minutes removed. The remaining elapsed time is split equally; drift = (second-half average − first-half average) ÷ first-half average.")
+                .font(.caption2)
+                .foregroundStyle(CompassPalette.inkMuted)
+                .padding(.top, 4)
         }
+        .accessibilityIdentifier("progress.heart-rate-drift")
     }
 
-    private func trainingEventTitle(_ event: UnifiedTrainingEvent) -> String {
-        if event.session != nil, event.healthWorkout != nil {
-            return "Linked Training Event"
+    private var recentDrifts: [CardioHeartRateDrift] {
+        guard let start = rollingOverview?.currentWindow.start else {
+            return Array(cardioProgress?.heartRateDrifts.prefix(7) ?? [])
         }
-        if event.session != nil {
-            return "5/3/1 Session"
+        return cardioProgress?.heartRateDrifts.filter { $0.localDate >= start } ?? []
+    }
+
+    private func progressCard<Content: View>(
+        @ViewBuilder content: () -> Content,
+    ) -> some View {
+        Section {
+            CompassCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    content()
+                }
+            }
         }
-        return event.healthWorkout?.activityType ?? "Health Workout"
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
     }
 
     private func reload() async {
+        isLoading = true
+        defer { isLoading = false }
         do {
-            progress = try await model.progressBoundary.progress(selectedLiftID: selectedLiftID)
-            if selectedLiftID == nil {
-                selectedLiftID = progress?.selectedLiftID
+            async let overview = model.rollingWorkoutOverviewBoundary?.overview()
+            async let cardio = model.cardioProgressBoundary?.progress()
+            async let liftItems = model.liftConfigurationBoundary.listTMs()
+
+            rollingOverview = try await overview
+            cardioProgress = try await cardio
+            let items = try await liftItems
+            var summaries: [LiftE1RMSummary] = []
+            for item in items where item.identity.progressionLift != nil {
+                if let configuration = item.configuration {
+                    let progress = try await model.progressBoundary.progress(
+                        selectedLiftID: configuration.id,
+                    )
+                    summaries.append(LiftE1RMSummary(configuration: configuration, progress: progress))
+                } else {
+                    summaries.append(LiftE1RMSummary(identity: item.identity))
+                }
             }
+            liftSummaries = summaries
         } catch {
-            progress = nil
             errorMessage = String(describing: error)
         }
-        eventTimeline = try? await model.trainingEventLinkBoundary?.timeline()
-        if eventTimeline == nil {
-            eventTimeline = TrainingEventTimelineSnapshot(events: [])
+    }
+
+    private func efficiencyColor(_ direction: CardioInsightDirection) -> Color {
+        switch direction {
+        case .improving: CompassPalette.green
+        case .declining: CompassPalette.red
+        case .unchanged: CompassPalette.blue
+        case .unavailable: CompassPalette.inkMuted
         }
-        rollingOverview = try? await model.rollingWorkoutOverviewBoundary?.overview()
-        runningPerformance = try? await model.runningPerformanceBoundary?.runningPerformance(
-            selectedRunID: selectedRunningRunID,
-            historyDays: showingLongerRunningHistory ? 365 : 90,
-        )
+    }
+
+    private func efficiencySymbol(_ direction: CardioInsightDirection) -> String {
+        switch direction {
+        case .improving: "arrow.up.right"
+        case .declining: "arrow.down.right"
+        case .unchanged: "arrow.right"
+        case .unavailable: "minus"
+        }
+    }
+}
+
+private struct LiftE1RMSummary: Identifiable {
+    let id: String
+    let name: String
+    let latestKg: Double?
+    let direction: E1RMTrendDirection
+
+    init(configuration: LiftConfiguration, progress: E1RMProgress) {
+        id = configuration.id
+        name = configuration.identity.displayName
+        latestKg = progress.latest?.estimatedKg
+        direction = progress.trailing90DayDirection
+    }
+
+    init(identity: LiftIdentity) {
+        id = identity.displayName
+        name = identity.displayName
+        latestKg = nil
+        direction = .insufficientData
+    }
+
+    var latestText: String {
+        latestKg.map { "\($0.formatted(.number.precision(.fractionLength(1)))) kg" } ?? "—"
+    }
+
+    var directionText: String {
+        switch direction {
+        case .upward: "Increasing"
+        case .downward: "Decreasing"
+        case .unchanged: "Holding steady"
+        case .insufficientData: "Not enough results"
+        }
+    }
+
+    var symbol: String {
+        switch direction {
+        case .upward: "arrow.up.right"
+        case .downward: "arrow.down.right"
+        case .unchanged: "arrow.right"
+        case .insufficientData: "minus"
+        }
+    }
+
+    var directionColor: Color {
+        switch direction {
+        case .upward: CompassPalette.green
+        case .downward: CompassPalette.red
+        case .unchanged: CompassPalette.blue
+        case .insufficientData: CompassPalette.inkMuted
+        }
+    }
+}
+
+private struct HeartRateZoneRow: View {
+    let zone: RollingWorkoutZone
+    let duration: Double
+    let percentage: Double
+    let emphasis: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(zone.shortName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(CompassPalette.navy)
+                Spacer()
+                Text(compactDuration(duration))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(CompassPalette.navy)
+                Text(percentage, format: .percent.scale(1).precision(.fractionLength(0)))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(CompassPalette.blue)
+                    .frame(width: 42, alignment: .trailing)
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(CompassPalette.line.opacity(0.55))
+                    Capsule()
+                        .fill(CompassPalette.blue.opacity(0.38 + emphasis * 0.62))
+                        .frame(width: geometry.size.width * min(max(percentage / 100, 0), 1))
+                }
+            }
+            .frame(height: 6)
+            .accessibilityHidden(true)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func compactDuration(_ seconds: Double) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    }
+}
+
+private struct HeartRateDriftRow: View {
+    let drift: CardioHeartRateDrift
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(drift.activityType)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(CompassPalette.navy)
+                Text(drift.localDate.iso8601String)
+                    .font(.caption2)
+                    .foregroundStyle(CompassPalette.inkMuted)
+            }
+            Spacer()
+            switch drift.availability {
+            case .available:
+                if let first = drift.firstHalfAverageBPM,
+                   let second = drift.secondHalfAverageBPM,
+                   let percent = drift.driftPercent
+                {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(percent, format: .percent.scale(1).precision(.fractionLength(1)).sign(strategy: .always()))
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(CompassPalette.blue)
+                        Text("\(first.formatted(.number.precision(.fractionLength(0)))) → \(second.formatted(.number.precision(.fractionLength(0)))) bpm")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(CompassPalette.inkMuted)
+                    }
+                }
+            case .unavailable:
+                Text("Not enough HR data")
+                    .font(.caption)
+                    .foregroundStyle(CompassPalette.inkMuted)
+            }
+        }
+        .padding(.vertical, 5)
+        .accessibilityIdentifier("progress.heart-rate-drift.\(drift.id)")
+    }
+}
+
+private extension RollingWorkoutZone {
+    static let cardioZones: [RollingWorkoutZone] = [.zone1, .zone2, .zone3, .zone4, .zone5]
+
+    var shortName: String {
+        switch self {
+        case .below50: "Below 50%"
+        case .zone1: "Zone 1 · 50–59%"
+        case .zone2: "Zone 2 · 60–69%"
+        case .zone3: "Zone 3 · 70–79%"
+        case .zone4: "Zone 4 · 80–89%"
+        case .zone5: "Zone 5 · 90–100%"
+        }
     }
 }
 
@@ -2352,7 +1758,6 @@ private struct ProgressMetric: View {
 
 private struct TodayView: View {
     let model: AppModel
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var today: TodaySessionSnapshot?
     @State private var todayEvents: [UnifiedTrainingEvent] = []
@@ -2398,52 +1803,36 @@ private struct TodayView: View {
             } else if let today {
                 List {
                     Section {
-                        NavigationLink {
-                            HealthView(model: model)
-                        } label: {
-                            Label("Health Data Status", systemImage: "heart.text.square")
-                        }
-                        .accessibilityIdentifier("today.health-status")
+                        todayPlanCard(today)
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
 
-                    Section("Today’s Training Events") {
-                        if todayEvents.isEmpty {
-                            Text("No completed Sessions or imported Health Workouts for this local date.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
+                    Section {
+                        assistanceCard(today)
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    Section {
+                        trainingMaxCard(today)
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    if !todayEvents.isEmpty {
+                        Section("Today’s Training Events") {
                             ForEach(todayEvents) { event in
                                 TodayTrainingEventRow(event: event, model: model)
                             }
                         }
                     }
 
-                    Section("Scheduled Session") {
-                        Label("5/3/1 Session", systemImage: "figure.strengthtraining.traditional")
-                            .font(.headline)
-                            .foregroundStyle(.tint)
-                        LabeledContent("Date", value: today.intendedDate.iso8601String)
-                        LabeledContent("Training Week", value: today.weekKind.displayName)
-                        LabeledContent("State", value: today.state.displayName)
-                        Text(
-                            "Primary: \(today.primaryLift.identity.displayName) · Assistance: \(today.assistanceLift.identity.displayName)",
-                        )
-                        .font(.subheadline)
-                    }
-
-                    Section("Training Max Snapshots") {
-                        LabeledContent(
-                            today.primaryLift.identity.displayName,
-                            value: "\(today.primaryLift.trainingMaxKg) kg",
-                        )
-                        LabeledContent(
-                            today.assistanceLift.identity.displayName,
-                            value: "\(today.assistanceLift.trainingMaxKg) kg",
-                        )
-                    }
-
-                    Section("Prescribed Sets") {
-                        ForEach(today.sets) { set in
+                    Section("Assistance Sets") {
+                        ForEach(today.sets.filter { $0.prescription.role == .assistance }) { set in
                             TodaySetRow(
                                 set: set,
                                 weight: Binding(
@@ -2465,6 +1854,9 @@ private struct TodayView: View {
                     }
 
                     Section("Additional Sets") {
+                        if !today.additionalSets.isEmpty {
+                            EditButton()
+                        }
                         ForEach(today.additionalSets) { additional in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(
@@ -2548,14 +1940,20 @@ private struct TodayView: View {
                     }
                 }
                 .refreshable { await reload() }
-                .toolbar { EditButton() }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            HealthView(model: model)
+                        } label: {
+                            Label("Health", systemImage: "heart.fill")
+                                .foregroundStyle(CompassPalette.green)
+                        }
+                        .accessibilityIdentifier("today.health-status")
+                    }
+                }
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        CompassPageHeader(
-                            title: nil,
-                            subtitle: Date.now.formatted(date: .complete, time: .omitted),
-                        )
+                    VStack(alignment: .leading, spacing: 10) {
                         if todayEvents.isEmpty {
                             CompassEmptyState(
                                 title: "Nothing scheduled today",
@@ -2574,15 +1972,22 @@ private struct TodayView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
                     .padding(.bottom, 128)
                 }
             }
         }
         .compassScreen()
-        .navigationTitle("Today")
-        .toolbarTitleDisplayMode(dynamicTypeSize.isAccessibilitySize ? .inline : .large)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .compassTopBarTitle(
+            "Today",
+            subtitle: Date.now.formatted(
+                .dateTime.weekday(.wide).month(.abbreviated).day().year(),
+            ),
+        )
+        .compassNavigationTitle("Today")
         .accessibilityIdentifier("today.destination")
         .task(id: model.phase) {
             if model.phase == .ready {
@@ -2656,6 +2061,202 @@ private struct TodayView: View {
                 pendingCandidate?.warnings.map(\.message).joined(separator: " ")
                     ?? "Review both sources before linking.",
             )
+        }
+    }
+
+    private func todayPlanCard(_ today: TodaySessionSnapshot) -> some View {
+        CompassCard {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        CompassSectionTitle(title: "Today’s Plan")
+                        Text("5/3/1 – \(today.weekKind.displayName)")
+                            .font(.system(.headline, design: .serif).weight(.bold))
+                            .foregroundStyle(CompassPalette.navy)
+                    }
+                    Spacer()
+                    CompassStatusPill(title: today.state.displayName)
+                }
+
+                Divider()
+
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PRIMARY LIFT")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(CompassPalette.inkMuted)
+                        HStack(spacing: 7) {
+                            Text(today.primaryLift.identity.displayName)
+                                .font(.system(.title3, design: .serif).weight(.bold))
+                                .foregroundStyle(CompassPalette.navy)
+                            CompassStatusPill(title: "5/3/1", color: CompassPalette.inkMuted)
+                        }
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("TM")
+                            .font(.caption2)
+                            .foregroundStyle(CompassPalette.inkMuted)
+                        Text("\(today.primaryLift.trainingMaxKg, specifier: "%.1f") kg")
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(CompassPalette.navy)
+                    }
+                }
+
+                VStack(spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text("SET").frame(width: 24, alignment: .leading)
+                        Text("PLANNED").frame(width: 58, alignment: .leading)
+                        Text("TARGET").frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 4) {
+                            Text("KG").frame(width: 40)
+                            Text("REPS").frame(width: 30)
+                            Text("✓").frame(width: 18)
+                            Text("−").frame(width: 18)
+                        }
+                        .frame(width: 118, alignment: .leading)
+                    }
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(CompassPalette.inkMuted)
+
+                    ForEach(today.sets.filter { $0.prescription.role == .primary }) { set in
+                        HStack(spacing: 4) {
+                            Text("\(set.prescription.setNumber)")
+                                .frame(width: 24, alignment: .leading)
+                            Text(
+                                "\(set.prescription.repetitions)\(set.prescription.isPlusSetEligible ? "+" : "") · \(set.prescription.percentage * 100, specifier: "%.0f")%",
+                            )
+                            .frame(width: 58, alignment: .leading)
+                            Text("\(set.prescription.weightKg, specifier: "%.1f") kg")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            TextField(
+                                "kg",
+                                text: Binding(
+                                    get: { weightText[set.id] ?? set.result.map { String($0.weightKg) } ?? "" },
+                                    set: { weightText[set.id] = $0 },
+                                ),
+                            )
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption2.monospacedDigit())
+                            .frame(width: 40, height: 26)
+                            .accessibilityIdentifier("today.weight.\(set.id)")
+                            TextField(
+                                "reps",
+                                text: Binding(
+                                    get: {
+                                        repetitionsText[set.id]
+                                            ?? set.result.map { String($0.repetitions) }
+                                            ?? String(set.prescription.repetitions)
+                                    },
+                                    set: { repetitionsText[set.id] = $0 },
+                                ),
+                            )
+                            .keyboardType(.numberPad)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption2.monospacedDigit())
+                            .frame(width: 30, height: 26)
+                            .accessibilityIdentifier("today.repetitions.\(set.id)")
+                            Button {
+                                if set.omission == nil {
+                                    Task { await confirm(set) }
+                                } else {
+                                    Task { await omit(set) }
+                                }
+                            } label: {
+                                Image(
+                                    systemName: set.completionState == .recorded
+                                        ? "checkmark.circle.fill"
+                                        : set.omission == nil ? "checkmark.circle" : "minus.circle.fill",
+                                )
+                                .foregroundStyle(
+                                    set.completionState == .recorded
+                                        ? CompassPalette.green
+                                        : set.omission == nil ? CompassPalette.blue : CompassPalette.red,
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(set.omission != nil)
+                            .accessibilityLabel("Confirm")
+                            .accessibilityIdentifier("today.confirm.\(set.id)")
+                            Button {
+                                Task { await omit(set) }
+                            } label: {
+                                Image(systemName: "minus.circle")
+                                    .foregroundStyle(CompassPalette.red)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Omit Set")
+                            .accessibilityIdentifier("today.omit.\(set.id)")
+                        }
+                        .font(.caption.monospacedDigit())
+                        .background(
+                            set.completionState == .failed || set.completionState == .omitted
+                                ? CompassPalette.red.opacity(0.06)
+                                : Color.clear,
+                        )
+                    }
+                }
+
+                Button {
+                    additionalLiftID = today.assistanceLift.identity.displayName
+                } label: {
+                    Label("Add Additional Set", systemImage: "plus")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func assistanceCard(_ today: TodaySessionSnapshot) -> some View {
+        let assistanceSets = today.sets.filter { $0.prescription.role == .assistance }
+        return CompassCard {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    CompassSectionTitle(title: "Assistance Lift")
+                    Text(today.assistanceLift.identity.displayName)
+                        .font(.system(.headline, design: .serif).weight(.bold))
+                        .foregroundStyle(CompassPalette.navy)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    if let first = assistanceSets.first {
+                        Text("\(assistanceSets.count) × \(first.prescription.repetitions)")
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(CompassPalette.navy)
+                    }
+                    Text("\(today.assistanceLift.trainingMaxKg, specifier: "%.1f") kg TM")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(CompassPalette.inkMuted)
+                }
+            }
+        }
+    }
+
+    private func trainingMaxCard(_ today: TodaySessionSnapshot) -> some View {
+        CompassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    CompassSectionTitle(title: "Training Max (TM)")
+                    Spacer()
+                    Text("Frozen for this cycle")
+                        .font(.caption2)
+                        .foregroundStyle(CompassPalette.blue)
+                }
+                HStack(spacing: 0) {
+                    CompassMetricValue(
+                        label: today.primaryLift.identity.displayName,
+                        value: String(format: "%.1f kg", today.primaryLift.trainingMaxKg),
+                    )
+                    Divider().frame(height: 34)
+                    CompassMetricValue(
+                        label: today.assistanceLift.identity.displayName,
+                        value: String(format: "%.1f kg", today.assistanceLift.trainingMaxKg),
+                    )
+                    .padding(.leading, 12)
+                }
+            }
         }
     }
 
@@ -3181,18 +2782,12 @@ private struct CycleSetupView: View {
     let lifts: [LiftConfiguration]
     let onConfigureTrainingMaxes: () -> Void
 
-    private let requiredLifts: [(LiftIdentity, String)] = [
-        (.progression(.squat), "Squat"),
-        (.progression(.deadlift), "Deadlift"),
-        (.progression(.benchPress), "Bench Press"),
-        (.progression(.overheadPress), "Overhead Press"),
-        (.variant(name: "Romanian Deadlift"), "Romanian Deadlift"),
-    ]
+    private let requiredLifts = LiftCatalog.progressionIdentities
 
     private var missingLifts: [String] {
         let configured = Set(lifts.map(\.identity))
-        return requiredLifts.compactMap { identity, name in
-            configured.contains(identity) ? nil : name
+        return requiredLifts.compactMap { identity in
+            configured.contains(identity) ? nil : identity.displayName
         }
     }
 
@@ -3202,17 +2797,14 @@ private struct CycleSetupView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                CompassPageHeader(
-                    subtitle: "Build a schedule, choose Week 1, and keep every cycle locally recorded.",
-                )
-
-                VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                CompassCard {
+                    VStack(alignment: .leading, spacing: 18) {
                     Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 30, weight: .medium))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(CompassPalette.blue)
-                        .frame(width: 64, height: 64)
-                        .background(CompassPalette.blue.opacity(0.10), in: Circle())
+                        .frame(width: 44, height: 44)
+                        .background(CompassPalette.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Set up your first cycle")
@@ -3245,23 +2837,13 @@ private struct CycleSetupView: View {
                         onConfigureTrainingMaxes()
                     }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                     .accessibilityIdentifier("cycle.setup-training-maxes")
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
-                .background(
-                    CompassPalette.surface,
-                    in: RoundedRectangle(cornerRadius: 22, style: .continuous),
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(CompassPalette.line, lineWidth: 1),
-                )
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 48)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 96)
         }
         .accessibilityIdentifier("cycle.setup")
     }
@@ -3551,6 +3133,15 @@ private struct CycleView: View {
             } else {
                 AnyView(
                     List {
+                        if let visibleCycle = activeCycle ?? draftCycle {
+                            Section {
+                                cycleOverviewCard(visibleCycle)
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
+
                         if draftCycle == nil {
                             Section {
                                 VStack(alignment: .leading, spacing: 12) {
@@ -3734,10 +3325,8 @@ private struct CycleView: View {
                         }
                     }
                     .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
                             EditButton()
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
                             Menu("Schedule Template", systemImage: "ellipsis.circle") {
                                 Button("Reset to Default", systemImage: "arrow.counterclockwise") {
                                     Task { await reviewReset() }
@@ -3756,8 +3345,10 @@ private struct CycleView: View {
             }
         }
         .compassScreen()
-        .navigationTitle("Cycle")
-        .navigationBarTitleDisplayMode(template == nil ? .large : .inline)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .compassTopBarTitle("Cycle")
+        .compassNavigationTitle("Cycle")
         .accessibilityIdentifier("schedule.destination")
         .task(id: model.phase) {
             if model.phase == .ready {
@@ -3896,6 +3487,87 @@ private struct CycleView: View {
             Button("Cancel", role: .cancel) { pendingLifecycleRequest = nil }
         } message: {
             Text(lifecycleRequestMessage)
+        }
+    }
+
+    private func cycleOverviewCard(_ cycle: TrainingCycle) -> some View {
+        CompassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("5/3/1 – Training Cycle")
+                            .font(.system(.headline, design: .serif).weight(.bold))
+                            .foregroundStyle(CompassPalette.navy)
+                        Text("Anchor: \(cycle.week1AnchorDate.iso8601String)")
+                            .font(.caption2)
+                            .foregroundStyle(CompassPalette.inkMuted)
+                    }
+                    Spacer()
+                    CompassStatusPill(
+                        title: cycle.lifecycleState.displayName,
+                        color: cycle.lifecycleState == .active
+                            ? CompassPalette.green
+                            : CompassPalette.blue,
+                    )
+                }
+
+                HStack(spacing: 6) {
+                    ForEach(Array(cycle.weeks.prefix(4))) { week in
+                        Text(week.kind.displayName)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(
+                                week.position == 1 ? Color.white : CompassPalette.navy,
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(
+                                week.position == 1
+                                    ? CompassPalette.blue
+                                    : CompassPalette.paper,
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous),
+                            )
+                    }
+                }
+
+                if let firstWeek = cycle.weeks.first {
+                    VStack(spacing: 0) {
+                        ForEach(firstWeek.sessions.prefix(5)) { session in
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(session.intendedDate.iso8601String)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(CompassPalette.blue)
+                                    Text(liftName(session.primaryLiftID))
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(CompassPalette.navy)
+                                    Text(session.status.rawValue.capitalized)
+                                        .font(.caption2)
+                                        .foregroundStyle(CompassPalette.inkMuted)
+                                }
+                                Spacer()
+                                Image(
+                                    systemName: session.status == .completed
+                                        ? "checkmark.circle.fill"
+                                        : session.status == .scheduled
+                                            ? "circle"
+                                            : "minus.circle",
+                                )
+                                .foregroundStyle(
+                                    session.status == .completed
+                                        ? CompassPalette.green
+                                        : session.status == .scheduled
+                                            ? CompassPalette.inkMuted
+                                            : CompassPalette.red,
+                                )
+                            }
+                            .padding(.vertical, 8)
+                            if session.id != firstWeek.sessions.prefix(5).last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -4689,18 +4361,13 @@ private struct TMsView: View {
     var body: some View {
         List {
             Section {
-                Text(
-                    "Kilograms are the only equipment unit. Training Maxes are calculation references; Set Results may be entered at any positive load.",
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            }
-
-            Section("Progression Lifts") {
                 ForEach(rows.filter { $0.identity.progressionLift != nil }) { item in
                     TMRow(item: item) {
                         draft = TMDraft(item: item)
                     }
+                    .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             }
 
@@ -4768,27 +4435,32 @@ private struct TMsView: View {
                         TMRow(item: item) {
                             draft = TMDraft(item: item)
                         }
+                        .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 }
             }
         }
         .refreshable { await reload() }
         .compassScreen()
-        .navigationTitle("TMs")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .compassTopBarTitle("Training Maxes", subtitle: "5/3/1+ proposals, reviewed by you")
+        .compassNavigationTitle("TMs")
         .accessibilityIdentifier("tms.destination")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarLeading) {
-                Button("Add custom", systemImage: "plus") {
-                    draft = TMDraft.newCustom()
-                }
-                .accessibilityIdentifier("tm.add-custom")
-                Button("Add variant", systemImage: "plus") {
-                    draft = TMDraft.newVariant()
-                }
-                .accessibilityIdentifier("tm.add-variant")
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Add custom", systemImage: "plus") {
+                        draft = TMDraft.newCustom()
+                    }
+                    .accessibilityIdentifier("tm.add-custom")
+                    Button("Add variant", systemImage: "rectangle.stack.badge.plus") {
+                        draft = TMDraft.newVariant()
+                    }
+                    .accessibilityIdentifier("tm.add-variant")
+                    Divider()
                     NavigationLink {
                         HealthView(model: model)
                     } label: {
@@ -5345,25 +5017,62 @@ private struct TMRow: View {
     let onEdit: () -> Void
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.identity.displayName)
-                    .font(.headline)
+        CompassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    CompassRoundSymbol(systemImage: symbol)
+                    Text(item.identity.displayName)
+                        .font(.system(.title3, design: .serif).weight(.bold))
+                        .foregroundStyle(CompassPalette.navy)
+                    Spacer()
+                    Button(item.configuration == nil ? "Configure" : "Edit", action: onEdit)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("tm.edit.\(item.id)")
+                }
                 if let configuration = item.configuration {
-                    Text(
-                        "TM \(configuration.trainingMaxKg, specifier: "%.2f") kg · Increment \(configuration.loadingIncrementKg, specifier: "%.2f") kg",
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    HStack(spacing: 0) {
+                        CompassMetricValue(
+                            label: "TM",
+                            value: String(format: "%.1f kg", configuration.trainingMaxKg),
+                        )
+                        Divider().frame(height: 36)
+                        CompassMetricValue(
+                            label: "INCREMENT",
+                            value: String(format: "%.2f kg", configuration.loadingIncrementKg),
+                        )
+                        .padding(.leading, 14)
+                        Divider().frame(height: 36)
+                        CompassMetricValue(
+                            label: "STATUS",
+                            value: "Ready",
+                            detail: "Local",
+                        )
+                        .padding(.leading, 14)
+                    }
                 } else {
-                    Text("Not configured")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        CompassMetricValue(label: "TM", value: "Not set")
+                        Spacer()
+                        CompassStatusPill(title: "Needs setup", color: CompassPalette.inkMuted)
+                    }
                 }
             }
-            Spacer()
-            Button(item.configuration == nil ? "Configure" : "Edit", action: onEdit)
-                .accessibilityIdentifier("tm.edit.\(item.id)")
+        }
+    }
+
+    private var symbol: String {
+        switch item.identity.displayName.lowercased() {
+        case let name where name.contains("squat"):
+            "figure.strengthtraining.traditional"
+        case let name where name.contains("bench"):
+            "figure.strengthtraining.functional"
+        case let name where name.contains("deadlift"):
+            "dumbbell.fill"
+        case let name where name.contains("press"):
+            "figure.core.training"
+        default:
+            "scalemass.fill"
         }
     }
 }

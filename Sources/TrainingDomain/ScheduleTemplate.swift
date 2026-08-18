@@ -128,7 +128,7 @@ public enum DefaultSchedule {
         DefaultScheduleEntry(
             intendedWeekday: .tuesday,
             primaryIdentity: .progression(.overheadPress),
-            assistanceIdentity: .variant(name: "Romanian Deadlift"),
+            assistanceIdentity: .progression(.deadlift),
         ),
         DefaultScheduleEntry(
             intendedWeekday: .thursday,
