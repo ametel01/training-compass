@@ -34,13 +34,12 @@ struct RootView: View {
         self.model = model
         self.concealsSensitiveContent = concealsSensitiveContent
         let requestedTab = ProcessInfo.processInfo.environment["TRAINING_COMPASS_INITIAL_TAB"]
-        let initialTab: AppTab
-        switch requestedTab {
-        case "cycle": initialTab = .cycle
-        case "progress": initialTab = .progress
-        case "training-maxes": initialTab = .trainingMaxes
-        case "health": initialTab = .health
-        default: initialTab = .today
+        let initialTab: AppTab = switch requestedTab {
+        case "cycle": .cycle
+        case "progress": .progress
+        case "training-maxes": .trainingMaxes
+        case "health": .health
+        default: .today
         }
         _selectedTab = State(initialValue: initialTab)
         CompassAppearance.apply()
@@ -172,7 +171,7 @@ private struct HealthView: View {
             await loadHealthState()
             if scenePhase == .active, authorization.state == .authorized {
                 try? await boundary.registerHealthObserver()
-                if (try? await boundary.refreshHealthDataIfDue()) != nil {
+                if await (try? boundary.refreshHealthDataIfDue()) != nil {
                     await loadHealthState()
                 }
             }
@@ -295,8 +294,12 @@ private struct HealthView: View {
     }
 
     private var freshnessLabel: String {
-        if isImporting { return "Refreshing now" }
-        if healthStatus.hasActionableAttention { return "Refresh needs attention" }
+        if isImporting {
+            return "Refreshing now"
+        }
+        if healthStatus.hasActionableAttention {
+            return "Refresh needs attention"
+        }
         if healthStatus.requestedStreams.contains(where: { stream in
             guard let lastSuccessfulCheck = stream.lastSuccessfulCheck else { return false }
             return Calendar.current.isDateInToday(lastSuccessfulCheck)
@@ -456,7 +459,11 @@ private struct MaximumHeartRateConfigurationView: View {
         }
         .alert("Could not save maximum heart rate", isPresented: Binding(
             get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } },
+            set: {
+                if !$0 {
+                    errorMessage = nil
+                }
+            },
         )) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -663,7 +670,11 @@ private struct StrengthProgressView: View {
             "Could not load Progress",
             isPresented: Binding(
                 get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } },
+                set: {
+                    if !$0 {
+                        errorMessage = nil
+                    }
+                },
             ),
         ) {
             Button("OK", role: .cancel) {}
@@ -675,12 +686,14 @@ private struct StrengthProgressView: View {
     private var e1RMSection: some View {
         progressCard {
             CompassSectionTitle(title: "Are my estimated 1RMs increasing?", trailing: "Trailing 90 days")
-            if isLoading && liftSummaries.isEmpty {
+            if isLoading, liftSummaries.isEmpty {
                 ProgressView("Calculating lift trends…")
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
                 ForEach(Array(liftSummaries.enumerated()), id: \.element.id) { index, lift in
-                    if index > 0 { Divider() }
+                    if index > 0 {
+                        Divider()
+                    }
                     HStack(spacing: 12) {
                         CompassRoundSymbol(
                             systemImage: lift.symbol,
@@ -711,7 +724,7 @@ private struct StrengthProgressView: View {
         progressCard {
             CompassSectionTitle(
                 title: "How much training is in each HR zone?",
-                trailing: rollingOverview.map { $0.currentWindow.displayName },
+                trailing: rollingOverview.map(\.currentWindow.displayName),
             )
             Text("Last 7 Days")
                 .font(.caption)
@@ -722,7 +735,9 @@ private struct StrengthProgressView: View {
                 let metrics = Dictionary(uniqueKeysWithValues: overview.zoneMetrics.map { ($0.zone, $0) })
                 ForEach(Array(RollingWorkoutZone.cardioZones.enumerated()), id: \.element) { index, zone in
                     let metric = metrics[zone]
-                    if index > 0 { Divider() }
+                    if index > 0 {
+                        Divider()
+                    }
                     HeartRateZoneRow(
                         zone: zone,
                         duration: metric?.coveredSeconds ?? 0,
@@ -825,7 +840,9 @@ private struct StrengthProgressView: View {
             let drifts = recentDrifts
             if !drifts.isEmpty {
                 ForEach(Array(drifts.enumerated()), id: \.element.id) { index, drift in
-                    if index > 0 { Divider() }
+                    if index > 0 {
+                        Divider()
+                    }
                     HeartRateDriftRow(drift: drift)
                 }
             } else if isLoading {
@@ -852,8 +869,8 @@ private struct StrengthProgressView: View {
         return cardioProgress?.heartRateDrifts.filter { $0.localDate >= start } ?? []
     }
 
-    private func progressCard<Content: View>(
-        @ViewBuilder content: () -> Content,
+    private func progressCard(
+        @ViewBuilder content: () -> some View,
     ) -> some View {
         Section {
             CompassCard {
@@ -2800,44 +2817,44 @@ private struct CycleSetupView: View {
             VStack(alignment: .leading, spacing: 10) {
                 CompassCard {
                     VStack(alignment: .leading, spacing: 18) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(CompassPalette.blue)
-                        .frame(width: 44, height: 44)
-                        .background(CompassPalette.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(CompassPalette.blue)
+                            .frame(width: 44, height: 44)
+                            .background(CompassPalette.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Set up your first cycle")
-                            .font(.system(.title2, design: .serif).weight(.bold))
-                            .foregroundStyle(CompassPalette.navy)
-                        Text(
-                            "Training Maxes are needed to calculate the schedule and freeze the prescriptions used when a cycle starts.",
-                        )
-                        .font(.body)
-                        .foregroundStyle(CompassPalette.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("\(readyLiftCount) of \(requiredLifts.count) lifts ready")
-                            .font(.headline)
-                            .foregroundStyle(CompassPalette.navy)
-                        ProgressView(
-                            value: Double(readyLiftCount),
-                            total: Double(requiredLifts.count),
-                        )
-                        ForEach(missingLifts, id: \.self) { name in
-                            Label(name, systemImage: "circle")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Set up your first cycle")
+                                .font(.system(.title2, design: .serif).weight(.bold))
+                                .foregroundStyle(CompassPalette.navy)
+                            Text(
+                                "Training Maxes are needed to calculate the schedule and freeze the prescriptions used when a cycle starts.",
+                            )
+                            .font(.body)
+                            .foregroundStyle(CompassPalette.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
-                    }
 
-                    Button("Set Up Training Maxes") {
-                        onConfigureTrainingMaxes()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("cycle.setup-training-maxes")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("\(readyLiftCount) of \(requiredLifts.count) lifts ready")
+                                .font(.headline)
+                                .foregroundStyle(CompassPalette.navy)
+                            ProgressView(
+                                value: Double(readyLiftCount),
+                                total: Double(requiredLifts.count),
+                            )
+                            ForEach(missingLifts, id: \.self) { name in
+                                Label(name, systemImage: "circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Button("Set Up Training Maxes") {
+                            onConfigureTrainingMaxes()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("cycle.setup-training-maxes")
                     }
                 }
             }
@@ -3549,15 +3566,15 @@ private struct CycleView: View {
                                     systemName: session.status == .completed
                                         ? "checkmark.circle.fill"
                                         : session.status == .scheduled
-                                            ? "circle"
-                                            : "minus.circle",
+                                        ? "circle"
+                                        : "minus.circle",
                                 )
                                 .foregroundStyle(
                                     session.status == .completed
                                         ? CompassPalette.green
                                         : session.status == .scheduled
-                                            ? CompassPalette.inkMuted
-                                            : CompassPalette.red,
+                                        ? CompassPalette.inkMuted
+                                        : CompassPalette.red,
                                 )
                             }
                             .padding(.vertical, 8)

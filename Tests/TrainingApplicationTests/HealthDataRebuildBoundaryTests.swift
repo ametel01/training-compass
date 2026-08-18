@@ -332,7 +332,7 @@ private actor WorkoutEnrichmentRebuildClient: HealthWorkoutClient {
                 reconciliationContext: "test",
             ),
             distance: .available(
-                value: 1_000, unit: .meters, checkedAt: checkedAt,
+                value: 1000, unit: .meters, checkedAt: checkedAt,
                 reconciliationContext: "test",
             ),
             activeEnergy: .available(

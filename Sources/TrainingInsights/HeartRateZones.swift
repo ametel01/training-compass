@@ -41,7 +41,9 @@ public struct HeartRateWeightedInterval: Codable, Equatable, Sendable {
     public let sampleID: String
     public let source: String
 
-    public var durationSeconds: Double { endDate - startDate }
+    public var durationSeconds: Double {
+        endDate - startDate
+    }
 }
 
 public struct HeartRateWeightedIntervalBuilder: Sendable {
@@ -57,7 +59,9 @@ public struct HeartRateWeightedIntervalBuilder: Sendable {
         let candidates = samples.filter {
             $0.endDate >= workoutStartDate && $0.startDate <= workoutEndDate
         }.sorted {
-            if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
+            if $0.startDate != $1.startDate {
+                return $0.startDate < $1.startDate
+            }
             return $0.id < $1.id
         }
         var result: [HeartRateWeightedInterval] = []

@@ -308,7 +308,7 @@ final class TrainingCompassUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 15))
         let importedCount = app.descendants(matching: .any)["health.workouts.count"]
         let configuredExpected = ProcessInfo.processInfo.environment[
-            "TRAINING_COMPASS_EXPECTED_IMPORTED_WORKOUTS"
+            "TRAINING_COMPASS_EXPECTED_IMPORTED_WORKOUTS",
         ].flatMap(Int.init)
         let expectedWorkouts: Int
         if let configuredExpected, configuredExpected > 0 {

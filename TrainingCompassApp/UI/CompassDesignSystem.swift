@@ -68,7 +68,7 @@ enum CompassPalette {
 struct CompassPaperBackground: View {
     var body: some View {
         CompassPalette.paper
-        .allowsHitTesting(false)
+            .allowsHitTesting(false)
     }
 }
 
@@ -376,7 +376,7 @@ extension View {
         modifier(CompassScreenModifier())
     }
 
-    func compassNavigationTitle(_ title: String) -> some View {
+    func compassNavigationTitle(_: String) -> some View {
         self
     }
 

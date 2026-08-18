@@ -997,7 +997,7 @@ private actor WorkoutAssociatedHealthClient: HealthWorkoutClient {
                 reconciliationContext: "workout-associated-query",
             ),
             distance: .available(
-                value: 1_000,
+                value: 1000,
                 unit: .meters,
                 checkedAt: checkedAt,
                 reconciliationContext: "workout-associated-query",

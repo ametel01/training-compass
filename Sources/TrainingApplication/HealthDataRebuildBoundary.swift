@@ -426,7 +426,7 @@ public actor HealthDataRebuildBoundary {
                         try Task.checkCancellation()
                         guard
                             await resourceProvider.currentHealthRebuildResources()
-                                .permitsDiscretionaryWork
+                            .permitsDiscretionaryWork
                         else {
                             throw HealthRebuildError.resourcePressure
                         }

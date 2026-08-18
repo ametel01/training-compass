@@ -2216,7 +2216,7 @@ public actor HealthSyncCoordinator {
         reconciliation: HealthStreamReconciliationState = .idle,
         attemptCount: Int = 1,
     ) async -> HealthStreamStatus {
-        let workouts = (try? await repository.loadHealthWorkouts()) ?? []
+        let workouts = await (try? repository.loadHealthWorkouts()) ?? []
         let workoutCheckpoint = try? await repository.loadHealthSyncCheckpoint(for: .workouts)
         var details: [WorkoutAssociatedDetail] = []
         var missingEnrichment = false
