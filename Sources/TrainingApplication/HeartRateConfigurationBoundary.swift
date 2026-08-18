@@ -37,19 +37,19 @@ public protocol HeartRateConfigurationRepository: Sendable {
     func deleteHeartRateConfiguration() async throws
 }
 
-extension HeartRateConfigurationRepository {
-    public func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
+public extension HeartRateConfigurationRepository {
+    func loadHeartRateConfiguration() async throws -> HeartRateConfiguration? {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 
-    public func saveHeartRateConfiguration(
+    func saveHeartRateConfiguration(
         _: HeartRateConfiguration,
         expectedBefore _: HeartRateConfiguration?,
     ) async throws {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 
-    public func deleteHeartRateConfiguration() async throws {
+    func deleteHeartRateConfiguration() async throws {
         throw HeartRateConfigurationRepositoryError.unavailable
     }
 }
@@ -58,8 +58,7 @@ public struct HeartRateConfigurationBoundary: Sendable {
     private let repository: any HeartRateConfigurationRepository
     private let clock: any Clock
 
-    public init(repository: any HeartRateConfigurationRepository, clock: any Clock = SystemClock())
-    {
+    public init(repository: any HeartRateConfigurationRepository, clock: any Clock = SystemClock()) {
         self.repository = repository
         self.clock = clock
     }

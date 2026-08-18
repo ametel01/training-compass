@@ -1,8 +1,7 @@
 import Foundation
 import TrainingDomain
-import XCTest
-
 @testable import TrainingInsights
+import XCTest
 
 final class HeartRateZonesTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1000)
@@ -21,11 +20,11 @@ final class HeartRateZonesTests: XCTestCase {
             sample("zone5-open-ended", offset: 90, bpm: 200),
         ]
 
-        let result = HeartRateZoneCalculator().calculate(
+        let result = try HeartRateZoneCalculator().calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(100).timeIntervalSince1970,
             samples: samples,
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
 
         XCTAssertEqual(result.state, .available)
@@ -39,14 +38,14 @@ final class HeartRateZonesTests: XCTestCase {
     }
 
     func testShortGapBelongsToEarlierSampleAtExactlySixtySeconds() throws {
-        let result = HeartRateZoneCalculator().calculate(
+        let result = try HeartRateZoneCalculator().calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(100).timeIntervalSince1970,
             samples: [
                 sample("first", offset: 10, duration: 10, bpm: 100),
                 sample("second", offset: 80, duration: 10, bpm: 165),
             ],
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
 
         XCTAssertEqual(try XCTUnwrap(result.zoneDurations[.zone1]), 70, accuracy: 0.000_000_1)
@@ -56,7 +55,7 @@ final class HeartRateZonesTests: XCTestCase {
     }
 
     func testInstantaneousHealthSamplesOwnTimeUntilTheNextNearbySample() throws {
-        let result = HeartRateZoneCalculator().calculate(
+        let result = try HeartRateZoneCalculator().calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(30).timeIntervalSince1970,
             samples: [
@@ -64,7 +63,7 @@ final class HeartRateZonesTests: XCTestCase {
                 sample("second", offset: 10, duration: 0, bpm: 142),
                 sample("third", offset: 20, duration: 0, bpm: 165),
             ],
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
 
         XCTAssertEqual(result.zoneDurations[.zone1], 10)
@@ -75,14 +74,14 @@ final class HeartRateZonesTests: XCTestCase {
     }
 
     func testLongGapAndBothWorkoutEdgesRemainUnavailable() throws {
-        let result = HeartRateZoneCalculator().calculate(
+        let result = try HeartRateZoneCalculator().calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(200).timeIntervalSince1970,
             samples: [
                 sample("first", offset: 20, duration: 10, bpm: 100),
                 sample("second", offset: 91, duration: 10, bpm: 165),
             ],
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
 
         XCTAssertEqual(result.coveredSeconds, 20, accuracy: 0.000_000_1)
@@ -110,17 +109,17 @@ final class HeartRateZonesTests: XCTestCase {
     func testChangingBoundariesReprojectsUnchangedSamples() throws {
         let samples = [sample("sample", offset: 0, duration: 10, bpm: 140)]
         let calculator = HeartRateZoneCalculator()
-        let watch = calculator.calculate(
+        let watch = try calculator.calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(10).timeIntervalSince1970,
             samples: samples,
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
-        let alternate = calculator.calculate(
+        let alternate = try calculator.calculate(
             workoutStartDate: start.timeIntervalSince1970,
             workoutEndDate: start.addingTimeInterval(10).timeIntervalSince1970,
             samples: samples,
-            zoneBoundaries: try boundaries(
+            zoneBoundaries: boundaries(
                 resting: 50, maximum: 200, zone2: 100, zone3: 120, zone4: 140, zone5: 160,
             ),
         )

@@ -1,8 +1,7 @@
 import Foundation
 import GRDB
-import XCTest
-
 @testable import TrainingPersistence
+import XCTest
 
 final class ProtectedStoreBootstrapTests: XCTestCase {
     func testCreatesSeparateProtectedStoresAndExcludesOnlyReconstructibleDataFromBackup() throws {
@@ -132,8 +131,8 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         ).verify()
 
         XCTAssertTrue(report.passed)
-        XCTAssertEqual(report.authoritative.map(\.sourceVersion), Array(1...17))
-        XCTAssertEqual(report.reconstructible.map(\.sourceVersion), Array(1...10))
+        XCTAssertEqual(report.authoritative.map(\.sourceVersion), Array(1 ... 17))
+        XCTAssertEqual(report.reconstructible.map(\.sourceVersion), Array(1 ... 10))
         XCTAssertEqual(report.authoritative.last?.targetVersion, 17)
         XCTAssertEqual(report.reconstructible.last?.targetVersion, 10)
         XCTAssertEqual(report.exportSchemaVersions, [1])
@@ -150,9 +149,9 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         try database.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO heart_rate_configuration (id, maximum_heart_rate_bpm, updated_at)
-                    VALUES (1, 177, 42)
-                    """,
+                INSERT INTO heart_rate_configuration (id, maximum_heart_rate_bpm, updated_at)
+                VALUES (1, 177, 42)
+                """,
             )
         }
 
@@ -162,10 +161,10 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
             try Row.fetchOne(
                 db,
                 sql: """
-                    SELECT resting_heart_rate_bpm, zone2_minimum_bpm, zone3_minimum_bpm,
-                           zone4_minimum_bpm, zone5_minimum_bpm
-                    FROM heart_rate_configuration WHERE id = 1
-                    """,
+                SELECT resting_heart_rate_bpm, zone2_minimum_bpm, zone3_minimum_bpm,
+                       zone4_minimum_bpm, zone5_minimum_bpm
+                FROM heart_rate_configuration WHERE id = 1
+                """,
             )
         }
         XCTAssertEqual(values?["resting_heart_rate_bpm"] as Double?, 64)
@@ -178,7 +177,8 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
     func testMigrationSpaceRefusalHappensBeforeAnySchemaMutationAndReportsProgress() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(
-                path: "training-migration-space-\(UUID().uuidString)", directoryHint: .isDirectory)
+                path: "training-migration-space-\(UUID().uuidString)", directoryHint: .isDirectory,
+            )
         defer { try? FileManager.default.removeItem(at: root) }
         let recorder = MigrationPhaseRecorder()
         let bootstrapper = ProtectedStoreBootstrapper(
@@ -196,7 +196,8 @@ final class ProtectedStoreBootstrapTests: XCTestCase {
         let locations = StoreLocations(root: root)
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: locations.authoritativeMigrationDiagnostic.path()),
+                atPath: locations.authoritativeMigrationDiagnostic.path(),
+            ),
         )
     }
 }

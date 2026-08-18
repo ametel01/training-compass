@@ -66,7 +66,7 @@ public struct HealthWorkoutHeartRateZoneProvider: RollingWorkoutZoneProjectionPr
         )
         switch projection.state {
         case .available: return .projected(projection)
-        case .unavailable(let reason): return .unavailable(reason: reason)
+        case let .unavailable(reason): return .unavailable(reason: reason)
         }
     }
 }
@@ -107,7 +107,7 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
             )
             let zoneTimes =
                 await zoneProvider?.zoneTimes(for: workout, enrichment: enrichment)
-                ?? .unavailable(reason: Self.zoneUnavailableReason(for: enrichment))
+                    ?? .unavailable(reason: Self.zoneUnavailableReason(for: enrichment))
             records.append(
                 RollingWorkoutRecord(
                     id: workout.healthKitUUID,
@@ -131,13 +131,13 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
             } else if let checkpoint {
                 .incomplete(
                     reason:
-                        "Health Workouts stream reported limited history; the complete comparison horizon is unavailable",
+                    "Health Workouts stream reported limited history; the complete comparison horizon is unavailable",
                     lastReconciliation: checkpoint.committedAt.description,
                 )
             } else {
                 .incomplete(
                     reason:
-                        "Health Workouts stream has not successfully checked the complete comparison horizon",
+                    "Health Workouts stream has not successfully checked the complete comparison horizon",
                 )
             }
         return RollingWorkoutOverviewCalculator().calculate(
@@ -163,7 +163,7 @@ public struct RollingWorkoutOverviewBoundary: Sendable {
         let year = components[0]
         let month = components[1]
         let day = components[2]
-        guard year > 0, (1...12).contains(month) else { return nil }
+        guard year > 0, (1 ... 12).contains(month) else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day))

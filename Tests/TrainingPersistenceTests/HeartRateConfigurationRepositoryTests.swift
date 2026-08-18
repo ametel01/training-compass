@@ -1,9 +1,8 @@
 import Foundation
-import XCTest
-
 @testable import TrainingApplication
 @testable import TrainingDomain
 @testable import TrainingPersistence
+import XCTest
 
 final class HeartRateConfigurationRepositoryTests: XCTestCase {
     func testConfigurationPersistsAcrossRestartAndCanBeCleared() async throws {

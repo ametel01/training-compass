@@ -233,15 +233,15 @@ public struct HeartRateZoneProjection: Codable, Equatable, Sendable {
             includedRecordIDs: included,
             excludedRecords: [],
             formula:
-                "Assign elapsed time to the earlier associated sample when the gap is at most 60 seconds; gaps over 60 seconds and workout edges remain unavailable.",
+            "Assign elapsed time to the earlier associated sample when the gap is at most 60 seconds; gaps over 60 seconds and workout edges remain unavailable.",
             dateRange:
-                "Workout interval \(intervals.first?.startDate ?? 0) through \(intervals.last?.endDate ?? totalWorkoutDurationSeconds)",
+            "Workout interval \(intervals.first?.startDate ?? 0) through \(intervals.last?.endDate ?? totalWorkoutDurationSeconds)",
             roundingRule:
-                "Calculations retain full precision; displayed durations and percentages are rounded for presentation.",
+            "Calculations retain full precision; displayed durations and percentages are rounded for presentation.",
             sourceState: String(describing: state),
             sourceCoverage: coverage,
             calculationRule:
-                "Use the five continuous BPM ranges copied from Apple Watch; Zone 1 and Zone 5 are open-ended.",
+            "Use the five continuous BPM ranges copied from Apple Watch; Zone 1 and Zone 5 are open-ended.",
             missingData: missing,
             configuration: configuredRanges,
         )
@@ -291,7 +291,7 @@ public struct HeartRateZoneCalculator: Sendable {
                     HeartRateZoneUnavailableInterval(
                         id: "unavailable:0", startDate: workoutStartDate, endDate: workoutEndDate,
                         reason: "Workout edge",
-                    )
+                    ),
                 ],
             )
         }
@@ -368,17 +368,17 @@ public struct HeartRateZoneCalculator: Sendable {
 
     private func zone(for bpm: Double, boundaries: HeartRateZoneBoundaries) -> RollingWorkoutZone {
         switch bpm {
-        case ..<boundaries.zone2MinimumBPM: return .zone1
-        case ..<boundaries.zone3MinimumBPM: return .zone2
-        case ..<boundaries.zone4MinimumBPM: return .zone3
-        case ..<boundaries.zone5MinimumBPM: return .zone4
-        default: return .zone5
+        case ..<boundaries.zone2MinimumBPM: .zone1
+        case ..<boundaries.zone3MinimumBPM: .zone2
+        case ..<boundaries.zone4MinimumBPM: .zone3
+        case ..<boundaries.zone5MinimumBPM: .zone4
+        default: .zone5
         }
     }
 }
 
-extension HeartRateZoneBoundaries {
-    public func rangeDescription(for zone: RollingWorkoutZone) -> String {
+public extension HeartRateZoneBoundaries {
+    func rangeDescription(for zone: RollingWorkoutZone) -> String {
         switch zone {
         case .zone1: "≤\(bpmText(zone2MinimumBPM - 1)) bpm"
         case .zone2: "\(bpmText(zone2MinimumBPM))–\(bpmText(zone3MinimumBPM - 1)) bpm"
@@ -388,7 +388,7 @@ extension HeartRateZoneBoundaries {
         }
     }
 
-    public var summary: String {
+    var summary: String {
         "Apple Watch ranges: "
             + RollingWorkoutZone.allCases.map {
                 "\($0.displayName) \(rangeDescription(for: $0))"

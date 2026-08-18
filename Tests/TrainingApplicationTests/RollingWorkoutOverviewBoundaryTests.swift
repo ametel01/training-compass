@@ -1,7 +1,6 @@
 import Foundation
-import XCTest
-
 @testable import TrainingApplication
+import XCTest
 
 final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
     func testLinkedDuplicateAndDeletedWorkoutDoNotInflateCurrentFacts() async throws {
@@ -114,13 +113,13 @@ final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
 
     func testHeartRateProjectionUsesConfiguredWatchRangesAndRetainsSourceCoverage() async throws {
         let workout = workout(id: "zones", localDate: "2026-08-15", duration: 100)
-        let repository = OverviewRepository(
+        let repository = try OverviewRepository(
             workouts: [workout],
             checkpoint: HealthSyncCheckpoint(
                 stream: .workouts, anchor: "anchor", reconciliationContext: "complete",
             ),
             enrichment: enrichment(for: workout, bpm: 140),
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
         let boundary = RollingWorkoutOverviewBoundary(
             repository: repository,
@@ -201,7 +200,7 @@ final class RollingWorkoutOverviewBoundaryTests: XCTestCase {
                     HealthWorkoutHeartRateSample(
                         id: "sample", startDate: workout.startDate, endDate: workout.endDate,
                         beatsPerMinute: bpm, provenance: HealthSampleProvenance(sourceName: "Watch"),
-                    )
+                    ),
                 ],
                 checkedAt: workout.endDate,
                 reconciliationContext: "complete",

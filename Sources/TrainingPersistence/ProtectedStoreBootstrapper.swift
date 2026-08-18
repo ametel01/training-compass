@@ -36,7 +36,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
             // filesystem semantics. Keep the same schema and transaction behavior in its
             // writable cache container so UI journeys can exercise the real repository.
             let simulatorRoot = FileManager.default.urls(
-                for: .cachesDirectory, in: .userDomainMask)[0]
+                for: .cachesDirectory, in: .userDomainMask,
+            )[0]
                 .appending(path: "TrainingCompass", directoryHint: .isDirectory)
             let locations = StoreLocations(root: simulatorRoot)
         #else
@@ -98,7 +99,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
         do {
             try Self.reconstructibleMigrator.migrate(reconstructible)
             try updateSchemaVersion(
-                reconstructible, to: Self.reconstructibleMigrator.migrations.count)
+                reconstructible, to: Self.reconstructibleMigrator.migrations.count,
+            )
             try? FileManager.default.removeItem(at: locations.reconstructibleMigrationDiagnostic)
         } catch {
             writeDiagnostic(
@@ -150,8 +152,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
             if let attributes = try? FileManager.default.attributesOfItem(
                 atPath: database.path(percentEncoded: false),
             ),
-                let fileSize = attributes[.size] as? NSNumber
-            {
+            let fileSize = attributes[.size] as? NSNumber {
                 max(0, fileSize.int64Value)
             } else {
                 0
@@ -160,8 +161,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
         let (withJournal, journalOverflow) = recoveryCopy.addingReportingOverflow(64 * 1024)
         let required =
             recoveryOverflow || journalOverflow
-            ? Int64.max
-            : Int64((Double(withJournal) * 1.2).rounded(.up))
+                ? Int64.max
+                : Int64((Double(withJournal) * 1.2).rounded(.up))
         let available = try spaceProvider.availableMigrationSpaceBytes(at: root)
         guard available >= required else {
             throw StoreMigrationError.insufficientSpace(
@@ -179,7 +180,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
         let applied = (try? database.read { db in try migrator.appliedIdentifiers(db) }) ?? []
         let attemptedIndex =
             migrator.migrations.firstIndex { !applied.contains($0) } ?? migrator.migrations.count
-            - 1
+                - 1
         let diagnostic = StoreMigrationDiagnostic(
             store: store,
             attemptedVersion: max(1, attemptedIndex + 1),
@@ -195,7 +196,8 @@ public struct ProtectedStoreBootstrapper: Sendable {
     public func protectAuthoritativeStore(in root: URL) throws {
         #if targetEnvironment(simulator)
             let simulatorRoot = FileManager.default.urls(
-                for: .cachesDirectory, in: .userDomainMask)[0]
+                for: .cachesDirectory, in: .userDomainMask,
+            )[0]
                 .appending(path: "TrainingCompass", directoryHint: .isDirectory)
             let locations = StoreLocations(root: simulatorRoot)
         #else
@@ -360,11 +362,11 @@ public struct ProtectedStoreBootstrapper: Sendable {
             )
             try db.execute(
                 sql:
-                    "CREATE UNIQUE INDEX training_cycles_single_draft ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'draft'",
+                "CREATE UNIQUE INDEX training_cycles_single_draft ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'draft'",
             )
             try db.execute(
                 sql:
-                    "CREATE UNIQUE INDEX training_cycles_single_active ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'active'",
+                "CREATE UNIQUE INDEX training_cycles_single_active ON training_cycles (lifecycle_state) WHERE lifecycle_state = 'active'",
             )
             try db.create(table: "training_cycle_audit") { table in
                 table.column("id", .text).primaryKey()
@@ -489,11 +491,11 @@ public struct ProtectedStoreBootstrapper: Sendable {
             }
             try db.execute(
                 sql: """
-                    INSERT INTO schedule_template_audit_v8
-                      (id, template_id, action, occurred_at, before_json, after_json)
-                    SELECT id, template_id, action, occurred_at, before_json, after_json
-                    FROM schedule_template_audit
-                    """,
+                INSERT INTO schedule_template_audit_v8
+                  (id, template_id, action, occurred_at, before_json, after_json)
+                SELECT id, template_id, action, occurred_at, before_json, after_json
+                FROM schedule_template_audit
+                """,
             )
             try db.drop(table: "schedule_template_audit")
             try db.rename(table: "schedule_template_audit_v8", to: "schedule_template_audit")
@@ -546,18 +548,18 @@ public struct ProtectedStoreBootstrapper: Sendable {
             )
             try db.execute(
                 sql: """
-                    INSERT INTO training_max_history
-                      (id, lift_id, event, occurred_at, history_json)
-                    SELECT
-                      lifts.id || ':initial', lifts.id, 'initial', lifts.created_at,
-                      json_object(
-                        'id', lifts.id || ':initial', 'liftID', lifts.id, 'event', 'initial',
-                        'occurredAt', lifts.created_at, 'beforeKg', NULL,
-                        'afterKg', lifts.training_max_kg, 'proposalID', NULL, 'cycleID', NULL,
-                        'effectiveCycleID', NULL, 'evidence', NULL, 'decision', NULL, 'note', NULL
-                      )
-                    FROM lifts
-                    """,
+                INSERT INTO training_max_history
+                  (id, lift_id, event, occurred_at, history_json)
+                SELECT
+                  lifts.id || ':initial', lifts.id, 'initial', lifts.created_at,
+                  json_object(
+                    'id', lifts.id || ':initial', 'liftID', lifts.id, 'event', 'initial',
+                    'occurredAt', lifts.created_at, 'beforeKg', NULL,
+                    'afterKg', lifts.training_max_kg, 'proposalID', NULL, 'cycleID', NULL,
+                    'effectiveCycleID', NULL, 'evidence', NULL, 'decision', NULL, 'note', NULL
+                  )
+                FROM lifts
+                """,
             )
         }
         migrator.registerMigration("authoritative_v12_health_workout_link_facts") { db in
@@ -577,24 +579,25 @@ public struct ProtectedStoreBootstrapper: Sendable {
         migrator.registerMigration("authoritative_v13_training_event_links") { db in
             try db.alter(table: "health_workout_link_facts") { table in
                 table.add(column: "linked_during_completion", .boolean).notNull().defaults(
-                    to: false)
+                    to: false,
+                )
                 table.add(column: "write_back_disposition", .text).notNull()
                     .defaults(to: TrainingEventWriteBackDisposition.notApplicable.rawValue)
                 table.add(column: "unlinked_at", .double)
             }
             try db.execute(
                 sql: """
-                    CREATE UNIQUE INDEX health_workout_link_facts_active_uuid
-                    ON health_workout_link_facts (healthkit_uuid)
-                    WHERE unlinked_at IS NULL
-                    """,
+                CREATE UNIQUE INDEX health_workout_link_facts_active_uuid
+                ON health_workout_link_facts (healthkit_uuid)
+                WHERE unlinked_at IS NULL
+                """,
             )
             try db.execute(
                 sql: """
-                      CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
-                      ON health_workout_link_facts (local_entity_kind, local_entity_id)
-                      WHERE unlinked_at IS NULL
-                    """,
+                  CREATE UNIQUE INDEX health_workout_link_facts_active_local_entity
+                  ON health_workout_link_facts (local_entity_kind, local_entity_id)
+                  WHERE unlinked_at IS NULL
+                """,
             )
         }
         migrator.registerMigration("authoritative_v14_heart_rate_configuration") { db in
@@ -619,7 +622,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
             }
             try db.execute(
                 sql:
-                    "INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at) VALUES ('default', 0, 0)",
+                "INSERT INTO health_workout_write_back_preferences (id, enabled, updated_at) VALUES ('default', 0, 0)",
             )
             try db.create(table: "health_workout_write_backs") { table in
                 table.column("session_id", .text).primaryKey()
@@ -777,7 +780,7 @@ public struct ProtectedStoreBootstrapper: Sendable {
             }
             try db.execute(
                 sql:
-                    "INSERT INTO gate_zero_metadata (schema_version, owner_data_accepted) VALUES (1, 0)",
+                "INSERT INTO gate_zero_metadata (schema_version, owner_data_accepted) VALUES (1, 0)",
             )
         }
         return migrator

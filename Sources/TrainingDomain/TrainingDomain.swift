@@ -79,9 +79,9 @@ public struct HeartRateZoneBoundaries: Codable, Equatable, Sendable {
             throw HeartRateZoneBoundaryValidationError.restingMustBeBelowMaximum
         }
         guard restingHeartRateBPM < zone2MinimumBPM,
-            zone2MinimumBPM < zone3MinimumBPM,
-            zone3MinimumBPM < zone4MinimumBPM,
-            zone4MinimumBPM < zone5MinimumBPM
+              zone2MinimumBPM < zone3MinimumBPM,
+              zone3MinimumBPM < zone4MinimumBPM,
+              zone4MinimumBPM < zone5MinimumBPM
         else {
             throw HeartRateZoneBoundaryValidationError.boundariesMustIncrease
         }
@@ -136,15 +136,15 @@ public enum LiftIdentity: Codable, Equatable, Hashable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .progression(let lift):
+        case let .progression(lift):
             lift.displayName
-        case .variant(let name), .custom(let name):
+        case let .variant(name), let .custom(name):
             name
         }
     }
 
     public var progressionLift: ProgressionLift? {
-        guard case .progression(let lift) = self else { return nil }
+        guard case let .progression(lift) = self else { return nil }
         return lift
     }
 

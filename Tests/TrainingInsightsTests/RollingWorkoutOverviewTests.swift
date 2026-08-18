@@ -1,7 +1,6 @@
 import TrainingDomain
-import XCTest
-
 @testable import TrainingInsights
+import XCTest
 
 final class RollingWorkoutOverviewTests: XCTestCase {
     func testTrailingSevenDatesUseMedianOfFourPrecedingNonOverlappingPeriods() {
@@ -52,7 +51,8 @@ final class RollingWorkoutOverviewTests: XCTestCase {
         )
         XCTAssertTrue(
             overview.workoutCount.explanation.dateRange.contains(
-                "Current: 2026-08-09 through 2026-08-15"),
+                "Current: 2026-08-09 through 2026-08-15",
+            ),
         )
         XCTAssertTrue(
             overview.workoutCount.explanation.exclusions.contains {

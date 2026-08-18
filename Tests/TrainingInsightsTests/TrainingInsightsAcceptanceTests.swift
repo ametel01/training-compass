@@ -1,7 +1,6 @@
 import TrainingDomain
-import XCTest
-
 @testable import TrainingInsights
+import XCTest
 
 /// Cross-feature approval coverage for issue #32. The individual calculators
 /// remain independently tested; this seam verifies that their owner-facing
@@ -29,7 +28,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
             asOf: today,
             coverage: .complete(lastReconciliation: "health-check"),
         )
-        let zone = HeartRateZoneCalculator().calculate(
+        let zone = try HeartRateZoneCalculator().calculate(
             workoutStartDate: 1000,
             workoutEndDate: 1200,
             samples: [
@@ -42,7 +41,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
                     source: "Watch",
                 ),
             ],
-            zoneBoundaries: try watchBoundaries(),
+            zoneBoundaries: watchBoundaries(),
         )
         let running = RunningPerformanceCalculator().calculate(
             records: [
@@ -100,7 +99,8 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
             "race prediction", "causal claim", "recovery verdict", "automatic prescription",
         ] {
             XCTAssertFalse(
-                displayedLanguage.contains(forbidden), "Forbidden language: \(forbidden)")
+                displayedLanguage.contains(forbidden), "Forbidden language: \(forbidden)",
+            )
         }
     }
 
@@ -108,7 +108,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
         let samples = [
             HeartRateSample(
                 id: "sample", startDate: 1000, endDate: 1100, beatsPerMinute: 100, source: "Watch",
-            )
+            ),
         ]
         let calculator = HeartRateZoneCalculator()
         let watch = try calculator.calculate(
@@ -172,7 +172,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
                     TrainingSetPrescription(
                         id: "plus", setNumber: 3, role: .primary, percentage: 0.85, repetitions: 5,
                         weightKg: 85, isPlusSetEligible: true,
-                    )
+                    ),
                 ],
                 status: .completed,
             ),
@@ -181,7 +181,7 @@ final class TrainingInsightsAcceptanceTests: XCTestCase {
                     id: "plus-result", sessionID: "session", prescriptionID: "plus",
                     result: SetResult(weight: SetResultWeight(kg: 100), repetitions: 5),
                     recordedAt: 1,
-                )
+                ),
             ],
             correctedResultIDs: ["plus-result"],
         )

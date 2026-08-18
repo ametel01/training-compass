@@ -60,18 +60,18 @@ let authoritativeTables = try stores.authoritative.read { db in
         String.fetchAll(
             db,
             sql: """
-                SELECT name FROM sqlite_master
-                WHERE type = 'table' AND name IN (
-                  'lifts', 'lift_configuration_audit', 'schedule_templates',
-                  'schedule_template_sessions', 'schedule_template_audit', 'training_cycles',
-                  'training_cycle_audit', 'set_results', 'set_result_audit', 'omitted_sets',
-                  'additional_sets', 'session_completions', 'session_projections',
-                  'session_correction_audit', 'training_max_proposals', 'training_max_history',
-                  'health_workout_link_facts', 'heart_rate_configuration',
-                  'running_comparison_exclusions', 'health_workout_write_back_preferences',
-                  'health_workout_write_backs'
-                )
-                """,
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name IN (
+              'lifts', 'lift_configuration_audit', 'schedule_templates',
+              'schedule_template_sessions', 'schedule_template_audit', 'training_cycles',
+              'training_cycle_audit', 'set_results', 'set_result_audit', 'omitted_sets',
+              'additional_sets', 'session_completions', 'session_projections',
+              'session_correction_audit', 'training_max_proposals', 'training_max_history',
+              'health_workout_link_facts', 'heart_rate_configuration',
+              'running_comparison_exclusions', 'health_workout_write_back_preferences',
+              'health_workout_write_backs'
+            )
+            """,
         ),
     )
 }
@@ -107,11 +107,11 @@ let reconstructibleTables = try reopenedStores.reconstructible.read { db in
         String.fetchAll(
             db,
             sql: """
-                SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
-                  ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts',
-                   'health_rebuild_state', 'health_workout_enrichment', 'health_workout_routes',
-                   'health_recovery_samples')
-                """,
+            SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
+              ('health_workouts', 'health_workout_deletions', 'health_sync_streams', 'health_sync_facts',
+               'health_rebuild_state', 'health_workout_enrichment', 'health_workout_routes',
+               'health_recovery_samples')
+            """,
         ),
     )
 }
@@ -130,8 +130,7 @@ print(
     "Authoritative v17 and reconstructible v10 migration interruption, retry, idempotence, and every historical direct-upgrade path passed (\(compatibilityReport.migrationCount) prefixes; export v1).",
 )
 
-final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable
-{
+final class InterruptOnceStoreBootstrapCheckpoint: StoreBootstrapCheckpointing, @unchecked Sendable {
     private var shouldInterrupt = true
 
     func didMigrateAuthoritativeStore() throws {
