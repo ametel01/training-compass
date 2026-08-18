@@ -3,6 +3,20 @@ import Foundation
 import XCTest
 
 final class HealthWorkoutBoundaryTests: XCTestCase {
+    func testLegacyNumericHealthKitActivityTypesUseReadableNames() {
+        let running = fixture("numeric-running", activityType: "37")
+        let cycling = fixture("numeric-cycling", activityType: "13")
+        let strength = fixture("numeric-strength", activityType: "50")
+        let walking = fixture("numeric-walking", activityType: "52")
+        let unknown = fixture("numeric-unknown", activityType: "3000")
+
+        XCTAssertEqual(running.activityType, "Running")
+        XCTAssertEqual(cycling.activityType, "Cycling")
+        XCTAssertEqual(strength.activityType, "Traditional strength training")
+        XCTAssertEqual(walking.activityType, "Walking")
+        XCTAssertEqual(unknown.activityType, "Other workout")
+    }
+
     func testRecoveryGuidanceReadsWithoutMutatingTrainingBoundaryState() async throws {
         let repository = FakeHealthRepository()
         let boundary = HealthWorkoutImportBoundary(
@@ -64,6 +78,40 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         XCTAssertNil(request)
         let committed = await repository.committed
         XCTAssertTrue(committed.isEmpty)
+    }
+
+    func testAutomaticHealthRefreshRunsOncePerLocalDayAndManualRefreshRemainsIndependent()
+        async throws
+    {
+        let client = FakeHealthClient(pages: [HealthWorkoutPage(workouts: [])])
+        let boundary = HealthWorkoutImportBoundary(client: client, repository: FakeHealthRepository())
+        await boundary.resumePreviouslyApprovedHealthAccess()
+        let now = Date()
+
+        let firstAutomaticRefresh = try await boundary.refreshHealthDataIfDue(on: now)
+        let repeatedAutomaticRefresh = try await boundary.refreshHealthDataIfDue(on: now)
+        let firstFetchCount = await client.fetchCount
+        XCTAssertNotNil(firstAutomaticRefresh)
+        XCTAssertNil(repeatedAutomaticRefresh)
+        XCTAssertEqual(firstFetchCount, 1)
+
+        _ = try await boundary.refreshHealthData(trigger: .manualInvalidation)
+        let manualFetchCount = await client.fetchCount
+        let automaticAfterManual = try await boundary.refreshHealthDataIfDue(on: now)
+        XCTAssertEqual(manualFetchCount, 2)
+        XCTAssertNil(automaticAfterManual)
+    }
+
+    func testRestoringApprovedHealthAccessDoesNotRequestAuthorizationAgain() async {
+        let client = FakeHealthClient(pages: [HealthWorkoutPage(workouts: [])])
+        let boundary = HealthWorkoutImportBoundary(client: client, repository: FakeHealthRepository())
+
+        await boundary.resumePreviouslyApprovedHealthAccess()
+
+        let authorization = await boundary.authorizationSnapshot()
+        let request = await client.lastRequest
+        XCTAssertEqual(authorization.state, .authorized)
+        XCTAssertNil(request)
     }
 
     func testSuccessfulEmptyResultIsNotReportedAsDenied() async throws {
@@ -229,13 +277,18 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         XCTAssertTrue(loaded.isEmpty)
     }
 
-    func testCoordinatorFollowsAnchoredPaginationWhenLegacyPageTokenIsAbsent() async throws {
+    func testCoordinatorUsesPaginationTokenAndPersistsTheFinalDurableAnchor() async throws {
         let client = AnchoredHealthClient(pages: [
             HealthWorkoutPage(
-                workouts: [fixture("first")], anchor: "anchor-1", reconciliationContext: "page-1",
+                workouts: [fixture("first")],
+                nextPageToken: "page-2",
+                anchor: "durable-1",
+                reconciliationContext: "page-1",
             ),
             HealthWorkoutPage(
-                workouts: [fixture("second")], anchor: nil, reconciliationContext: "page-2",
+                workouts: [fixture("second")],
+                anchor: "durable-2",
+                reconciliationContext: "page-2",
             ),
         ])
         let repository = MultiStreamRepository()
@@ -251,8 +304,54 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         XCTAssertEqual(result.pagesCommitted, 2)
         let requestedAnchors = await client.requestedAnchors
         let values = await repository.values.map(\.healthKitUUID)
-        XCTAssertEqual(requestedAnchors, [nil, "anchor-1"])
+        XCTAssertEqual(requestedAnchors, [nil, "page-2"])
         XCTAssertEqual(Set(values), ["first", "second"])
+        let checkpoint = await repository.checkpoints[.workouts]
+        XCTAssertEqual(checkpoint?.anchor, "durable-2")
+    }
+
+    func testCoordinatorPersistsDurableAnchorWithoutTreatingItAsPagination() async throws {
+        let client = DurableAnchorHealthClient()
+        let repository = MultiStreamRepository()
+        let coordinator = HealthSyncCoordinator(
+            client: client,
+            repository: repository,
+            requestedStreams: [.sleep],
+            authorization: .init(state: .authorized),
+        )
+
+        let result = try await coordinator.foreground()
+
+        XCTAssertNil(result.streamStatuses.first?.failure)
+        let requestedAnchors = await client.requestedAnchors
+        XCTAssertEqual(requestedAnchors, [nil])
+        let checkpoint = await repository.checkpoints[.sleep]
+        XCTAssertEqual(checkpoint?.anchor, "durable-sleep-anchor")
+    }
+
+    func testCoordinatorDerivesAssociatedStatusesFromWorkoutEnrichmentWithoutStandaloneQueries()
+        async throws
+    {
+        let workout = fixture("associated-detail")
+        let client = WorkoutAssociatedHealthClient(workout: workout)
+        let repository = MultiStreamRepository()
+        let coordinator = HealthSyncCoordinator(
+            client: client,
+            repository: repository,
+            requestedStreams: [.workouts, .heartRate, .distance, .activeEnergy],
+            authorization: .init(state: .authorized),
+        )
+
+        let result = try await coordinator.foreground()
+
+        let fetchedStreams = await client.fetchedStreams
+        XCTAssertEqual(fetchedStreams, [.workouts])
+        for stream in [HealthSyncStream.heartRate, .distance, .activeEnergy] {
+            let status = try XCTUnwrap(result.streamStatuses.first { $0.stream == stream })
+            XCTAssertNil(status.failure)
+            XCTAssertEqual(status.mirroredContent, .available)
+            XCTAssertNotNil(status.lastSuccessfulCheck)
+        }
     }
 
     func testCoordinatorRejectsOversizedBatchBeforeCommit() async throws {
@@ -294,8 +393,8 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         let checkpoints = await repository.checkpoints
         let committedStreams = await repository.committedStreams
         let facts = await repository.facts.map(\.healthKitUUID)
-        XCTAssertNil(checkpoints[.workouts]?.anchor)
-        XCTAssertNil(checkpoints[.sleep]?.anchor)
+        XCTAssertEqual(checkpoints[.workouts]?.anchor, "workouts-anchor")
+        XCTAssertEqual(checkpoints[.sleep]?.anchor, "sleep-anchor")
         XCTAssertEqual(checkpoints[.workouts]?.reconciliationContext, "workouts")
         XCTAssertEqual(checkpoints[.sleep]?.reconciliationContext, "sleep")
         XCTAssertEqual(
@@ -310,7 +409,7 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         XCTAssertEqual(variabilitySamples.count, 1)
     }
 
-    func testRegisterHealthObserverUsesAuthorizedClientAndCoalescedObserverTrigger() async throws {
+    func testRegisterHealthObserverUsesAuthorizedClientAndRespectsDailyRefreshGate() async throws {
         let client = ObserverHealthClient()
         let boundary = HealthWorkoutImportBoundary(
             client: client,
@@ -318,10 +417,14 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
             authorization: .init(state: .authorized),
         )
 
+        _ = try await boundary.refreshHealthDataIfDue()
+        let fetchCountBeforeObserver = await client.fetchCount
         try await boundary.registerHealthObserver()
 
         let didRegister = await client.didRegister
+        let fetchCountAfterObserver = await client.fetchCount
         XCTAssertTrue(didRegister)
+        XCTAssertEqual(fetchCountAfterObserver, fetchCountBeforeObserver)
     }
 
     func testCoordinatorPreservesCachedStateOnPartialFailureAndRecovers() async throws {
@@ -735,10 +838,13 @@ final class HealthWorkoutBoundaryTests: XCTestCase {
         XCTAssertNil(history.events.first?.enrichment.distance.quantity)
     }
 
-    private func fixture(_ id: String) -> HealthWorkout {
+    private func fixture(
+        _ id: String,
+        activityType: String = "traditional-strength-training",
+    ) -> HealthWorkout {
         HealthWorkout(
             healthKitUUID: id,
-            activityType: "traditional-strength-training",
+            activityType: activityType,
             startDate: Date(timeIntervalSince1970: 1_700_000_000),
             endDate: Date(timeIntervalSince1970: 1_700_000_600),
             duration: 600,
@@ -756,6 +862,10 @@ private actor FakeHealthClient: HealthWorkoutClient {
     let pages: [HealthWorkoutPage]
     private(set) var pageIndex = 0
     private(set) var lastRequest: HealthAuthorizationRequest?
+
+    var fetchCount: Int {
+        pageIndex
+    }
 
     init(pages: [HealthWorkoutPage]) {
         self.pages = pages
@@ -807,6 +917,98 @@ private actor AnchoredHealthClient: HealthWorkoutClient {
         requestedAnchors.append(pageToken)
         defer { index += 1 }
         return pages[min(index, pages.count - 1)]
+    }
+}
+
+private actor DurableAnchorHealthClient: HealthWorkoutClient {
+    private(set) var requestedAnchors: [String?] = []
+
+    func requestAuthorization() async throws -> HealthAuthorizationResult {
+        .requestCompleted
+    }
+
+    func requestHealthAuthorization(
+        _ request: HealthAuthorizationRequest,
+    ) async throws -> HealthAuthorizationSnapshot {
+        .init(state: .authorized, requested: request)
+    }
+
+    func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+        try await fetchHealthPage(for: .workouts, after: pageToken)
+    }
+
+    func fetchHealthPage(
+        for _: HealthSyncStream, after pageToken: String?,
+    ) async throws -> HealthWorkoutPage {
+        requestedAnchors.append(pageToken)
+        guard pageToken == nil else { throw HealthSyncError.unavailable }
+        return HealthWorkoutPage(
+            workouts: [],
+            anchor: "durable-sleep-anchor",
+            reconciliationContext: "anchored-sleep",
+        )
+    }
+}
+
+private actor WorkoutAssociatedHealthClient: HealthWorkoutClient {
+    private let workout: HealthWorkout
+    private(set) var fetchedStreams: [HealthSyncStream] = []
+
+    init(workout: HealthWorkout) {
+        self.workout = workout
+    }
+
+    func requestAuthorization() async throws -> HealthAuthorizationResult {
+        .requestCompleted
+    }
+
+    func requestHealthAuthorization(
+        _ request: HealthAuthorizationRequest,
+    ) async throws -> HealthAuthorizationSnapshot {
+        .init(state: .authorized, requested: request)
+    }
+
+    func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+        try await fetchHealthPage(for: .workouts, after: pageToken)
+    }
+
+    func fetchHealthPage(
+        for stream: HealthSyncStream, after _: String?,
+    ) async throws -> HealthWorkoutPage {
+        fetchedStreams.append(stream)
+        guard stream == .workouts else { throw HealthSyncError.unavailable }
+        return HealthWorkoutPage(workouts: [workout], reconciliationContext: "workouts")
+    }
+
+    func fetchWorkoutEnrichment(for workout: HealthWorkout) async -> HealthWorkoutEnrichment? {
+        let checkedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        return HealthWorkoutEnrichment(
+            healthKitUUID: workout.healthKitUUID,
+            heartRate: .available(
+                samples: [
+                    HealthWorkoutHeartRateSample(
+                        id: "heart-rate",
+                        startDate: workout.startDate,
+                        endDate: workout.endDate,
+                        beatsPerMinute: 120,
+                    ),
+                ],
+                checkedAt: checkedAt,
+                reconciliationContext: "workout-associated-query",
+            ),
+            distance: .available(
+                value: 1_000,
+                unit: .meters,
+                checkedAt: checkedAt,
+                reconciliationContext: "workout-associated-query",
+            ),
+            activeEnergy: .available(
+                value: 100,
+                unit: .kilocalories,
+                checkedAt: checkedAt,
+                reconciliationContext: "workout-associated-query",
+            ),
+        )
     }
 }
 
@@ -880,6 +1082,7 @@ private actor IndependentStreamsHealthClient: HealthWorkoutClient {
 
 private actor ObserverHealthClient: HealthWorkoutClient {
     private(set) var didRegister = false
+    private(set) var fetchCount = 0
 
     func requestAuthorization() async throws -> HealthAuthorizationResult {
         .requestCompleted
@@ -899,7 +1102,8 @@ private actor ObserverHealthClient: HealthWorkoutClient {
     }
 
     func fetchWorkoutPage(after _: String?) async throws -> HealthWorkoutPage {
-        HealthWorkoutPage(workouts: [], reconciliationContext: "observer")
+        fetchCount += 1
+        return HealthWorkoutPage(workouts: [], reconciliationContext: "observer")
     }
 }
 
@@ -921,6 +1125,7 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
     private(set) var committedStreams: [HealthSyncStream] = []
     private(set) var facts: [HealthSyncFact] = []
     private var recovery: [HealthSyncStream: [HealthRecoverySample]] = [:]
+    private var enrichments: [String: HealthWorkoutEnrichment] = [:]
 
     func upsertHealthWorkouts(
         _ workouts: [HealthWorkout], reconciliationContext _: String,
@@ -967,6 +1172,16 @@ private actor MultiStreamRepository: HealthWorkoutRepository {
 
     func recoverySamples(for stream: HealthSyncStream) -> [HealthRecoverySample] {
         recovery[stream] ?? []
+    }
+
+    func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {
+        enrichments[enrichment.healthKitUUID] = enrichment
+    }
+
+    func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+        -> HealthWorkoutEnrichment?
+    {
+        enrichments[healthKitUUID]
     }
 }
 

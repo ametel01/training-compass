@@ -193,6 +193,25 @@ public enum HealthRebuildError: Error, Equatable, Sendable {
     case cancelled
     case authoritativeMigrationFailed
     case unavailable
+
+    public var privacySafeDescription: String {
+        switch self {
+        case .confirmationRequired:
+            "Confirm the rebuild before continuing."
+        case .authorizationRequired:
+            "Reconnect Health access, then try the rebuild again."
+        case .insufficientStorage:
+            "The iPhone does not have enough free space for a protected Health rebuild."
+        case .resourcePressure:
+            "Rebuild paused safely until battery, storage, power, and temperature conditions recover."
+        case .cancelled:
+            "Rebuild paused safely and can resume from its last completed batch."
+        case .authoritativeMigrationFailed:
+            "The authoritative training store needs repair; Health data was not changed."
+        case .unavailable:
+            "Health rebuild stopped before completion."
+        }
+    }
 }
 
 /// Migration failures are deliberately classified. A reconstructible failure
@@ -336,6 +355,13 @@ public actor HealthDataRebuildBoundary {
         var pagesCommitted = 0
         var additions = 0
         var deletions = 0
+        let workoutAssociatedStreams = requestedStreams.filter(Self.isWorkoutAssociatedDetail)
+        let independentlyQueryableStreams = requestedStreams.filter {
+            !Self.isWorkoutAssociatedDetail($0)
+        }
+        let orderedStreams = independentlyQueryableStreams.contains(.workouts)
+            ? [.workouts] + independentlyQueryableStreams.filter { $0 != .workouts }
+            : independentlyQueryableStreams
 
         do {
             try await repository.updateHealthRebuildState(
@@ -344,7 +370,7 @@ public actor HealthDataRebuildBoundary {
                     startedAt: state.startedAt,
                 ),
             )
-            for stream in requestedStreams where !state.completedStreams.contains(stream) {
+            for stream in orderedStreams where !state.completedStreams.contains(stream) {
                 try Task.checkCancellation()
                 var checkpoint = try await repository.loadHealthSyncCheckpoint(for: stream)
                 var token = checkpoint?.anchor
@@ -373,9 +399,9 @@ public actor HealthDataRebuildBoundary {
                     pagesCommitted += 1
                     additions += page.workouts.count
                     deletions += page.deletedHealthKitUUIDs.count
-                    token = page.nextAnchor
+                    token = page.nextPageToken
                     checkpoint = .init(
-                        stream: stream, anchor: token,
+                        stream: stream, anchor: page.checkpointAnchor,
                         hasLimitedHistory: page.hasLimitedHistory,
                         reconciliationContext: page.reconciliationContext,
                     )
@@ -389,9 +415,31 @@ public actor HealthDataRebuildBoundary {
                     )
                 } while token != nil
 
+                var completedStreams = state.completedStreams + [stream]
+                if stream == .workouts {
+                    // Heart rate, distance, and active energy are properties of an
+                    // imported workout. HealthKit does not expose them as the
+                    // standalone anchored streams used for sleep and recovery data.
+                    // Rebuild them from each returned workout instead of issuing
+                    // unsupported stream queries after the workout pass.
+                    for workout in try await repository.loadHealthWorkouts() {
+                        try Task.checkCancellation()
+                        guard
+                            await resourceProvider.currentHealthRebuildResources()
+                                .permitsDiscretionaryWork
+                        else {
+                            throw HealthRebuildError.resourcePressure
+                        }
+                        guard
+                            let enrichment = await client.fetchWorkoutEnrichment(for: workout),
+                            enrichment.healthKitUUID == workout.healthKitUUID
+                        else { continue }
+                        try await repository.saveHealthWorkoutEnrichment(enrichment)
+                    }
+                    completedStreams.append(contentsOf: workoutAssociatedStreams)
+                }
                 state = .init(
-                    phase: .rebuilding,
-                    completedStreams: state.completedStreams + [stream],
+                    phase: .rebuilding, completedStreams: completedStreams,
                     startedAt: state.startedAt,
                 )
                 try await repository.updateHealthRebuildState(state)
@@ -471,5 +519,12 @@ public actor HealthDataRebuildBoundary {
             return try await storageProvider.estimateHealthRebuildStorage(policy: policy)
         }
         return try await repository.estimateHealthRebuildStorage(policy: policy)
+    }
+
+    private static func isWorkoutAssociatedDetail(_ stream: HealthSyncStream) -> Bool {
+        switch stream {
+        case .heartRate, .distance, .activeEnergy: true
+        case .workouts, .sleep, .restingHeartRate, .heartRateVariability: false
+        }
     }
 }

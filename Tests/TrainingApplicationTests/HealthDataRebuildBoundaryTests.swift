@@ -95,7 +95,11 @@ final class HealthDataRebuildBoundaryTests: XCTestCase {
         let boundary = HealthDataRebuildBoundary(
             client: RebuildClient(
                 pages: [
-                    HealthWorkoutPage(workouts: [workout], anchor: "batch-1"),
+                    HealthWorkoutPage(
+                        workouts: [workout],
+                        nextPageToken: "batch-1",
+                        anchor: "batch-1",
+                    ),
                     HealthWorkoutPage(workouts: [], anchor: nil),
                 ],
             ),
@@ -119,11 +123,45 @@ final class HealthDataRebuildBoundaryTests: XCTestCase {
         XCTAssertEqual(result.state.phase, .completed)
     }
 
+    func testRebuildTreatsWorkoutDetailsAsEnrichmentInsteadOfStandaloneStreams() async throws {
+        let workout = fixture("workout-with-details")
+        let client = WorkoutEnrichmentRebuildClient(workout: workout)
+        let repository = RebuildRepository()
+        let boundary = HealthDataRebuildBoundary(
+            client: client,
+            repository: repository,
+            authorization: .init(state: .authorized),
+            requestedStreams: HealthSyncStream.allCases,
+            storageProvider: FixedStorageProvider(
+                estimate: .init(stagingBytes: 1, safetyMarginBytes: 1, availableBytes: 2),
+            ),
+        )
+
+        let result = try await boundary.rebuild(confirmation: .confirmed)
+
+        XCTAssertEqual(result.state.phase, .completed)
+        let fetchedStreams = await client.fetchedStreams
+        XCTAssertEqual(
+            fetchedStreams,
+            [.workouts, .sleep, .restingHeartRate, .heartRateVariability],
+        )
+        let enrichment = try await repository.loadHealthWorkoutEnrichment(
+            for: workout.healthKitUUID,
+        )
+        XCTAssertEqual(enrichment?.heartRate.state, .available)
+        XCTAssertEqual(enrichment?.distance.state, .available)
+        XCTAssertEqual(enrichment?.activeEnergy.state, .available)
+    }
+
     func testRebuildResumesFromDurableCheckpointAfterCancellation() async throws {
         let repository = RebuildRepository()
         let client = RebuildClient(
             pages: [
-                HealthWorkoutPage(workouts: [fixture("one")], anchor: "batch-1"),
+                HealthWorkoutPage(
+                    workouts: [fixture("one")],
+                    nextPageToken: "batch-1",
+                    anchor: "batch-1",
+                ),
                 HealthWorkoutPage(workouts: [fixture("two")], anchor: nil),
             ],
             pauseAfterFirstPage: true,
@@ -243,12 +281,75 @@ private actor RebuildClient: HealthWorkoutClient {
     }
 }
 
+private actor WorkoutEnrichmentRebuildClient: HealthWorkoutClient {
+    let workout: HealthWorkout
+    private(set) var fetchedStreams: [HealthSyncStream] = []
+
+    init(workout: HealthWorkout) {
+        self.workout = workout
+    }
+
+    func requestAuthorization() async throws -> HealthAuthorizationResult {
+        .requestCompleted
+    }
+
+    func requestHealthAuthorization(
+        _ request: HealthAuthorizationRequest,
+    ) async throws -> HealthAuthorizationSnapshot {
+        .init(state: .authorized, requested: request)
+    }
+
+    func fetchWorkoutPage(after pageToken: String?) async throws -> HealthWorkoutPage {
+        try await fetchHealthPage(for: .workouts, after: pageToken)
+    }
+
+    func fetchHealthPage(
+        for stream: HealthSyncStream, after _: String?,
+    ) async throws -> HealthWorkoutPage {
+        fetchedStreams.append(stream)
+        switch stream {
+        case .workouts:
+            return HealthWorkoutPage(workouts: [workout], reconciliationContext: "workouts")
+        case .sleep, .restingHeartRate, .heartRateVariability:
+            return HealthWorkoutPage(workouts: [], reconciliationContext: stream.rawValue)
+        case .heartRate, .distance, .activeEnergy:
+            throw HealthSyncError.unavailable
+        }
+    }
+
+    func fetchWorkoutEnrichment(for workout: HealthWorkout) async -> HealthWorkoutEnrichment? {
+        let checkedAt = Date(timeIntervalSince1970: 1_700_000_800)
+        return HealthWorkoutEnrichment(
+            healthKitUUID: workout.healthKitUUID,
+            heartRate: .available(
+                samples: [
+                    HealthWorkoutHeartRateSample(
+                        id: "heart-rate", startDate: workout.startDate,
+                        endDate: workout.endDate, beatsPerMinute: 120,
+                    ),
+                ],
+                checkedAt: checkedAt,
+                reconciliationContext: "test",
+            ),
+            distance: .available(
+                value: 1_000, unit: .meters, checkedAt: checkedAt,
+                reconciliationContext: "test",
+            ),
+            activeEnergy: .available(
+                value: 100, unit: .kilocalories, checkedAt: checkedAt,
+                reconciliationContext: "test",
+            ),
+        )
+    }
+}
+
 private actor RebuildRepository: HealthWorkoutRepository {
     private(set) var values: [HealthWorkout] = []
     private(set) var state: HealthRebuildState?
     private(set) var checkpoint: HealthSyncCheckpoint?
     private(set) var didBegin = false
     private(set) var didRegenerate = false
+    private var enrichments: [String: HealthWorkoutEnrichment] = [:]
 
     func upsertHealthWorkouts(_ workouts: [HealthWorkout], reconciliationContext _: String) async throws {
         values.append(contentsOf: workouts)
@@ -295,6 +396,16 @@ private actor RebuildRepository: HealthWorkoutRepository {
         -> HealthMirrorContentSnapshot
     {
         .init(stream: stream, recordCount: values.count)
+    }
+
+    func saveHealthWorkoutEnrichment(_ enrichment: HealthWorkoutEnrichment) async throws {
+        enrichments[enrichment.healthKitUUID] = enrichment
+    }
+
+    func loadHealthWorkoutEnrichment(for healthKitUUID: String) async throws
+        -> HealthWorkoutEnrichment?
+    {
+        enrichments[healthKitUUID]
     }
 
     func loadHealthRebuildState() async throws -> HealthRebuildState? {

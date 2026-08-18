@@ -198,7 +198,7 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
         precondition(!healthKitUUID.isEmpty, "HealthKit UUID must be stable and non-empty")
         precondition(endDate >= startDate, "Workout end must not precede its start")
         self.healthKitUUID = healthKitUUID
-        self.activityType = activityType
+        self.activityType = Self.normalizedActivityType(activityType)
         self.startDate = startDate
         self.endDate = endDate
         self.duration = max(0, duration)
@@ -316,6 +316,17 @@ public struct HealthWorkout: Codable, Equatable, Sendable, Identifiable {
 
     public var syncIdentifier: String? {
         appAuthoredSyncIdentifier
+    }
+
+    private static func normalizedActivityType(_ value: String) -> String {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "13": "Cycling"
+        case "37": "Running"
+        case "50": "Traditional strength training"
+        case "52": "Walking"
+        case let raw where Int(raw) != nil: "Other workout"
+        case let label: label
+        }
     }
 
     public var syncVersion: Int? {
@@ -904,10 +915,16 @@ public struct HealthWorkoutPage: Codable, Equatable, Sendable {
     public let reconciliationContext: String
     public let streamFacts: [HealthSyncFact]
 
-    /// The page's durable checkpoint.  `nextPageToken` remains available for
-    /// compatibility with the first Health import API.
-    public var nextAnchor: String? {
+    /// The anchor to persist after this page commits. Pagination must use
+    /// `nextPageToken`; a HealthKit anchor can be non-nil even when the bounded
+    /// query has finished.
+    public var checkpointAnchor: String? {
         anchor ?? nextPageToken
+    }
+
+    /// Backward-compatible name for the durable checkpoint value.
+    public var nextAnchor: String? {
+        checkpointAnchor
     }
 
     public init(
@@ -1588,6 +1605,16 @@ public actor HealthWorkoutImportBoundary {
         authorization
     }
 
+    /// Restores the app-owned record that the owner previously completed the
+    /// Health read request. HealthKit does not disclose read authorization, so
+    /// callers persist only this completed-request fact and queries remain the
+    /// source of truth for what is actually available.
+    public func resumePreviouslyApprovedHealthAccess() async {
+        guard authorization.state != .authorized else { return }
+        authorization = HealthAuthorizationSnapshot(state: .authorized, requested: .core)
+        await coordinator.setAuthorization(authorization)
+    }
+
     public func healthDataStatus() async -> HealthDataStatus {
         await coordinator.statusSnapshot(authorization: authorization)
     }
@@ -1611,7 +1638,7 @@ public actor HealthWorkoutImportBoundary {
         guard !observerRegistered else { return }
         try await client.registerWorkoutObserver { [weak self] in
             guard let self else { return }
-            _ = try? await refreshHealthData(trigger: .observer)
+            _ = try? await refreshHealthDataIfDue()
         }
         observerRegistered = true
     }
@@ -1632,6 +1659,23 @@ public actor HealthWorkoutImportBoundary {
             throw HealthWorkoutImportError.authorizationRequired
         }
         return try await coordinator.synchronize(trigger: trigger)
+    }
+
+    /// Performs at most one automatic refresh after any requested stream has
+    /// successfully reconciled on the current local calendar day. Manual
+    /// refreshes remain available independently.
+    public func refreshHealthDataIfDue(
+        on date: Date = Date(),
+        calendar: Calendar = .current,
+    ) async throws -> HealthSyncResult? {
+        guard authorization.state == .authorized else { return nil }
+        let status = await healthDataStatus()
+        let refreshedToday = status.requestedStreams.contains { stream in
+            guard let lastSuccessfulCheck = stream.lastSuccessfulCheck else { return false }
+            return calendar.isDate(lastSuccessfulCheck, inSameDayAs: date)
+        }
+        guard !refreshedToday else { return nil }
+        return try await refreshHealthData(trigger: .foreground)
     }
 
     public func importWorkouts(
@@ -2006,6 +2050,18 @@ public actor HealthSyncCoordinator {
         var hydrated = statuses
         for stream in requestedStreams {
             let current = hydrated[stream] ?? HealthStreamStatus(stream: stream)
+            if Self.isWorkoutAssociatedDetail(stream) {
+                hydrated[stream] = await Self.workoutAssociatedStatus(
+                    for: stream,
+                    repository: repository,
+                    authorization: snapshot?.state ?? authorization.state,
+                    requested: snapshot?.requested.readTypes.contains(stream.readType)
+                        ?? current.requested,
+                    reconciliation: current.reconciliation,
+                    attemptCount: current.attemptCount,
+                )
+                continue
+            }
             let checkpoint = try? await repository.loadHealthSyncCheckpoint(for: stream)
             let mirror = try? await repository.loadHealthMirrorContent(for: stream)
             let checkpointCoverage: HealthStreamCoverage =
@@ -2139,6 +2195,101 @@ public actor HealthSyncCoordinator {
         let status: HealthStreamStatus
     }
 
+    private struct WorkoutAssociatedDetail: Sendable {
+        let state: HealthWorkoutEnrichmentState
+        let lastSuccessfulCheck: Date?
+        let failureCode: String?
+    }
+
+    private static func isWorkoutAssociatedDetail(_ stream: HealthSyncStream) -> Bool {
+        switch stream {
+        case .heartRate, .distance, .activeEnergy: true
+        case .workouts, .sleep, .restingHeartRate, .heartRateVariability: false
+        }
+    }
+
+    private static func workoutAssociatedStatus(
+        for stream: HealthSyncStream,
+        repository: any HealthWorkoutRepository,
+        authorization: HealthAuthorizationState,
+        requested: Bool = true,
+        reconciliation: HealthStreamReconciliationState = .idle,
+        attemptCount: Int = 1,
+    ) async -> HealthStreamStatus {
+        let workouts = (try? await repository.loadHealthWorkouts()) ?? []
+        let workoutCheckpoint = try? await repository.loadHealthSyncCheckpoint(for: .workouts)
+        var details: [WorkoutAssociatedDetail] = []
+        var missingEnrichment = false
+        for workout in workouts.sorted(by: { $0.healthKitUUID < $1.healthKitUUID }) {
+            guard
+                let enrichment = try? await repository.loadHealthWorkoutEnrichment(
+                    for: workout.healthKitUUID,
+                )
+            else {
+                missingEnrichment = true
+                continue
+            }
+            switch stream {
+            case .heartRate:
+                details.append(
+                    .init(
+                        state: enrichment.heartRate.state,
+                        lastSuccessfulCheck: enrichment.heartRate.lastSuccessfulCheck,
+                        failureCode: enrichment.heartRate.failureCode,
+                    ),
+                )
+            case .distance:
+                details.append(
+                    .init(
+                        state: enrichment.distance.state,
+                        lastSuccessfulCheck: enrichment.distance.lastSuccessfulCheck,
+                        failureCode: enrichment.distance.failureCode,
+                    ),
+                )
+            case .activeEnergy:
+                details.append(
+                    .init(
+                        state: enrichment.activeEnergy.state,
+                        lastSuccessfulCheck: enrichment.activeEnergy.lastSuccessfulCheck,
+                        failureCode: enrichment.activeEnergy.failureCode,
+                    ),
+                )
+            case .workouts, .sleep, .restingHeartRate, .heartRateVariability:
+                break
+            }
+        }
+
+        let successfulChecks = details.compactMap(\.lastSuccessfulCheck)
+        let lastSuccessfulCheck = successfulChecks.max()
+            ?? (workouts.isEmpty ? workoutCheckpoint?.committedAt : nil)
+        let hasAvailableContent = details.contains { $0.state == .available }
+        let hasFailedCheck = missingEnrichment
+            || details.contains { $0.state == .failed || $0.state == .loading }
+        let failureCode = details.compactMap(\.failureCode).first
+            ?? (hasFailedCheck ? "workout-associated-query-failed" : nil)
+        let mirroredContent: HealthMirrorContent = if hasAvailableContent {
+            .available
+        } else if hasFailedCheck {
+            .unknown
+        } else {
+            .empty
+        }
+        let coverage: HealthStreamCoverage = workoutCheckpoint.map {
+            $0.hasLimitedHistory ? .limitedHistory : .available
+        } ?? .unknown
+        return HealthStreamStatus(
+            stream: stream,
+            requested: requested,
+            authorization: authorization,
+            coverage: coverage,
+            mirroredContent: mirroredContent,
+            reconciliation: reconciliation,
+            lastSuccessfulCheck: lastSuccessfulCheck,
+            failure: failureCode.map { HealthStreamFailure(code: $0) },
+            attemptCount: attemptCount,
+        )
+    }
+
     private static func reconcile(
         client: any HealthWorkoutClient,
         repository: any HealthWorkoutRepository,
@@ -2150,8 +2301,29 @@ public actor HealthSyncCoordinator {
     ) async throws -> HealthSyncResult {
         var outcomes: [StreamOutcome] = []
         var importedCount = 0
-        for stream in streams {
+        let orderedStreams = streams.contains(.workouts)
+            ? [.workouts] + streams.filter { $0 != .workouts }
+            : streams
+        for stream in orderedStreams {
             try Task.checkCancellation()
+            if isWorkoutAssociatedDetail(stream) {
+                let status = await workoutAssociatedStatus(
+                    for: stream,
+                    repository: repository,
+                    authorization: .authorized,
+                )
+                outcomes.append(
+                    StreamOutcome(
+                        stream: stream,
+                        pages: 0,
+                        additions: 0,
+                        deletions: 0,
+                        checkpoint: nil,
+                        status: status,
+                    ),
+                )
+                continue
+            }
             do {
                 var checkpoint = try await repository.loadHealthSyncCheckpoint(for: stream)
                 var fetchToken = checkpoint?.anchor
@@ -2178,10 +2350,10 @@ public actor HealthSyncCoordinator {
                     deleted += page.deletedHealthKitUUIDs.count
                     importedCount += stream == .workouts ? page.workouts.count : 0
                     limited = limited || page.hasLimitedHistory
-                    fetchToken = page.nextAnchor
+                    fetchToken = page.nextPageToken
                     checkpoint = HealthSyncCheckpoint(
                         stream: stream,
-                        anchor: page.nextAnchor,
+                        anchor: page.checkpointAnchor,
                         hasLimitedHistory: limited,
                         reconciliationContext: page.reconciliationContext,
                     )
@@ -2254,7 +2426,9 @@ public actor HealthSyncCoordinator {
             additionsOrReplacements: outcomes.reduce(0) { $0 + $1.additions },
             deletions: outcomes.reduce(0) { $0 + $1.deletions },
             checkpoint: workout?.checkpoint,
-            streamStatuses: outcomes.map(\.status),
+            streamStatuses: streams.compactMap { stream in
+                outcomes.first(where: { $0.stream == stream })?.status
+            },
         )
     }
 }

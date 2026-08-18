@@ -732,10 +732,13 @@ public actor PreDataHealthKitAdapter: HealthWorkoutClient, HealthWorkoutRouteCli
                         }
                     default: recovery = []
                     }
+                    let nextAnchor = Self.token(for: anchor)
+                    let hasContinuation = (samples?.count ?? 0) + (deletedObjects?.count ?? 0) >= 100
                     continuation.resume(
                         returning: HealthWorkoutPage(
                             workouts: [],
-                            anchor: Self.token(for: anchor),
+                            nextPageToken: hasContinuation ? nextAnchor : nil,
+                            anchor: nextAnchor,
                             reconciliationContext: "anchored-\(stream.rawValue)",
                             deletedHealthKitUUIDs: (deletedObjects ?? []).map(\.uuid.uuidString),
                             sleepSamples: stream == .sleep
